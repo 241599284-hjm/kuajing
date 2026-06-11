@@ -1,0 +1,419 @@
+name: crossborder-commerce-kit
+
+services:
+  storefront:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: infra/docker/node-app.Dockerfile
+      args:
+        APP_FILTER: "@commerce/storefront"
+    container_name: cbck-storefront
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_GATEWAY_URL: http://localhost:4000
+      NEXT_PUBLIC_AUTH_SERVICE_URL: http://localhost:4102
+    ports:
+      - "3000:3000"
+    depends_on:
+      api-gateway:
+        condition: service_started
+      auth-service:
+        condition: service_started
+
+  admin:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: infra/docker/node-app.Dockerfile
+      args:
+        APP_FILTER: "@commerce/admin"
+    container_name: cbck-admin
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_ADMIN_GATEWAY_URL: http://localhost:4001
+      NEXT_PUBLIC_AUTH_SERVICE_URL: http://localhost:4102
+    ports:
+      - "3001:3001"
+    depends_on:
+      admin-gateway:
+        condition: service_started
+      auth-service:
+        condition: service_started
+
+  api-gateway:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: infra/docker/node-app.Dockerfile
+      args:
+        APP_FILTER: "@commerce/api-gateway"
+    container_name: cbck-api-gateway
+    environment:
+      NODE_ENV: development
+      CATALOG_SERVICE_URL: http://catalog-service:4103
+      ORDER_SERVICE_URL: http://order-service:4105
+      DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
+      DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
+      DEFAULT_STORE_TIMEZONE: ${DEFAULT_STORE_TIMEZONE:-Asia/Hong_Kong}
+    ports:
+      - "4000:4000"
+    depends_on:
+      catalog-service:
+        condition: service_started
+      order-service:
+        condition: service_started
+
+  admin-gateway:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: infra/docker/node-app.Dockerfile
+      args:
+        APP_FILTER: "@commerce/admin-gateway"
+    container_name: cbck-admin-gateway
+    environment:
+      NODE_ENV: development
+      CATALOG_SERVICE_URL: http://catalog-service:4103
+      ORDER_SERVICE_URL: http://order-service:4105
+      INVENTORY_SERVICE_URL: http://inventory-service:4104
+      WORKER_SERVICE_URL: http://worker-service:4109
+      MEDIA_SERVICE_URL: http://media-service:4108
+      DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
+      DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
+      DEFAULT_STORE_TIMEZONE: ${DEFAULT_STORE_TIMEZONE:-Asia/Hong_Kong}
+    ports:
+      - "4001:4001"
+    depends_on:
+      catalog-service:
+        condition: service_started
+      order-service:
+        condition: service_started
+      inventory-service:
+        condition: service_started
+      worker-service:
+        condition: service_started
+      media-service:
+        condition: service_started
+
+  auth-service:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: infra/docker/node-app.Dockerfile
+      args:
+        APP_FILTER: "@commerce/auth-service"
+    container_name: cbck-auth-service
+    environment:
+      NODE_ENV: development
+      PORT: 4102
+      APP_DATABASE_URL: postgresql://${POSTGRES_USER:-commerce}:${POSTGRES_PASSWORD:-commerce}@postgres:5432/app_db
+      MAILPIT_SMTP_HOST: mailpit
+      MAILPIT_SMTP_PORT: 1025
+      STOREFRONT_PUBLIC_URL: http://localhost:3000
+      AUTH_VERIFY_BASE_URL: http://localhost:4102
+      DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
+      DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
+      DEFAULT_STORE_TIMEZONE: ${DEFAULT_STORE_TIMEZONE:-Asia/Hong_Kong}
+    ports:
+      - "4102:4102"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mailpit:
+        condition: service_healthy
+
+  catalog-service:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: infra/docker/node-app.Dockerfile
+      args:
+        APP_FILTER: "@commerce/catalog-service"
+    container_name: cbck-catalog-service
+    environment:
+      NODE_ENV: development
+      PORT: 4103
+      APP_DATABASE_URL: postgresql://${POSTGRES_USER:-commerce}:${POSTGRES_PASSWORD:-commerce}@postgres:5432/app_db
+      REDIS_URL: redis://redis:6379
+      CATALOG_REDIS_URL: redis://redis:6379
+      CACHE_KEY_PREFIX: ${CACHE_KEY_PREFIX:-local}
+      SLOW_CATALOG_READ_MS: ${SLOW_CATALOG_READ_MS:-500}
+      DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
+      DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
+      DEFAULT_STORE_TIMEZONE: ${DEFAULT_STORE_TIMEZONE:-Asia/Hong_Kong}
+    ports:
+      - "4103:4103"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  inventory-service:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: infra/docker/node-app.Dockerfile
+      args:
+        APP_FILTER: "@commerce/inventory-service"
+    container_name: cbck-inventory-service
+    environment:
+      NODE_ENV: development
+      PORT: 4104
+      INVENTORY_DATABASE_URL: postgresql://${POSTGRES_USER:-commerce}:${POSTGRES_PASSWORD:-commerce}@postgres:5432/inventory_db
+      DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
+      DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
+      DEFAULT_STORE_TIMEZONE: ${DEFAULT_STORE_TIMEZONE:-Asia/Hong_Kong}
+      SLOW_INVENTORY_RESERVE_MS: ${SLOW_INVENTORY_RESERVE_MS:-1000}
+    ports:
+      - "4104:4104"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  order-service:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: infra/docker/node-app.Dockerfile
+      args:
+        APP_FILTER: "@commerce/order-service"
+    container_name: cbck-order-service
+    environment:
+      NODE_ENV: development
+      PORT: 4105
+      ORDER_DATABASE_URL: postgresql://${POSTGRES_USER:-commerce}:${POSTGRES_PASSWORD:-commerce}@postgres:5432/order_db
+      INVENTORY_SERVICE_URL: http://inventory-service:4104
+      PAYMENT_SERVICE_URL: http://payment-service:4106
+      STOREFRONT_PUBLIC_URL: http://localhost:3000
+      DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
+      DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
+      DEFAULT_STORE_TIMEZONE: ${DEFAULT_STORE_TIMEZONE:-Asia/Hong_Kong}
+      SLOW_ORDER_CREATE_MS: ${SLOW_ORDER_CREATE_MS:-2000}
+    ports:
+      - "4105:4105"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      inventory-service:
+        condition: service_started
+      payment-service:
+        condition: service_started
+
+  payment-service:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: infra/docker/node-app.Dockerfile
+      args:
+        APP_FILTER: "@commerce/payment-service"
+    container_name: cbck-payment-service
+    environment:
+      NODE_ENV: development
+      PORT: 4106
+      ORDER_SERVICE_URL: http://order-service:4105
+      DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
+      DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
+      DEFAULT_STORE_TIMEZONE: ${DEFAULT_STORE_TIMEZONE:-Asia/Hong_Kong}
+    ports:
+      - "4106:4106"
+
+  support-service:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: infra/docker/node-app.Dockerfile
+      args:
+        APP_FILTER: "@commerce/support-service"
+    container_name: cbck-support-service
+    environment:
+      NODE_ENV: development
+      PORT: 4107
+    ports:
+      - "4107:4107"
+
+  media-service:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: infra/docker/node-app.Dockerfile
+      args:
+        APP_FILTER: "@commerce/media-service"
+    container_name: cbck-media-service
+    environment:
+      NODE_ENV: development
+      PORT: 4108
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      OBJECT_STORAGE_PROVIDER: ${OBJECT_STORAGE_PROVIDER:-minio}
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-demo-teaware-media}
+      OBJECT_STORAGE_CDN_URL: ${OBJECT_STORAGE_CDN_URL:-http://localhost:9000/demo-teaware-media}
+      MEDIA_PUBLIC_BASE_URL: ${MEDIA_PUBLIC_BASE_URL:-http://localhost:4108/files}
+      MEDIA_MAX_UPLOAD_BYTES: ${MEDIA_MAX_UPLOAD_BYTES:-8388608}
+      DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
+      DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
+      DEFAULT_STORE_TIMEZONE: ${DEFAULT_STORE_TIMEZONE:-Asia/Hong_Kong}
+    ports:
+      - "4108:4108"
+    depends_on:
+      minio:
+        condition: service_healthy
+
+  worker-service:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: infra/docker/node-app.Dockerfile
+      args:
+        APP_FILTER: "@commerce/worker-service"
+    container_name: cbck-worker-service
+    environment:
+      NODE_ENV: development
+      PORT: 4109
+      ORDER_DATABASE_URL: postgresql://${POSTGRES_USER:-commerce}:${POSTGRES_PASSWORD:-commerce}@postgres:5432/order_db
+      INVENTORY_SERVICE_URL: http://inventory-service:4104
+      WORKER_POLL_INTERVAL_MS: ${WORKER_POLL_INTERVAL_MS:-5000}
+      WORKER_BATCH_SIZE: ${WORKER_BATCH_SIZE:-5}
+    ports:
+      - "4109:4109"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      inventory-service:
+        condition: service_started
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: cbck-postgres
+    environment:
+      POSTGRES_USER: commerce
+      POSTGRES_PASSWORD: commerce
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/db/init:/docker-entrypoint-initdb.d:ro
+      - ./infra/db/migrations/005-catalog-storefront-content.sql:/docker-entrypoint-initdb.d/02-catalog-storefront-content.sql:ro
+      - ./infra/db/migrations/006-product-detail-media-performance.sql:/docker-entrypoint-initdb.d/03-product-detail-media-performance.sql:ro
+      - ./infra/db/migrations/007-compensation-tasks-dlq.sql:/docker-entrypoint-initdb.d/04-compensation-tasks-dlq.sql:ro
+      - ./infra/db/migrations/008-order-line-reservation-key.sql:/docker-entrypoint-initdb.d/05-order-line-reservation-key.sql:ro
+      - ./infra/db/migrations/009-daily-reconciliation.sql:/docker-entrypoint-initdb.d/06-daily-reconciliation.sql:ro
+      - ./infra/db/migrations/010-catalog-crossborder-product-fields.sql:/docker-entrypoint-initdb.d/07-catalog-crossborder-product-fields.sql:ro
+      - ./infra/db/migrations/011-dead-letter-audit-events.sql:/docker-entrypoint-initdb.d/08-dead-letter-audit-events.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U commerce -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: cbck-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  opensearch:
+    image: opensearchproject/opensearch:2.17.1
+    container_name: cbck-opensearch
+    environment:
+      discovery.type: single-node
+      plugins.security.disabled: "true"
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: "LocalDevOnly-ChangeMe-123!"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200 >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  minio:
+    image: minio/minio:RELEASE.2025-05-24T17-08-30Z
+    container_name: cbck-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  mailpit:
+    image: axllent/mailpit:v1.27
+    container_name: cbck-mailpit
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8025 >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  loki:
+    profiles: ["observability"]
+    image: grafana/loki:3.5.0
+    container_name: cbck-loki
+    command: ["-config.file=/etc/loki/local-config.yml"]
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./infra/observability/loki-config.yml:/etc/loki/local-config.yml:ro
+      - loki-data:/loki
+
+  promtail:
+    profiles: ["observability"]
+    image: grafana/promtail:3.5.0
+    container_name: cbck-promtail
+    command: ["-config.file=/etc/promtail/config.yml"]
+    volumes:
+      - ./infra/observability/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+
+  grafana:
+    profiles: ["observability"]
+    image: grafana/grafana:12.0.1
+    container_name: cbck-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_DEFAULT_THEME: light
+    ports:
+      - "3002:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./infra/observability/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+    depends_on:
+      - loki
+
+volumes:
+  postgres-data:
+  redis-data:
+  opensearch-data:
+  minio-data:
+  loki-data:
+  grafana-data:

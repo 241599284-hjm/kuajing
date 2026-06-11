@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "sourceMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "@commerce/contracts": ["packages/contracts/src/index.ts"],
+      "@commerce/store-context": ["packages/store-context/src/index.ts"],
+      "@commerce/provider-contracts": ["packages/provider-contracts/src/index.ts"],
+      "@commerce/outbox-inbox": ["packages/outbox-inbox/src/index.ts"],
+      "@commerce/saga-core": ["packages/saga-core/src/index.ts"],
+      "@commerce/money": ["packages/money/src/index.ts"],
+      "@commerce/pii-policy": ["packages/pii-policy/src/index.ts"],
+      "@commerce/audit-log": ["packages/audit-log/src/index.ts"],
+      "@commerce/theme-system": ["packages/theme-system/src/index.ts"]
+    }
+  }
+}
+
