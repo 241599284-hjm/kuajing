@@ -19,6 +19,7 @@ const forwardedHeaderNames = [
   "authorization",
   "idempotency-key",
   "x-idempotency-key",
+  "x-admin-actor",
   "user-agent"
 ] as const;
 
@@ -248,6 +249,11 @@ class HealthController {
     return forwardOrderJson(`/orders/${id}`, headers);
   }
 
+  @Post("/orders/:id/manual-compensation")
+  manualOrderCompensation(@Headers() headers: HeaderBag, @Body() body: unknown, @Param("id") id: string) {
+    return forwardOrderJsonWithBody(`/orders/${id}/manual-compensation`, headers, body);
+  }
+
   @Post("/payments/mock-confirm")
   confirmMockPayment(@Headers() headers: HeaderBag, @Body() body: unknown) {
     return forwardOrderJsonWithBody("/payments/mock-confirm", headers, body);
@@ -266,6 +272,16 @@ class HealthController {
   @Get("/inventory/reservations")
   inventoryReservations(@Headers() headers: HeaderBag) {
     return forwardInventoryJson("/inventory/reservations", headers);
+  }
+
+  @Get("/inventory/audit-events")
+  inventoryAuditEvents(@Headers() headers: HeaderBag) {
+    return forwardInventoryJson("/inventory/audit-events", headers);
+  }
+
+  @Post("/inventory/items/:id/adjust")
+  adjustInventoryItem(@Headers() headers: HeaderBag, @Body() body: unknown, @Param("id") id: string) {
+    return forwardInventoryJsonWithBody(`/inventory/items/${id}/adjust`, headers, body);
   }
 
   @Post("/inventory/reservations/:id/release")

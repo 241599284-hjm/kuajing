@@ -303,6 +303,8 @@ services:
       - ./infra/db/migrations/009-daily-reconciliation.sql:/docker-entrypoint-initdb.d/06-daily-reconciliation.sql:ro
       - ./infra/db/migrations/010-catalog-crossborder-product-fields.sql:/docker-entrypoint-initdb.d/07-catalog-crossborder-product-fields.sql:ro
       - ./infra/db/migrations/011-dead-letter-audit-events.sql:/docker-entrypoint-initdb.d/08-dead-letter-audit-events.sql:ro
+      - ./infra/db/migrations/012-inventory-audit-events.sql:/docker-entrypoint-initdb.d/09-inventory-audit-events.sql:ro
+      - ./infra/db/migrations/013-order-audit-events.sql:/docker-entrypoint-initdb.d/10-order-audit-events.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U commerce -d postgres"]
       interval: 5s

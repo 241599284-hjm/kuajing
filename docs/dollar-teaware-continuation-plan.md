@@ -202,9 +202,12 @@ $茶具站继续开发
 
 - 购物车现在是 localStorage，本地可用，尚未接 `cart-service`。
 - 结算页已接入 `order-service` 的服务端 Mock 订单边界，订单服务已具备库存 TCC 预留、PostgreSQL 优先落库和内存显式降级，并已通过 `payment-service` 创建 Mock payment intent；Mock 支付 webhook 已能回调 `order-service` 执行库存 confirm/cancel；真实支付 Provider、退款和真实支付状态机仍未完成。
+- 后台订单详情已支持异常订单人工重排库存 confirm/cancel 补偿任务，并写入订单操作审计；该入口只重排 durable compensation task，不直接伪造完成态，仍需 PostgreSQL 故障演练验证 worker 后续消费。
 - 支付方式是页面选择，当前只有 Mock Provider 闭环，尚未接真实支付渠道。
 - 图片压缩和第一版真实 `media-service` 上传已接通；还缺 catalog 绑定失败补偿、响应式多尺寸变体、GIF 转视频、视频 poster/时长提取、上传审计日志。
 - 后台商品、分类、地域已从 `admin-gateway -> catalog-service` 初始化读取真实数据，保存链路也已接入 catalog-service；仍需在 Docker/PostgreSQL 环境验证完整“保存 -> 落库 -> 缓存失效 -> 前台读取”闭环。
+- 后台库存管理已接入库存操作审计、可用库存增减、盘点式可用库存设定、安全库存更新和低库存提示；批量盘点、正式告警规则、多仓锁定库存仍未完成。
+- Docker Compose fresh PostgreSQL 初始化已挂载库存/订单审计迁移；补偿故障演练脚本 `scripts/run-compensation-drill.ps1` 已新增，但当前本机 Docker daemon 不可用，真实 worker/DLQ 演练仍待在 Docker 修复后执行。
 - 用户地址、支付方式、订单历史目前是页面结构，尚未接真实接口。
 - `catalog-service` 已新增前台快照读取接口，contracts、SQL 迁移、api/admin gateway 转发已完成 typecheck。
 - `media-service` 已新增第一版真实上传，不做假上传；支持 local 和 MinIO/R2/S3 兼容存储。
@@ -1115,7 +1118,7 @@ Provider：
 - `inventory-service` 已完成 TCC 基础接口：try 预留、confirm 扣减、cancel 释放。
 - `inventory-service` 已提供 `GET /inventory/items` 库存快照，后台库存管理已接入该接口。
 - `order-service` 创建 Mock 订单前已调用库存 try，并把 `inventory_version` 快照写入订单行。
-- Mock 支付成功/失败事件已接回 `order-service`，分别触发库存 confirm/cancel；后台订单详情和 Mock 支付确认/取消操作已有第一版；后台库存预留流水和人工释放 reserved 预留已有第一版。
+- Mock 支付成功/失败事件已接回 `order-service`，分别触发库存 confirm/cancel；后台订单详情、Mock 支付确认/取消、异常订单人工补偿入队和订单操作审计已有第一版；后台库存预留流水、人工释放 reserved 预留、库存增减/盘点、安全库存更新和库存审计已有第一版。
 
 ### 第四步：真实订单
 

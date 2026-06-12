@@ -212,6 +212,25 @@ CREATE TABLE inventory_reservations (
   UNIQUE (store_id, idempotency_key)
 );
 
+CREATE TABLE inventory_audit_events (
+  id uuid PRIMARY KEY,
+  store_id uuid NOT NULL,
+  inventory_item_id uuid NOT NULL,
+  action text NOT NULL,
+  actor_id text NOT NULL,
+  reason text NOT NULL,
+  old_value jsonb NOT NULL,
+  new_value jsonb NOT NULL,
+  correlation_id text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX inventory_audit_events_item_idx
+  ON inventory_audit_events (store_id, inventory_item_id, created_at DESC);
+
+CREATE INDEX inventory_audit_events_created_idx
+  ON inventory_audit_events (store_id, created_at DESC);
+
 INSERT INTO warehouses (id, store_id, code, name, warehouse_type)
 VALUES ('00000000-0000-4000-8000-000000003001', '00000000-0000-4000-8000-000000000001', 'CN-MAIN', 'China Main Warehouse', 'domestic');
 
@@ -260,6 +279,22 @@ CREATE TABLE order_lines (
   unit_price_minor integer NOT NULL,
   currency text NOT NULL
 );
+
+CREATE TABLE order_audit_events (
+  id uuid PRIMARY KEY,
+  store_id uuid NOT NULL,
+  order_id uuid NOT NULL REFERENCES orders(id),
+  action text NOT NULL,
+  actor_id text NOT NULL,
+  reason text NOT NULL,
+  old_value jsonb NOT NULL,
+  new_value jsonb NOT NULL,
+  correlation_id text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX order_audit_events_order_idx
+  ON order_audit_events (store_id, order_id, created_at DESC);
 
 CREATE TABLE compensation_tasks (
   id uuid PRIMARY KEY,

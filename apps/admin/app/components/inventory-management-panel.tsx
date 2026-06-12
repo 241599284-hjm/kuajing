@@ -3,11 +3,15 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AdminActionRow,
+  AdminField,
   AdminHelpText,
   AdminInlineStatus,
   AdminListCard,
+  AdminNumberInput,
   AdminPanel,
-  AdminSecondaryButton
+  AdminPrimaryButton,
+  AdminSecondaryButton,
+  AdminTextInput
 } from "./admin-ui.js";
 
 const adminGatewayUrl = process.env.NEXT_PUBLIC_ADMIN_GATEWAY_URL ?? "http://localhost:4001";
@@ -35,6 +39,33 @@ type AdminInventoryReservation = {
   idempotencyKey: string;
   storageMode: "postgres" | "memory";
   createdAt: string;
+};
+
+type AdminInventoryAuditEvent = {
+  eventId: string;
+  itemId: string;
+  action: "manual_adjustment" | "stocktake" | "safety_stock_update" | "manual_release";
+  actorId: string;
+  reason: string;
+  oldValue: Record<string, number | string | null>;
+  newValue: Record<string, number | string | null>;
+  correlationId: string;
+  storageMode: "postgres" | "memory";
+  createdAt: string;
+};
+
+type AdjustmentDraft = {
+  availableDelta: string;
+  stocktakeAvailableQty: string;
+  safetyQty: string;
+  reason: string;
+};
+
+const emptyAdjustmentDraft: AdjustmentDraft = {
+  availableDelta: "",
+  stocktakeAvailableQty: "",
+  safetyQty: "",
+  reason: ""
 };
 
 function shortId(value: string) {
@@ -65,14 +96,30 @@ function reservationStatusLabel(value: AdminInventoryReservation["status"]) {
   return labels[value];
 }
 
+function auditActionLabel(value: AdminInventoryAuditEvent["action"]) {
+  const labels: Record<AdminInventoryAuditEvent["action"], string> = {
+    manual_adjustment: "手动调整",
+    stocktake: "盘点修正",
+    safety_stock_update: "安全库存",
+    manual_release: "人工释放"
+  };
+
+  return labels[value];
+}
+
 export function InventoryManagementPanel() {
   const [items, setItems] = useState<AdminInventoryItem[]>([]);
   const [reservations, setReservations] = useState<AdminInventoryReservation[]>([]);
+  const [auditEvents, setAuditEvents] = useState<AdminInventoryAuditEvent[]>([]);
+  const [adjustments, setAdjustments] = useState<Record<string, AdjustmentDraft>>({});
   const [status, setStatus] = useState("等待加载");
   const [reservationStatus, setReservationStatus] = useState("等待加载");
+  const [auditStatus, setAuditStatus] = useState("等待加载");
   const [isLoading, setIsLoading] = useState(false);
   const [isReservationLoading, setIsReservationLoading] = useState(false);
+  const [isAuditLoading, setIsAuditLoading] = useState(false);
   const [releasingId, setReleasingId] = useState<string | null>(null);
+  const [adjustingId, setAdjustingId] = useState<string | null>(null);
 
   async function loadItems() {
     setIsLoading(true);
@@ -126,6 +173,93 @@ export function InventoryManagementPanel() {
     }
   }
 
+  async function loadAuditEvents() {
+    setIsAuditLoading(true);
+    setAuditStatus("正在读取库存审计");
+
+    try {
+      const response = await fetch(`${adminGatewayUrl}/inventory/audit-events`, {
+        headers: {
+          "x-correlation-id": crypto.randomUUID()
+        }
+      });
+      const payload = (await response.json().catch(() => [])) as AdminInventoryAuditEvent[] | { message?: string };
+
+      if (!response.ok || !Array.isArray(payload)) {
+        throw new Error(Array.isArray(payload) ? `HTTP ${response.status}` : payload.message ?? `HTTP ${response.status}`);
+      }
+
+      setAuditEvents(payload);
+      setAuditStatus(payload.length > 0 ? `已读取 ${payload.length} 条审计记录` : "暂无库存审计记录");
+    } catch {
+      setAuditEvents([]);
+      setAuditStatus("库存审计 API 未连接");
+    } finally {
+      setIsAuditLoading(false);
+    }
+  }
+
+  function updateAdjustment(itemId: string, field: keyof AdjustmentDraft, value: string) {
+    setAdjustments((current) => ({
+      ...current,
+      [itemId]: {
+        ...(current[itemId] ?? emptyAdjustmentDraft),
+        [field]: value
+      }
+    }));
+  }
+
+  async function adjustInventoryItem(item: AdminInventoryItem) {
+    const draft = adjustments[item.itemId] ?? emptyAdjustmentDraft;
+    const payload: Record<string, number | string> = {};
+
+    if (draft.availableDelta.trim()) {
+      payload.availableDelta = Number(draft.availableDelta);
+    }
+
+    if (draft.stocktakeAvailableQty.trim()) {
+      payload.stocktakeAvailableQty = Number(draft.stocktakeAvailableQty);
+    }
+
+    if (draft.safetyQty.trim()) {
+      payload.safetyQty = Number(draft.safetyQty);
+    }
+
+    if (!draft.reason.trim()) {
+      setStatus("库存调整必须填写原因");
+      return;
+    }
+
+    payload.reason = draft.reason.trim();
+    setAdjustingId(item.itemId);
+    setStatus("正在提交库存调整");
+
+    try {
+      const response = await fetch(`${adminGatewayUrl}/inventory/items/${item.itemId}/adjust`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-actor": "local-admin",
+          "x-correlation-id": crypto.randomUUID()
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { message?: string };
+        throw new Error(body.message ?? `HTTP ${response.status}`);
+      }
+
+      setAdjustments((current) => ({ ...current, [item.itemId]: emptyAdjustmentDraft }));
+      setStatus("库存调整已保存并写入审计");
+      await Promise.all([loadItems(), loadAuditEvents()]);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "库存调整失败，未伪造成功");
+    } finally {
+      setAdjustingId(null);
+    }
+  }
+
   async function releaseReservation(reservation: AdminInventoryReservation) {
     setReleasingId(reservation.reservationId);
     setReservationStatus("正在人工释放预留库存");
@@ -145,7 +279,7 @@ export function InventoryManagementPanel() {
       }
 
       setReservationStatus("已人工释放预留库存");
-      await Promise.all([loadItems(), loadReservations()]);
+      await Promise.all([loadItems(), loadReservations(), loadAuditEvents()]);
     } catch {
       setReservationStatus("人工释放失败，未伪造成功");
     } finally {
@@ -156,6 +290,7 @@ export function InventoryManagementPanel() {
   useEffect(() => {
     void loadItems();
     void loadReservations();
+    void loadAuditEvents();
   }, []);
 
   const totals = useMemo(() => {
@@ -165,9 +300,10 @@ export function InventoryManagementPanel() {
         reservedQty: current.reservedQty + item.reservedQty,
         lockedQty: current.lockedQty + (item.lockedQty ?? 0),
         sellableQty: current.sellableQty + item.sellableQty,
-        memoryCount: current.memoryCount + (item.storageMode === "memory" ? 1 : 0)
+        memoryCount: current.memoryCount + (item.storageMode === "memory" ? 1 : 0),
+        lowStockCount: current.lowStockCount + (item.sellableQty <= 0 ? 1 : 0)
       }),
-      { availableQty: 0, reservedQty: 0, lockedQty: 0, sellableQty: 0, memoryCount: 0 }
+      { availableQty: 0, reservedQty: 0, lockedQty: 0, sellableQty: 0, memoryCount: 0, lowStockCount: 0 }
     );
   }, [items]);
 
@@ -183,7 +319,7 @@ export function InventoryManagementPanel() {
         </AdminSecondaryButton>
         <AdminInlineStatus>
           SKU {items.length}，可用 {totals.availableQty}，预留 {totals.reservedQty}，锁定 {totals.lockedQty}，可售{" "}
-          {totals.sellableQty}，内存模式 {totals.memoryCount}
+          {totals.sellableQty}，低库存 {totals.lowStockCount}，内存模式 {totals.memoryCount}
         </AdminInlineStatus>
       </AdminActionRow>
 
@@ -196,7 +332,7 @@ export function InventoryManagementPanel() {
           items.map((item) => (
             <AdminListCard
               key={item.itemId}
-              eyebrow={item.storageMode === "postgres" ? "PostgreSQL" : "本地内存"}
+              eyebrow={`${item.storageMode === "postgres" ? "PostgreSQL" : "本地内存"}${item.sellableQty <= 0 ? " · 低库存" : ""}`}
               title={`SKU ${shortId(item.skuId)}`}
               description={`仓库 ${shortId(item.warehouseId)} · 库存版本 ${item.inventoryVersion}`}
             >
@@ -227,6 +363,50 @@ export function InventoryManagementPanel() {
                   <dd className="mt-1 text-xs text-[var(--ink-soft)]">前端实际展示</dd>
                 </div>
               </dl>
+              <div className="mt-4 grid gap-3 border-t border-[var(--line)] pt-4 lg:grid-cols-[1fr_1fr_1fr_2fr_auto]">
+                <AdminField label="增减可用库存">
+                  <AdminNumberInput
+                    inputMode="numeric"
+                    onChange={(event) => updateAdjustment(item.itemId, "availableDelta", event.target.value)}
+                    placeholder="+10 / -2"
+                    value={(adjustments[item.itemId] ?? emptyAdjustmentDraft).availableDelta}
+                  />
+                </AdminField>
+                <AdminField label="盘点后可用库存">
+                  <AdminNumberInput
+                    inputMode="numeric"
+                    min={0}
+                    onChange={(event) => updateAdjustment(item.itemId, "stocktakeAvailableQty", event.target.value)}
+                    placeholder="例如 48"
+                    value={(adjustments[item.itemId] ?? emptyAdjustmentDraft).stocktakeAvailableQty}
+                  />
+                </AdminField>
+                <AdminField label="安全库存">
+                  <AdminNumberInput
+                    inputMode="numeric"
+                    min={0}
+                    onChange={(event) => updateAdjustment(item.itemId, "safetyQty", event.target.value)}
+                    placeholder={`${item.safetyQty}`}
+                    value={(adjustments[item.itemId] ?? emptyAdjustmentDraft).safetyQty}
+                  />
+                </AdminField>
+                <AdminField label="调整原因">
+                  <AdminTextInput
+                    onChange={(event) => updateAdjustment(item.itemId, "reason", event.target.value)}
+                    placeholder="盘点、破损、人工纠偏等"
+                    value={(adjustments[item.itemId] ?? emptyAdjustmentDraft).reason}
+                  />
+                </AdminField>
+                <div className="flex items-end">
+                  <AdminPrimaryButton
+                    disabled={adjustingId === item.itemId}
+                    onClick={() => void adjustInventoryItem(item)}
+                    type="button"
+                  >
+                    {adjustingId === item.itemId ? "保存中" : "保存调整"}
+                  </AdminPrimaryButton>
+                </div>
+              </div>
             </AdminListCard>
           ))
         )}
@@ -283,6 +463,60 @@ export function InventoryManagementPanel() {
                       >
                         {releasingId === reservation.reservationId ? "释放中" : "人工释放"}
                       </AdminSecondaryButton>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-5 rounded-md border border-[var(--line)] p-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--ink-soft)]">Audit</p>
+            <h3 className="mt-1 text-lg font-semibold">库存操作审计</h3>
+            <p className="text-sm text-[var(--ink-soft)]">{auditStatus}</p>
+          </div>
+          <AdminSecondaryButton disabled={isAuditLoading} onClick={loadAuditEvents} type="button">
+            {isAuditLoading ? "刷新审计中" : "刷新审计"}
+          </AdminSecondaryButton>
+        </div>
+
+        {auditEvents.length === 0 ? (
+          <div className="mt-4 rounded-md border border-dashed border-[var(--line)] bg-[var(--bg)] p-5 text-sm text-[var(--ink-soft)]">
+            {auditStatus === "库存审计 API 未连接" ? "库存审计接口未连接，本页没有伪造审计数据。" : "暂无库存审计记录。"}
+          </div>
+        ) : (
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[920px] border-collapse text-left text-sm">
+              <thead className="border-b border-[var(--line)] text-[var(--ink-soft)]">
+                <tr>
+                  <th className="py-2 pr-3 font-medium">时间</th>
+                  <th className="py-2 pr-3 font-medium">动作</th>
+                  <th className="py-2 pr-3 font-medium">SKU项</th>
+                  <th className="py-2 pr-3 font-medium">操作人</th>
+                  <th className="py-2 pr-3 font-medium">原因</th>
+                  <th className="py-2 pr-3 font-medium">旧值</th>
+                  <th className="py-2 pr-3 font-medium">新值</th>
+                </tr>
+              </thead>
+              <tbody>
+                {auditEvents.map((event) => (
+                  <tr className="border-b border-[var(--line)] last:border-b-0" key={event.eventId}>
+                    <td className="py-3 pr-3">{formatDate(event.createdAt)}</td>
+                    <td className="py-3 pr-3 font-semibold">{auditActionLabel(event.action)}</td>
+                    <td className="py-3 pr-3">{shortId(event.itemId)}</td>
+                    <td className="py-3 pr-3">{event.actorId}</td>
+                    <td className="py-3 pr-3">{event.reason}</td>
+                    <td className="py-3 pr-3 text-xs text-[var(--ink-soft)]">
+                      可用 {event.oldValue.availableQty} / 预留 {event.oldValue.reservedQty} / 安全{" "}
+                      {event.oldValue.safetyQty}
+                    </td>
+                    <td className="py-3 pr-3 text-xs text-[var(--ink-soft)]">
+                      可用 {event.newValue.availableQty} / 预留 {event.newValue.reservedQty} / 安全{" "}
+                      {event.newValue.safetyQty}
                     </td>
                   </tr>
                 ))}

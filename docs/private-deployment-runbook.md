@@ -55,6 +55,7 @@ docker compose --profile app --profile observability up -d --build
 - `pnpm -s e2e` 通过。
 - `docker compose --profile app up -d --build` 能启动应用服务。
 - `docker compose --profile observability up -d` 能打开 Grafana。
+- `powershell -ExecutionPolicy Bypass -File scripts/run-compensation-drill.ps1` 通过，能验证订单支付确认时库存服务不可用会进入 `compensation_tasks`，worker 重试失败后进入 `dead_letter_tasks`，并能通过 `admin-gateway /dead-letter-tasks` 查到。
 - 订单失败能通过 `x-correlation-id` 在 Grafana Loki 中查到相关服务日志。
 - 支付失败、库存补偿失败、物流同步失败必须进入可重试的任务或 DLQ，不允许只靠一次同步 HTTP 调用。
 - 后台“死信队列”能读取 worker-service 真实 DLQ，并支持人工重试、作废、填写处理意见。
@@ -114,3 +115,34 @@ Helm 包必须支持：
 - 同步补偿失败时，必须写入可靠任务表或消息队列，由 worker 重试。
 - 超过最大重试次数必须进入 DLQ，后台可人工重试、作废、填写处理意见并写审计日志。
 - 支付成功但库存 confirm 失败、支付失败但库存 cancel 失败，都必须进入补偿任务，不允许悬挂状态无人处理。
+
+## 补偿故障演练
+
+脚本：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run-compensation-drill.ps1
+```
+
+脚本会执行：
+
+1. 启动 PostgreSQL、Redis、inventory-service、order-service、payment-service、worker-service、admin-gateway。
+2. 创建一笔 PostgreSQL-backed Mock 订单。
+3. 停止 inventory-service，模拟支付确认后的库存 confirm 不可达。
+4. 调用 `order-service /payments/mock-confirm`，让订单进入 `compensation_pending` 并写入 `compensation_tasks`。
+5. 将本次演练任务的 `max_attempts` 调低为 1、`next_run_at` 设为 `now()`，避免演练等待过久。
+6. 等待 worker 将失败任务写入 `dead_letter_tasks`。
+7. 通过 `admin-gateway /dead-letter-tasks` 验证后台能读取该 DLQ。
+8. 重启 inventory-service。
+
+成功标准：
+
+- 脚本输出 `Compensation drill passed.`
+- 输出订单 ID、correlation ID 和 open DLQ 行数。
+- 后台“死信队列”可看到该任务。
+
+失败处理：
+
+- 如果报 Docker daemon 不可用，先修复 Docker Desktop 或改用测试服务器执行。
+- 如果 PostgreSQL 表缺失，先确认 fresh DB 是否挂载了 `infra/db/migrations/012-inventory-audit-events.sql` 和 `infra/db/migrations/013-order-audit-events.sql`，已有旧 volume 时需要重建测试库或手工执行迁移。
+- 如果 DLQ 未出现，查看 worker-service 日志并用 correlation ID 追踪 order-service、worker-service、inventory-service 调用链。

@@ -3,12 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AdminActionRow,
+  AdminField,
   AdminHelpText,
   AdminInlineStatus,
   AdminListCard,
   AdminPanel,
   AdminPrimaryButton,
-  AdminSecondaryButton
+  AdminSecondaryButton,
+  AdminTextInput
 } from "./admin-ui.js";
 
 const adminGatewayUrl = process.env.NEXT_PUBLIC_ADMIN_GATEWAY_URL ?? "http://localhost:4001";
@@ -46,6 +48,19 @@ type AdminOrderLine = {
 type AdminOrderDetail = AdminOrderSummary & {
   idempotencyKey: string;
   lines: AdminOrderLine[];
+  auditTrail: AdminOrderAuditEvent[];
+};
+
+type AdminOrderAuditEvent = {
+  eventId: string;
+  action: string;
+  actorId: string;
+  reason: string;
+  oldValue: Record<string, string | number | boolean | null>;
+  newValue: Record<string, string | number | boolean | null>;
+  correlationId: string;
+  storageMode: "postgres" | "memory";
+  createdAt: string;
 };
 
 type PaymentTransitionResult = {
@@ -97,6 +112,15 @@ function isExceptionOrder(order: AdminOrderSummary) {
   return order.isException || order.status === "compensating" || order.inventoryStatus === "compensation_pending";
 }
 
+function auditActionLabel(value: string) {
+  const labels: Record<string, string> = {
+    manual_inventory_confirm_compensation: "人工重排确认扣减",
+    manual_inventory_cancel_compensation: "人工重排释放库存"
+  };
+
+  return labels[value] ?? value;
+}
+
 export function OrderManagementPanel() {
   const [orders, setOrders] = useState<AdminOrderSummary[]>([]);
   const [status, setStatus] = useState("等待加载");
@@ -105,6 +129,8 @@ export function OrderManagementPanel() {
   const [orderDetail, setOrderDetail] = useState<AdminOrderDetail | null>(null);
   const [detailStatus, setDetailStatus] = useState("未选择订单");
   const [isDetailLoading, setIsDetailLoading] = useState(false);
+  const [manualCompensationReason, setManualCompensationReason] = useState("");
+  const [manualCompensationAction, setManualCompensationAction] = useState<"confirm" | "cancel" | null>(null);
 
   async function loadOrders() {
     setIsLoading(true);
@@ -192,6 +218,51 @@ export function OrderManagementPanel() {
       await loadOrderDetail(orderDetail.orderId);
     } catch {
       setDetailStatus(action === "confirm" ? "确认支付失败，未伪造成功" : "取消支付失败，未伪造成功");
+    }
+  }
+
+  async function manualCompensation(action: "confirm" | "cancel") {
+    if (!orderDetail) {
+      setDetailStatus("请先选择订单");
+      return;
+    }
+
+    if (!manualCompensationReason.trim()) {
+      setDetailStatus("人工补偿必须填写原因");
+      return;
+    }
+
+    setManualCompensationAction(action);
+    setDetailStatus(action === "confirm" ? "正在重排确认扣减补偿" : "正在重排释放库存补偿");
+
+    try {
+      const response = await fetch(`${adminGatewayUrl}/orders/${orderDetail.orderId}/manual-compensation`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "idempotency-key": crypto.randomUUID(),
+          "x-admin-actor": "local-admin",
+          "x-correlation-id": crypto.randomUUID()
+        },
+        body: JSON.stringify({
+          action,
+          reason: manualCompensationReason.trim()
+        })
+      });
+      const payload = (await response.json().catch(() => ({}))) as PaymentTransitionResult | { message?: string };
+
+      if (!response.ok || !("orderId" in payload)) {
+        throw new Error("message" in payload ? payload.message ?? `HTTP ${response.status}` : `HTTP ${response.status}`);
+      }
+
+      setManualCompensationReason("");
+      setDetailStatus("人工补偿已重新入队，等待 worker 处理");
+      await loadOrders();
+      await loadOrderDetail(orderDetail.orderId);
+    } catch (error) {
+      setDetailStatus(error instanceof Error ? error.message : "人工补偿失败，未伪造成功");
+    } finally {
+      setManualCompensationAction(null);
     }
   }
 
@@ -387,10 +458,78 @@ export function OrderManagementPanel() {
             </div>
 
             {isExceptionOrder(orderDetail) ? (
-              <div className="rounded-md border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-800">
-                异常原因：{orderDetail.lastFailureReason || "库存或支付补偿任务待人工确认"}
+              <div className="grid gap-4 rounded-md border border-red-100 bg-red-50 p-4 text-sm text-red-800">
+                <p>异常原因：{orderDetail.lastFailureReason || "库存或支付补偿任务待人工确认"}</p>
+                <div className="grid gap-3 lg:grid-cols-[1fr_auto_auto]">
+                  <AdminField className="text-red-900" label="人工补偿原因">
+                    <AdminTextInput
+                      onChange={(event) => setManualCompensationReason(event.target.value)}
+                      placeholder="例如：库存服务恢复后人工重排补偿"
+                      value={manualCompensationReason}
+                    />
+                  </AdminField>
+                  <div className="flex items-end">
+                    <AdminPrimaryButton
+                      disabled={manualCompensationAction !== null}
+                      onClick={() => void manualCompensation("confirm")}
+                      type="button"
+                    >
+                      {manualCompensationAction === "confirm" ? "入队中" : "重排确认扣减"}
+                    </AdminPrimaryButton>
+                  </div>
+                  <div className="flex items-end">
+                    <AdminSecondaryButton
+                      disabled={manualCompensationAction !== null}
+                      onClick={() => void manualCompensation("cancel")}
+                      type="button"
+                    >
+                      {manualCompensationAction === "cancel" ? "入队中" : "重排释放库存"}
+                    </AdminSecondaryButton>
+                  </div>
+                </div>
               </div>
             ) : null}
+
+            <div className="rounded-md border border-[var(--line)] p-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--ink-soft)]">Audit</p>
+                <h4 className="mt-1 text-base font-semibold">订单操作审计</h4>
+              </div>
+              {orderDetail.auditTrail.length === 0 ? (
+                <p className="mt-3 text-sm text-[var(--ink-soft)]">暂无订单审计记录。</p>
+              ) : (
+                <div className="mt-3 overflow-x-auto">
+                  <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+                    <thead className="border-b border-[var(--line)] text-[var(--ink-soft)]">
+                      <tr>
+                        <th className="py-2 pr-3 font-medium">时间</th>
+                        <th className="py-2 pr-3 font-medium">动作</th>
+                        <th className="py-2 pr-3 font-medium">操作人</th>
+                        <th className="py-2 pr-3 font-medium">原因</th>
+                        <th className="py-2 pr-3 font-medium">旧状态</th>
+                        <th className="py-2 pr-3 font-medium">新状态</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {orderDetail.auditTrail.map((event) => (
+                        <tr className="border-b border-[var(--line)] last:border-b-0" key={event.eventId}>
+                          <td className="py-3 pr-3">{formatDate(event.createdAt)}</td>
+                          <td className="py-3 pr-3 font-semibold">{auditActionLabel(event.action)}</td>
+                          <td className="py-3 pr-3">{event.actorId}</td>
+                          <td className="py-3 pr-3">{event.reason}</td>
+                          <td className="py-3 pr-3 text-xs text-[var(--ink-soft)]">
+                            {statusLabel(String(event.oldValue.status))} / {statusLabel(String(event.oldValue.inventoryStatus))}
+                          </td>
+                          <td className="py-3 pr-3 text-xs text-[var(--ink-soft)]">
+                            {statusLabel(String(event.newValue.status))} / {statusLabel(String(event.newValue.inventoryStatus))}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         ) : (
           <div className="mt-4 rounded-md border border-dashed border-[var(--line)] bg-[var(--bg)] p-5 text-sm text-[var(--ink-soft)]">

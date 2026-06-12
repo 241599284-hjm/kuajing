@@ -21,6 +21,7 @@ import { Pool, type PoolClient } from "pg";
 
 type ReservationStatus = "reserved" | "confirmed" | "cancelled";
 type StorageMode = "postgres" | "memory";
+type InventoryAuditAction = "manual_adjustment" | "stocktake" | "safety_stock_update" | "manual_release";
 
 type ReservationRequest = {
   skuId?: string;
@@ -70,6 +71,27 @@ type AdminInventoryReservation = {
   createdAt: string;
 };
 
+type AdminInventoryAdjustmentRequest = {
+  availableDelta?: number;
+  stocktakeAvailableQty?: number;
+  safetyQty?: number;
+  reason?: string;
+  actorId?: string;
+};
+
+type AdminInventoryAuditEvent = {
+  eventId: string;
+  itemId: string;
+  action: InventoryAuditAction;
+  actorId: string;
+  reason: string;
+  oldValue: Record<string, number | string | null>;
+  newValue: Record<string, number | string | null>;
+  correlationId: string;
+  storageMode: StorageMode;
+  createdAt: string;
+};
+
 type InventoryItemRow = {
   id: string;
   sku_id: string;
@@ -89,6 +111,18 @@ type ReservationRow = {
   status: ReservationStatus;
   idempotency_key: string;
   created_at?: Date;
+};
+
+type InventoryAuditRow = {
+  id: string;
+  inventory_item_id: string;
+  action: InventoryAuditAction;
+  actor_id: string;
+  reason: string;
+  old_value: Record<string, number | string | null>;
+  new_value: Record<string, number | string | null>;
+  correlation_id: string;
+  created_at: Date;
 };
 
 type MemoryInventoryItem = {
@@ -170,6 +204,76 @@ function normalizeQuantity(value: number | undefined): number {
   return qty;
 }
 
+function normalizeNonNegativeInteger(value: number | undefined, field: string): number | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  const qty = Number(value);
+
+  if (!Number.isInteger(qty) || qty < 0 || qty > 999999) {
+    throw new BadRequestException(`${field} must be an integer between 0 and 999999`);
+  }
+
+  return qty;
+}
+
+function normalizeSignedInteger(value: number | undefined, field: string): number | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  const qty = Number(value);
+
+  if (!Number.isInteger(qty) || qty < -999999 || qty > 999999) {
+    throw new BadRequestException(`${field} must be an integer between -999999 and 999999`);
+  }
+
+  return qty;
+}
+
+function normalizeReason(value: string | undefined): string {
+  const reason = value?.trim();
+
+  if (!reason || reason.length > 300) {
+    throw new BadRequestException("reason is required and must be 300 characters or less");
+  }
+
+  return reason;
+}
+
+function normalizeActorId(value: string | undefined): string {
+  const actorId = value?.trim() || "local-admin";
+
+  if (actorId.length > 120) {
+    throw new BadRequestException("actorId must be 120 characters or less");
+  }
+
+  return actorId;
+}
+
+function normalizeAdjustmentRequest(body: AdminInventoryAdjustmentRequest) {
+  const availableDelta = normalizeSignedInteger(body.availableDelta, "availableDelta");
+  const stocktakeAvailableQty = normalizeNonNegativeInteger(body.stocktakeAvailableQty, "stocktakeAvailableQty");
+  const safetyQty = normalizeNonNegativeInteger(body.safetyQty, "safetyQty");
+
+  if (availableDelta !== undefined && stocktakeAvailableQty !== undefined) {
+    throw new BadRequestException("availableDelta and stocktakeAvailableQty cannot be used together");
+  }
+
+  if (availableDelta === undefined && stocktakeAvailableQty === undefined && safetyQty === undefined) {
+    throw new BadRequestException("at least one inventory adjustment field is required");
+  }
+
+  return {
+    availableDelta,
+    stocktakeAvailableQty,
+    safetyQty,
+    reason: normalizeReason(body.reason),
+    actorId: normalizeActorId(body.actorId)
+  };
+}
+
 function normalizeRequest(body: ReservationRequest, idempotencyKeyHeader: string | undefined) {
   const idempotencyKey = idempotencyKeyHeader?.trim() || body.idempotencyKey?.trim();
 
@@ -232,6 +336,7 @@ function resultFromMemory(
 class InventoryMemoryStore {
   private readonly items = new Map<string, MemoryInventoryItem>();
   private readonly reservationsByIdempotencyKey = new Map<string, MemoryReservation>();
+  private readonly auditEvents: AdminInventoryAuditEvent[] = [];
 
   constructor() {
     this.ensureItem(defaultSkuId, defaultWarehouseId);
@@ -337,20 +442,54 @@ class InventoryMemoryStore {
       }));
   }
 
-  releaseReservation(reservationId: string): ReservationResult {
+  releaseReservation(reservationId: string, ctx: StoreContext, actorId: string, reason: string): ReservationResult {
     const reservation = [...this.reservationsByIdempotencyKey.values()].find((item) => item.id === reservationId);
 
     if (!reservation) {
       throw new BadRequestException("reservation does not exist");
     }
 
-    return this.cancel({
+    const item = this.ensureItem(reservation.skuId, reservation.warehouseId);
+    const oldValue = this.snapshotMemoryItem(item);
+    const result = this.cancel({
       skuId: reservation.skuId,
       warehouseId: reservation.warehouseId,
       orderId: reservation.orderId,
       qty: reservation.qty,
       idempotencyKey: reservation.idempotencyKey
     });
+    this.audit(ctx, item.id, "manual_release", actorId, reason, oldValue, this.snapshotMemoryItem(item));
+    return result;
+  }
+
+  adjustItem(
+    ctx: StoreContext,
+    itemId: string,
+    input: ReturnType<typeof normalizeAdjustmentRequest>
+  ): AdminInventoryItem {
+    const item = [...this.items.values()].find((candidate) => candidate.id === itemId);
+
+    if (!item) {
+      throw new BadRequestException("inventory item does not exist");
+    }
+
+    const oldValue = this.snapshotMemoryItem(item);
+    const nextAvailableQty = input.stocktakeAvailableQty ?? item.availableQty + (input.availableDelta ?? 0);
+    const nextSafetyQty = input.safetyQty ?? item.safetyQty;
+
+    if (nextAvailableQty < 0) {
+      throw new ConflictException("available inventory cannot be negative");
+    }
+
+    item.availableQty = nextAvailableQty;
+    item.safetyQty = nextSafetyQty;
+    item.inventoryVersion += 1;
+    this.audit(ctx, item.id, this.actionForAdjustment(input), input.actorId, input.reason, oldValue, this.snapshotMemoryItem(item));
+    return this.toAdminItem(item);
+  }
+
+  listAuditEvents(): AdminInventoryAuditEvent[] {
+    return this.auditEvents.slice(0, 100);
   }
 
   private ensureItem(skuId: string, warehouseId: string): MemoryInventoryItem {
@@ -372,6 +511,69 @@ class InventoryMemoryStore {
     };
     this.items.set(key, item);
     return item;
+  }
+
+  private toAdminItem(item: MemoryInventoryItem): AdminInventoryItem {
+    return {
+      itemId: item.id,
+      skuId: item.skuId,
+      warehouseId: item.warehouseId,
+      availableQty: item.availableQty,
+      reservedQty: item.reservedQty,
+      lockedQty: 0,
+      safetyQty: item.safetyQty,
+      sellableQty: item.availableQty - item.reservedQty - item.safetyQty,
+      inventoryVersion: item.inventoryVersion,
+      storageMode: "memory"
+    };
+  }
+
+  private snapshotMemoryItem(item: MemoryInventoryItem) {
+    return {
+      availableQty: item.availableQty,
+      reservedQty: item.reservedQty,
+      safetyQty: item.safetyQty,
+      inventoryVersion: item.inventoryVersion
+    };
+  }
+
+  private actionForAdjustment(input: ReturnType<typeof normalizeAdjustmentRequest>): InventoryAuditAction {
+    if (input.stocktakeAvailableQty !== undefined) {
+      return "stocktake";
+    }
+
+    if (input.availableDelta !== undefined) {
+      return "manual_adjustment";
+    }
+
+    return "safety_stock_update";
+  }
+
+  private audit(
+    ctx: StoreContext,
+    itemId: string,
+    action: InventoryAuditAction,
+    actorId: string,
+    reason: string,
+    oldValue: Record<string, number | string | null>,
+    newValue: Record<string, number | string | null>
+  ) {
+    this.auditEvents.unshift({
+      eventId: randomUUID(),
+      itemId,
+      action,
+      actorId,
+      reason,
+      oldValue,
+      newValue,
+      correlationId: ctx.correlationId,
+      storageMode: "memory",
+      createdAt: new Date().toISOString()
+    });
+
+    if (this.auditEvents.length > 100) {
+      this.auditEvents.pop();
+    }
   }
 
   private requireReservation(idempotencyKey: string): MemoryReservation {
@@ -550,7 +752,7 @@ class InventoryRepository implements OnApplicationShutdown {
     }));
   }
 
-  async releaseReservation(ctx: StoreContext, reservationId: string): Promise<ReservationResult> {
+  async releaseReservation(ctx: StoreContext, reservationId: string, actorId: string, reason: string): Promise<ReservationResult> {
     return this.withTransaction(async (client) => {
       const reservationResult = await client.query<ReservationRow>(
         `
@@ -578,13 +780,94 @@ class InventoryRepository implements OnApplicationShutdown {
         throw new ConflictException("confirmed reservation cannot be manually released");
       }
 
+      const oldValue = this.snapshotItem(item);
       const updatedItem = await this.updateItemQuantities(client, item.id, {
         reservedDelta: -reservation.qty,
         availableDelta: 0
       });
       const updatedReservation = await this.updateReservationStatus(client, reservation, "cancelled");
+      await this.insertAuditEvent(client, ctx, {
+        itemId: item.id,
+        action: "manual_release",
+        actorId,
+        reason,
+        oldValue,
+        newValue: this.snapshotItem(updatedItem)
+      });
       return resultFromRows(updatedReservation, updatedItem, "postgres");
     });
+  }
+
+  async adjustItem(
+    ctx: StoreContext,
+    itemId: string,
+    input: ReturnType<typeof normalizeAdjustmentRequest>
+  ): Promise<AdminInventoryItem> {
+    return this.withTransaction(async (client) => {
+      const item = await this.findItemById(client, ctx, itemId);
+      const oldValue = this.snapshotItem(item);
+      const nextAvailableQty = input.stocktakeAvailableQty ?? item.available_qty + (input.availableDelta ?? 0);
+      const nextSafetyQty = input.safetyQty ?? item.safety_qty;
+
+      if (nextAvailableQty < 0) {
+        throw new ConflictException("available inventory cannot be negative");
+      }
+
+      const result = await client.query<InventoryItemRow>(
+        `
+          UPDATE inventory_items
+          SET available_qty = $3,
+              safety_qty = $4,
+              inventory_version = inventory_version + 1
+          WHERE store_id = $1
+            AND id = $2
+          RETURNING id, sku_id, warehouse_id, available_qty, reserved_qty, safety_qty, inventory_version
+        `,
+        [ctx.storeId, itemId, nextAvailableQty, nextSafetyQty]
+      );
+      const updatedItem = result.rows[0];
+
+      if (!updatedItem) {
+        throw new BadRequestException("inventory item does not exist");
+      }
+
+      await this.insertAuditEvent(client, ctx, {
+        itemId,
+        action: this.actionForAdjustment(input),
+        actorId: input.actorId,
+        reason: input.reason,
+        oldValue,
+        newValue: this.snapshotItem(updatedItem)
+      });
+
+      return this.toAdminItem(updatedItem);
+    });
+  }
+
+  async listAuditEvents(ctx: StoreContext): Promise<AdminInventoryAuditEvent[]> {
+    const result = await this.pool.query<InventoryAuditRow>(
+      `
+        SELECT id, inventory_item_id, action, actor_id, reason, old_value, new_value, correlation_id, created_at
+        FROM inventory_audit_events
+        WHERE store_id = $1
+        ORDER BY created_at DESC
+        LIMIT 100
+      `,
+      [ctx.storeId]
+    );
+
+    return result.rows.map((event) => ({
+      eventId: event.id,
+      itemId: event.inventory_item_id,
+      action: event.action,
+      actorId: event.actor_id,
+      reason: event.reason,
+      oldValue: event.old_value,
+      newValue: event.new_value,
+      correlationId: event.correlation_id,
+      storageMode: "postgres",
+      createdAt: event.created_at.toISOString()
+    }));
   }
 
   private async withTransaction<T>(handler: (client: PoolClient) => Promise<T>): Promise<T> {
@@ -640,6 +923,25 @@ class InventoryRepository implements OnApplicationShutdown {
         FOR UPDATE
       `,
       [ctx.storeId, reservation.sku_id, reservation.warehouse_id]
+    );
+
+    if (!result.rows[0]) {
+      throw new BadRequestException("inventory item does not exist");
+    }
+
+    return result.rows[0];
+  }
+
+  private async findItemById(client: PoolClient, ctx: StoreContext, itemId: string) {
+    const result = await client.query<InventoryItemRow>(
+      `
+        SELECT id, sku_id, warehouse_id, available_qty, reserved_qty, safety_qty, inventory_version
+        FROM inventory_items
+        WHERE store_id = $1
+          AND id = $2
+        FOR UPDATE
+      `,
+      [ctx.storeId, itemId]
     );
 
     if (!result.rows[0]) {
@@ -720,6 +1022,83 @@ class InventoryRepository implements OnApplicationShutdown {
     return result.rows[0] ?? { ...reservation, status };
   }
 
+  private toAdminItem(item: InventoryItemRow): AdminInventoryItem {
+    return {
+      itemId: item.id,
+      skuId: item.sku_id,
+      warehouseId: item.warehouse_id,
+      availableQty: item.available_qty,
+      reservedQty: item.reserved_qty,
+      lockedQty: 0,
+      safetyQty: item.safety_qty,
+      sellableQty: item.available_qty - item.reserved_qty - item.safety_qty,
+      inventoryVersion: item.inventory_version,
+      storageMode: "postgres"
+    };
+  }
+
+  private snapshotItem(item: InventoryItemRow) {
+    return {
+      availableQty: item.available_qty,
+      reservedQty: item.reserved_qty,
+      safetyQty: item.safety_qty,
+      inventoryVersion: item.inventory_version
+    };
+  }
+
+  private actionForAdjustment(input: ReturnType<typeof normalizeAdjustmentRequest>): InventoryAuditAction {
+    if (input.stocktakeAvailableQty !== undefined) {
+      return "stocktake";
+    }
+
+    if (input.availableDelta !== undefined) {
+      return "manual_adjustment";
+    }
+
+    return "safety_stock_update";
+  }
+
+  private async insertAuditEvent(
+    client: PoolClient,
+    ctx: StoreContext,
+    event: {
+      itemId: string;
+      action: InventoryAuditAction;
+      actorId: string;
+      reason: string;
+      oldValue: Record<string, number | string | null>;
+      newValue: Record<string, number | string | null>;
+    }
+  ) {
+    await client.query(
+      `
+        INSERT INTO inventory_audit_events (
+          id,
+          store_id,
+          inventory_item_id,
+          action,
+          actor_id,
+          reason,
+          old_value,
+          new_value,
+          correlation_id
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9)
+      `,
+      [
+        randomUUID(),
+        ctx.storeId,
+        event.itemId,
+        event.action,
+        event.actorId,
+        event.reason,
+        JSON.stringify(event.oldValue),
+        JSON.stringify(event.newValue),
+        ctx.correlationId
+      ]
+    );
+  }
+
   async onApplicationShutdown() {
     await this.pool.end();
   }
@@ -765,22 +1144,61 @@ class InventoryController {
     }
   }
 
-  @Post("/inventory/reservations/:id/release")
-  async releaseReservation(
-    @Headers("x-correlation-id") correlationId: string | undefined,
-    @Param("id") id: string
-  ) {
+  @Get("/inventory/audit-events")
+  async auditEvents(@Headers("x-correlation-id") correlationId: string | undefined) {
     const ctx = createStoreContext(correlationId);
-    const reservationId = normalizeUuid(id, "reservationId");
 
     try {
-      return await this.inventoryRepository.releaseReservation(ctx, reservationId);
+      return await this.inventoryRepository.listAuditEvents(ctx);
+    } catch {
+      return this.memoryStore.listAuditEvents();
+    }
+  }
+
+  @Post("/inventory/items/:id/adjust")
+  async adjustInventoryItem(
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Headers("x-admin-actor") actorHeader: string | undefined,
+    @Param("id") id: string,
+    @Body() body: AdminInventoryAdjustmentRequest
+  ) {
+    const ctx = createStoreContext(correlationId);
+    const itemId = normalizeUuid(id, "itemId");
+    const requestBody = body ?? {};
+    const input = normalizeAdjustmentRequest({ ...requestBody, actorId: actorHeader ?? requestBody.actorId });
+
+    try {
+      return await this.inventoryRepository.adjustItem(ctx, itemId, input);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
       }
 
-      return this.memoryStore.releaseReservation(reservationId);
+      return this.memoryStore.adjustItem(ctx, itemId, input);
+    }
+  }
+
+  @Post("/inventory/reservations/:id/release")
+  async releaseReservation(
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Headers("x-admin-actor") actorHeader: string | undefined,
+    @Param("id") id: string,
+    @Body() body: { reason?: string; actorId?: string }
+  ) {
+    const ctx = createStoreContext(correlationId);
+    const reservationId = normalizeUuid(id, "reservationId");
+    const requestBody = body ?? {};
+    const actorId = normalizeActorId(actorHeader ?? requestBody.actorId);
+    const reason = normalizeReason(requestBody.reason ?? "manual reservation release");
+
+    try {
+      return await this.inventoryRepository.releaseReservation(ctx, reservationId, actorId, reason);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      return this.memoryStore.releaseReservation(reservationId, ctx, actorId, reason);
     }
   }
 

@@ -106,6 +106,7 @@ type AdminOrderLine = {
 type AdminOrderDetail = AdminOrderSummary & {
   idempotencyKey: string;
   lines: AdminOrderLine[];
+  auditTrail: AdminOrderAuditEvent[];
 };
 
 type InventoryReservationResult = {
@@ -121,6 +122,12 @@ type InventoryReservationResult = {
 
 type PaymentTransitionRequest = {
   orderId?: string;
+};
+
+type ManualCompensationRequest = {
+  action?: "confirm" | "cancel";
+  reason?: string;
+  actorId?: string;
 };
 
 type OrderLineReservation = {
@@ -156,6 +163,29 @@ type CompensationTaskInput = {
   lastError: string;
 };
 
+type AdminOrderAuditEvent = {
+  eventId: string;
+  action: string;
+  actorId: string;
+  reason: string;
+  oldValue: Record<string, string | number | boolean | null>;
+  newValue: Record<string, string | number | boolean | null>;
+  correlationId: string;
+  storageMode: "postgres" | "memory";
+  createdAt: string;
+};
+
+type OrderAuditRow = {
+  id: string;
+  action: string;
+  actor_id: string;
+  reason: string;
+  old_value: Record<string, string | number | boolean | null>;
+  new_value: Record<string, string | number | boolean | null>;
+  correlation_id: string;
+  created_at: Date;
+};
+
 const mockOrdersByIdempotencyKey = new Map<string, MockCheckoutOrder>();
 const paymentServiceUrl = process.env.PAYMENT_SERVICE_URL ?? "http://localhost:4106";
 const inventoryServiceUrl = process.env.INVENTORY_SERVICE_URL ?? "http://localhost:4104";
@@ -179,6 +209,20 @@ function createStoreContext(correlationId: string | undefined): StoreContext {
 
 function isExceptionState(status: string, inventoryStatus: string): boolean {
   return status === "compensating" || inventoryStatus === "compensation_pending";
+}
+
+function snapshotOrderState(state: {
+  status: string;
+  paymentStatus: string;
+  inventoryStatus: string;
+  failureCount?: number;
+}) {
+  return {
+    status: state.status,
+    paymentStatus: state.paymentStatus,
+    inventoryStatus: state.inventoryStatus,
+    failureCount: state.failureCount ?? 0
+  };
 }
 
 function warnIfSlow(operation: string, startedAt: number, thresholdMs: number, ctx: StoreContext) {
@@ -228,6 +272,50 @@ function normalizeOrderId(value: string | undefined): string {
   }
 
   return orderId;
+}
+
+function normalizeActorId(value: string | undefined): string {
+  const actorId = value?.trim() || "local-admin";
+
+  if (actorId.length > 120) {
+    throw new BadRequestException("actorId must be 120 characters or less");
+  }
+
+  return actorId;
+}
+
+function normalizeReason(value: string | undefined): string {
+  const reason = value?.trim();
+
+  if (!reason || reason.length > 500) {
+    throw new BadRequestException("reason is required and must be 500 characters or less");
+  }
+
+  return reason;
+}
+
+function normalizeAdminIdempotencyKey(value: string | undefined): string {
+  const key = value?.trim();
+
+  if (!key || key.length > 160) {
+    throw new BadRequestException("idempotency-key is required");
+  }
+
+  return key;
+}
+
+function normalizeManualCompensation(input: ManualCompensationRequest, actorHeader: string | undefined) {
+  const action = input.action;
+
+  if (action !== "confirm" && action !== "cancel") {
+    throw new BadRequestException("action must be confirm or cancel");
+  }
+
+  return {
+    action,
+    actorId: normalizeActorId(actorHeader ?? input.actorId),
+    reason: normalizeReason(input.reason)
+  };
 }
 
 function normalizeLine(line: MockCheckoutLine): NormalizedCheckoutLine {
@@ -587,7 +675,7 @@ class OrderRepository implements OnApplicationShutdown {
   }
 
   async getOrderDetail(ctx: StoreContext, orderId: string): Promise<AdminOrderDetail> {
-    const [orderResult, lineResult] = await Promise.all([
+    const [orderResult, lineResult, auditResult] = await Promise.all([
       this.pool.query<{
         id: string;
         order_number: string;
@@ -664,6 +752,17 @@ class OrderRepository implements OnApplicationShutdown {
           ORDER BY id ASC
         `,
         [ctx.storeId, orderId]
+      ),
+      this.pool.query<OrderAuditRow>(
+        `
+          SELECT id, action, actor_id, reason, old_value, new_value, correlation_id, created_at
+          FROM order_audit_events
+          WHERE store_id = $1
+            AND order_id = $2
+          ORDER BY created_at DESC
+          LIMIT 20
+        `,
+        [ctx.storeId, orderId]
       )
     ]);
     const order = orderResult.rows[0];
@@ -699,7 +798,8 @@ class OrderRepository implements OnApplicationShutdown {
         unitPriceMinor: line.unit_price_minor,
         lineTotalMinor: line.unit_price_minor * line.qty,
         currency: line.currency
-      }))
+      })),
+      auditTrail: auditResult.rows.map((event) => this.auditEventFromRow(event))
     };
   }
 
@@ -838,46 +938,251 @@ class OrderRepository implements OnApplicationShutdown {
     });
   }
 
+  async manualQueueInventoryCompensation(
+    ctx: StoreContext,
+    orderId: string,
+    input: ReturnType<typeof normalizeManualCompensation>,
+    idempotencyKey: string
+  ): Promise<PaymentTransitionResult> {
+    return this.withTransaction(async (client) => {
+      const orderResult = await client.query<{
+        id: string;
+        status: MockCheckoutOrder["status"];
+        payment_status: MockCheckoutOrder["paymentStatus"];
+        inventory_status: MockCheckoutOrder["inventoryStatus"];
+      }>(
+        `
+          SELECT id, status, payment_status, inventory_status
+          FROM orders
+          WHERE store_id = $1
+            AND id = $2
+          FOR UPDATE
+        `,
+        [ctx.storeId, orderId]
+      );
+      const current = orderResult.rows[0];
+
+      if (!current) {
+        throw new BadRequestException("order does not exist");
+      }
+
+      if (!isExceptionState(current.status, current.inventory_status)) {
+        throw new ConflictException("only exception orders can be manually compensated");
+      }
+
+      const reservations = await this.getOrderReservationsForUpdate(client, ctx, orderId);
+      const nextPaymentStatus = input.action === "confirm" ? "paid" : "cancelled";
+      const oldValue = snapshotOrderState({
+        status: current.status,
+        paymentStatus: current.payment_status,
+        inventoryStatus: current.inventory_status,
+        failureCount: reservations.length
+      });
+
+      for (const [index, reservation] of reservations.entries()) {
+        await this.insertCompensationTask(client, ctx, {
+          taskType: input.action === "confirm" ? "inventory_confirm" : "inventory_cancel",
+          aggregateType: "order",
+          aggregateId: orderId,
+          idempotencyKey: `${idempotencyKey}:inventory:${index}`,
+          lastError: `manual ${input.action} compensation requested: ${input.reason}`,
+          payload: {
+            orderId,
+            action: input.action,
+            reservation
+          }
+        });
+      }
+
+      const updated = await client.query<{
+        id: string;
+        status: MockCheckoutOrder["status"];
+        payment_status: MockCheckoutOrder["paymentStatus"];
+        inventory_status: MockCheckoutOrder["inventoryStatus"];
+      }>(
+        `
+          UPDATE orders
+          SET status = 'compensating',
+              payment_status = $3,
+              inventory_status = 'compensation_pending'
+          WHERE store_id = $1
+            AND id = $2
+          RETURNING id, status, payment_status, inventory_status
+        `,
+        [ctx.storeId, orderId, nextPaymentStatus]
+      );
+      const row = updated.rows[0];
+      const newValue = snapshotOrderState({
+        status: row.status,
+        paymentStatus: row.payment_status,
+        inventoryStatus: row.inventory_status,
+        failureCount: reservations.length
+      });
+
+      await this.insertOrderAuditEvent(client, ctx, {
+        orderId,
+        action: `manual_inventory_${input.action}_compensation`,
+        actorId: input.actorId,
+        reason: input.reason,
+        oldValue,
+        newValue
+      });
+
+      return {
+        orderId: row.id,
+        status: row.status,
+        paymentStatus: row.payment_status,
+        inventoryStatus: row.inventory_status,
+        compensationQueued: true,
+        storageMode: "postgres"
+      };
+    });
+  }
+
   async enqueueCompensationTask(ctx: StoreContext, input: CompensationTaskInput): Promise<void> {
     await this.pool.query(
+      this.compensationInsertSql(),
+      this.compensationInsertParams(ctx, input)
+    );
+  }
+
+  private async insertCompensationTask(client: PoolClient, ctx: StoreContext, input: CompensationTaskInput): Promise<void> {
+    await client.query(
+      this.compensationInsertSql(),
+      this.compensationInsertParams(ctx, input)
+    );
+  }
+
+  private compensationInsertSql() {
+    return `
+      INSERT INTO compensation_tasks (
+        id,
+        store_id,
+        task_type,
+        aggregate_type,
+        aggregate_id,
+        idempotency_key,
+        status,
+        attempt_count,
+        max_attempts,
+        next_run_at,
+        last_error,
+        correlation_id,
+        payload
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, 'pending', 0, 8, $7, $8, $9, $10)
+      ON CONFLICT (store_id, idempotency_key) DO UPDATE
+      SET status = 'pending',
+          next_run_at = EXCLUDED.next_run_at,
+          last_error = EXCLUDED.last_error,
+          correlation_id = EXCLUDED.correlation_id,
+          payload = EXCLUDED.payload,
+          updated_at = now()
+    `;
+  }
+
+  private compensationInsertParams(ctx: StoreContext, input: CompensationTaskInput) {
+    return [
+      randomUUID(),
+      ctx.storeId,
+      input.taskType,
+      input.aggregateType,
+      input.aggregateId,
+      input.idempotencyKey,
+      nextRetryAt(0),
+      input.lastError.slice(0, 2000),
+      ctx.correlationId,
+      JSON.stringify(input.payload)
+    ];
+  }
+
+  private async insertOrderAuditEvent(
+    client: PoolClient,
+    ctx: StoreContext,
+    event: {
+      orderId: string;
+      action: string;
+      actorId: string;
+      reason: string;
+      oldValue: Record<string, string | number | boolean | null>;
+      newValue: Record<string, string | number | boolean | null>;
+    }
+  ) {
+    await client.query(
       `
-        INSERT INTO compensation_tasks (
+        INSERT INTO order_audit_events (
           id,
           store_id,
-          task_type,
-          aggregate_type,
-          aggregate_id,
-          idempotency_key,
-          status,
-          attempt_count,
-          max_attempts,
-          next_run_at,
-          last_error,
-          correlation_id,
-          payload
+          order_id,
+          action,
+          actor_id,
+          reason,
+          old_value,
+          new_value,
+          correlation_id
         )
-        VALUES ($1, $2, $3, $4, $5, $6, 'pending', 0, 8, $7, $8, $9, $10)
-        ON CONFLICT (store_id, idempotency_key) DO UPDATE
-        SET status = 'pending',
-            next_run_at = EXCLUDED.next_run_at,
-            last_error = EXCLUDED.last_error,
-            correlation_id = EXCLUDED.correlation_id,
-            payload = EXCLUDED.payload,
-            updated_at = now()
+        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9)
       `,
       [
         randomUUID(),
         ctx.storeId,
-        input.taskType,
-        input.aggregateType,
-        input.aggregateId,
-        input.idempotencyKey,
-        nextRetryAt(0),
-        input.lastError.slice(0, 2000),
-        ctx.correlationId,
-        JSON.stringify(input.payload)
+        event.orderId,
+        event.action,
+        event.actorId,
+        event.reason,
+        JSON.stringify(event.oldValue),
+        JSON.stringify(event.newValue),
+        ctx.correlationId
       ]
     );
+  }
+
+  private auditEventFromRow(event: OrderAuditRow): AdminOrderAuditEvent {
+    return {
+      eventId: event.id,
+      action: event.action,
+      actorId: event.actor_id,
+      reason: event.reason,
+      oldValue: event.old_value,
+      newValue: event.new_value,
+      correlationId: event.correlation_id,
+      storageMode: "postgres",
+      createdAt: event.created_at.toISOString()
+    };
+  }
+
+  private async getOrderReservationsForUpdate(client: PoolClient, ctx: StoreContext, orderId: string): Promise<OrderLineReservation[]> {
+    const result = await client.query<{
+      sku_id: string;
+      qty: number;
+      inventory_reservation_key_snapshot: string | null;
+    }>(
+      `
+        SELECT sku_id, qty, inventory_reservation_key_snapshot
+        FROM order_lines
+        WHERE store_id = $1
+          AND order_id = $2
+        ORDER BY id ASC
+        FOR UPDATE
+      `,
+      [ctx.storeId, orderId]
+    );
+
+    if (result.rows.length === 0) {
+      throw new BadRequestException("order lines do not exist");
+    }
+
+    return result.rows.map((row) => {
+      if (!row.inventory_reservation_key_snapshot) {
+        throw new BadRequestException("order line missing inventory reservation key snapshot");
+      }
+
+      return {
+        skuId: row.sku_id,
+        qty: row.qty,
+        idempotencyKey: row.inventory_reservation_key_snapshot
+      };
+    });
   }
 
   private async insertOrder(
@@ -1049,8 +1354,38 @@ class OrderController {
           unitPriceMinor: line.unitPriceMinor,
           lineTotalMinor: line.unitPriceMinor * line.quantity,
           currency: line.currency
-        }))
+        })),
+        auditTrail: []
       };
+    }
+  }
+
+  @Post("/orders/:id/manual-compensation")
+  async manualCompensation(
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Headers("idempotency-key") idempotencyKeyHeader: string | undefined,
+    @Headers("x-idempotency-key") alternateIdempotencyKeyHeader: string | undefined,
+    @Headers("x-admin-actor") actorHeader: string | undefined,
+    @Param("id") id: string,
+    @Body() body: ManualCompensationRequest
+  ): Promise<PaymentTransitionResult> {
+    const ctx = createStoreContext(correlationId);
+    const orderId = normalizeOrderId(id);
+    const idempotencyKey = normalizeAdminIdempotencyKey(idempotencyKeyHeader ?? alternateIdempotencyKeyHeader);
+    const input = normalizeManualCompensation(body ?? {}, actorHeader);
+
+    try {
+      return await this.orderRepository.manualQueueInventoryCompensation(ctx, orderId, input, idempotencyKey);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      if (findMemoryOrder(orderId)) {
+        throw new ServiceUnavailableException("manual compensation requires PostgreSQL-backed durable tasks");
+      }
+
+      throw new BadRequestException("order does not exist");
     }
   }
 

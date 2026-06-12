@@ -355,6 +355,7 @@ test("admin order management reads orders or shows explicit API fallback", async
   await expect(orderPanel.getByRole("button", { name: /刷新订单|刷新中/ })).toBeVisible();
   await expect(orderPanel.getByRole("status")).toHaveText(/^(订单数 \d+，当前合计 .+，内存模式 \d+|)$/);
   await expect(orderPanel.getByRole("heading", { name: "订单详情与支付操作" })).toBeVisible();
+  await expect(orderPanel).toContainText(/(订单操作审计|从上方订单列表选择一笔订单后查看详情和 Mock 支付操作)/);
   await expect(orderPanel).toContainText(/(暂无订单|订单服务或管理网关未连接|订单状态|API 未连接)/);
 });
 
@@ -368,8 +369,11 @@ test("admin inventory management reads inventory or shows explicit API fallback"
   const inventoryPanel = page.locator("section[aria-labelledby='inventory-title']");
   await expect(inventoryPanel.getByRole("heading", { name: "库存管理" })).toBeVisible();
   await expect(inventoryPanel.getByRole("button", { name: /刷新库存|刷新中/ })).toBeVisible();
-  await expect(inventoryPanel.getByRole("status")).toHaveText(/^SKU \d+，可用 \d+，预留 \d+，锁定 \d+，可售 -?\d+，内存模式 \d+$/);
+  await expect(inventoryPanel.getByRole("status")).toHaveText(
+    /^SKU \d+，可用 \d+，预留 \d+，锁定 \d+，可售 -?\d+，低库存 \d+，内存模式 \d+$/
+  );
   await expect(inventoryPanel.getByRole("heading", { name: "库存预留流水" })).toBeVisible();
+  await expect(inventoryPanel.getByRole("heading", { name: "库存操作审计" })).toBeVisible();
   await expect(inventoryPanel).toContainText(/(暂无库存|库存服务或管理网关未连接|可用库存|API 未连接)/);
 });
 
