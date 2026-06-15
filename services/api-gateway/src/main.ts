@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { Body, Controller, Get, Headers, HttpException, Module, Post } from "@nestjs/common";
+import { Body, Controller, Get, Headers, HttpException, Module, Param, Post } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { assertStoreContext } from "@commerce/store-context";
 import { randomUUID } from "node:crypto";
@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 const serviceName = "api-gateway";
 const catalogServiceUrl = process.env.CATALOG_SERVICE_URL ?? "http://localhost:4103";
 const orderServiceUrl = process.env.ORDER_SERVICE_URL ?? "http://localhost:4105";
+const logisticsServiceUrl = process.env.LOGISTICS_SERVICE_URL ?? "http://localhost:4110";
 const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL ?? "http://localhost:4111";
 const forwardedHeaderNames = [
   "x-correlation-id",
@@ -152,6 +153,16 @@ class HealthController {
   @Post("/notifications/transactional-email")
   sendTransactionalEmail(@Headers() headers: HeaderBag, @Body() body: unknown) {
     return forwardServiceJson(notificationServiceUrl, "/emails/transactional", headers, body);
+  }
+
+  @Get("/logistics/tracking/:trackingNumber")
+  tracking(@Headers() headers: HeaderBag, @Param("trackingNumber") trackingNumber: string) {
+    return forwardServiceJson(logisticsServiceUrl, `/tracking/${encodeURIComponent(trackingNumber)}`, headers);
+  }
+
+  @Post("/logistics/tracking/refresh")
+  refreshTracking(@Headers() headers: HeaderBag, @Body() body: unknown) {
+    return forwardServiceJson(logisticsServiceUrl, "/tracking/refresh", headers, body);
   }
 }
 

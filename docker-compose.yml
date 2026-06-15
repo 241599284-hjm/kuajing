@@ -53,6 +53,7 @@ services:
       NODE_ENV: development
       CATALOG_SERVICE_URL: http://catalog-service:4103
       ORDER_SERVICE_URL: http://order-service:4105
+      LOGISTICS_SERVICE_URL: http://logistics-service:4110
       NOTIFICATION_SERVICE_URL: http://notification-service:4111
       DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
       DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
@@ -63,6 +64,8 @@ services:
       catalog-service:
         condition: service_started
       order-service:
+        condition: service_started
+      logistics-service:
         condition: service_started
 
   admin-gateway:
@@ -80,6 +83,7 @@ services:
       INVENTORY_SERVICE_URL: http://inventory-service:4104
       WORKER_SERVICE_URL: http://worker-service:4109
       MEDIA_SERVICE_URL: http://media-service:4108
+      LOGISTICS_SERVICE_URL: http://logistics-service:4110
       NOTIFICATION_SERVICE_URL: http://notification-service:4111
       DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
       DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
@@ -98,6 +102,33 @@ services:
       worker-service:
         condition: service_started
       media-service:
+        condition: service_started
+      logistics-service:
+        condition: service_started
+
+  logistics-service:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: infra/docker/node-app.Dockerfile
+      args:
+        APP_FILTER: "@commerce/logistics-service"
+    container_name: cbck-logistics-service
+    environment:
+      NODE_ENV: development
+      PORT: 4110
+      LOGISTICS_DATABASE_URL: postgresql://${POSTGRES_USER:-commerce}:${POSTGRES_PASSWORD:-commerce}@postgres:5432/logistics_db
+      NOTIFICATION_SERVICE_URL: http://notification-service:4111
+      STOREFRONT_PUBLIC_URL: http://localhost:3000
+      DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
+      DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
+      DEFAULT_STORE_TIMEZONE: ${DEFAULT_STORE_TIMEZONE:-Asia/Hong_Kong}
+    ports:
+      - "4110:4110"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      notification-service:
         condition: service_started
 
   auth-service:

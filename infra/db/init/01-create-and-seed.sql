@@ -2,6 +2,7 @@ CREATE DATABASE app_db;
 CREATE DATABASE order_db;
 CREATE DATABASE inventory_db;
 CREATE DATABASE ledger_db;
+CREATE DATABASE logistics_db;
 CREATE DATABASE notification_db;
 
 \connect app_db

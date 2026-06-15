@@ -11,6 +11,7 @@ const orderServiceUrl = process.env.ORDER_SERVICE_URL ?? "http://localhost:4105"
 const inventoryServiceUrl = process.env.INVENTORY_SERVICE_URL ?? "http://localhost:4104";
 const workerServiceUrl = process.env.WORKER_SERVICE_URL ?? "http://localhost:4109";
 const mediaServiceUrl = process.env.MEDIA_SERVICE_URL ?? "http://localhost:4108";
+const logisticsServiceUrl = process.env.LOGISTICS_SERVICE_URL ?? "http://localhost:4110";
 const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL ?? "http://localhost:4111";
 const maxUploadBytes = Number(process.env.MEDIA_MAX_UPLOAD_BYTES ?? 8 * 1024 * 1024);
 const forwardedHeaderNames = [
@@ -201,6 +202,34 @@ async function forwardNotificationPutJson<T>(path: string, headers: HeaderBag, b
   return payload as T;
 }
 
+async function forwardLogisticsJson<T>(path: string, headers: HeaderBag): Promise<T> {
+  const response = await fetch(`${logisticsServiceUrl}${path}`, {
+    headers: buildForwardHeaders(headers)
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new HttpException(payload, response.status);
+  }
+
+  return payload as T;
+}
+
+async function forwardLogisticsJsonWithBody<T>(path: string, headers: HeaderBag, body: unknown, method = "POST"): Promise<T> {
+  const response = await fetch(`${logisticsServiceUrl}${path}`, {
+    method,
+    headers: buildForwardHeaders(headers, { "Content-Type": "application/json" }),
+    body: JSON.stringify(body)
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new HttpException(payload, response.status);
+  }
+
+  return payload as T;
+}
+
 async function forwardMediaUpload<T>(path: string, headers: HeaderBag, file: UploadedMediaFile): Promise<T> {
   const formData = new FormData();
   const bytes = file.buffer.buffer.slice(file.buffer.byteOffset, file.buffer.byteOffset + file.buffer.byteLength) as ArrayBuffer;
@@ -357,6 +386,36 @@ class HealthController {
   @Put("/notification/templates/:key")
   saveNotificationTemplate(@Headers() headers: HeaderBag, @Param("key") key: string, @Body() body: unknown) {
     return forwardNotificationPutJson(`/admin/notification/templates/${encodeURIComponent(key)}`, headers, body);
+  }
+
+  @Get("/logistics/api-accounts")
+  logisticsApiAccounts(@Headers() headers: HeaderBag) {
+    return forwardLogisticsJson("/admin/logistics/api-accounts", headers);
+  }
+
+  @Put("/logistics/api-accounts")
+  updateLogisticsApiAccounts(@Headers() headers: HeaderBag, @Body() body: unknown) {
+    return forwardLogisticsJsonWithBody("/admin/logistics/api-accounts", headers, body, "PUT");
+  }
+
+  @Get("/logistics/api-call-logs")
+  logisticsApiCallLogs(@Headers() headers: HeaderBag) {
+    return forwardLogisticsJson("/admin/logistics/api-call-logs", headers);
+  }
+
+  @Get("/logistics/tracking/:trackingNumber")
+  logisticsTracking(@Headers() headers: HeaderBag, @Param("trackingNumber") trackingNumber: string) {
+    return forwardLogisticsJson(`/tracking/${encodeURIComponent(trackingNumber)}`, headers);
+  }
+
+  @Post("/logistics/tracking/refresh")
+  refreshLogisticsTracking(@Headers() headers: HeaderBag, @Body() body: unknown) {
+    return forwardLogisticsJsonWithBody("/tracking/refresh", headers, body);
+  }
+
+  @Post("/logistics/send-update-email")
+  sendLogisticsUpdateEmail(@Headers() headers: HeaderBag, @Body() body: unknown) {
+    return forwardLogisticsJsonWithBody("/admin/logistics/send-update-email", headers, body);
   }
 
   @Put("/catalog/categories")

@@ -171,7 +171,7 @@ export function MobileNavigation({
                 <a
                   key={link}
                   className="block border-b border-[var(--line)] py-4 text-base"
-                  href={link === "Contact" || link === "联系我们" ? supportHref : "#"}
+                  href={link === "Track order" || link === "物流追踪" ? "/track-order" : link === "Contact" || link === "联系我们" ? supportHref : "#"}
                   onClick={() => setIsOpen(false)}
                 >
                   {link}

@@ -1,12 +1,13 @@
 "use client";
 
-import { BarChart3, Boxes, CreditCard, FileClock, Globe2, Mail, MapPinned, Menu, Package, Percent, Settings, ShieldCheck, ShoppingCart, Tags, X } from "lucide-react";
+import { BarChart3, Boxes, CreditCard, FileClock, Globe2, Mail, MapPinned, Menu, Package, Percent, Settings, ShieldCheck, ShoppingCart, Tags, Truck, X } from "lucide-react";
 import { useState } from "react";
 import { CategoryManagementPanel } from "./category-management-panel.js";
 import { DeadLetterManagementPanel } from "./dead-letter-management-panel.js";
 import { DiscountManagementPanel } from "./discount-management-panel.js";
 import { EmailSettingsPanel } from "./email-settings-panel.js";
 import { InventoryManagementPanel } from "./inventory-management-panel.js";
+import { LogisticsManagementPanel } from "./logistics-management-panel.js";
 import { OrderManagementPanel } from "./order-management-panel.js";
 import { ProductManagementPanel } from "./product-management-panel.js";
 import { RegionManagementPanel } from "./region-management-panel.js";
@@ -21,6 +22,7 @@ type AdminSection =
   | "orders"
   | "discounts"
   | "payments"
+  | "logistics"
   | "trade"
   | "email"
   | "support"
@@ -54,6 +56,7 @@ const navigationGroups: Array<{
     items: [
       { id: "trade", label: "外贸站设置", description: "币种、税费、HS Code", icon: Globe2 },
       { id: "payments", label: "支付管理", description: "通道优先级", icon: CreditCard },
+      { id: "logistics", label: "物流管理", description: "轨迹、账号、额度", icon: Truck },
       { id: "email", label: "邮箱设置", description: "SMTP 与注册邮件", icon: Mail }
     ]
   },
@@ -106,6 +109,11 @@ const sectionMeta: Record<AdminSection, { title: string; eyebrow: string; body: 
     title: "支付管理",
     eyebrow: "支付通道",
     body: "支付记录、通道健康、退款和 Webhook 状态后续会在这里管理。"
+  },
+  logistics: {
+    title: "物流管理",
+    eyebrow: "物流轨迹",
+    body: "维护物流 Provider 账号池、额度、轨迹缓存、调用日志和物流更新邮件。"
   },
   trade: {
     title: "外贸站设置",
@@ -235,6 +243,7 @@ function AdminContent({ activeSection, onNavigate }: { activeSection: AdminSecti
   if (activeSection === "orders") return <OrderManagementPanel />;
   if (activeSection === "discounts") return <DiscountManagementPanel />;
   if (activeSection === "trade") return <TradeSettingsPanel />;
+  if (activeSection === "logistics") return <LogisticsManagementPanel />;
   if (activeSection === "email") return <EmailSettingsPanel />;
   if (activeSection === "dlq") return <DeadLetterManagementPanel />;
   return <PlaceholderPanel section={activeSection} />;
