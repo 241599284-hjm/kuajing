@@ -4,7 +4,7 @@
   "private": true,
   "packageManager": "pnpm@10.31.0",
   "scripts": {
-    "dev": "turbo run dev --parallel --filter=@commerce/storefront --filter=@commerce/admin --filter=@commerce/api-gateway --filter=@commerce/admin-gateway --filter=@commerce/store-service --filter=@commerce/auth-service --filter=@commerce/catalog-service --filter=@commerce/media-service --filter=@commerce/support-service --filter=@commerce/order-service --filter=@commerce/payment-service --filter=@commerce/inventory-service --filter=@commerce/worker-service --filter=@commerce/logistics-service --filter=@commerce/notification-service --filter=@commerce/review-service --filter=@commerce/ops-service",
+    "dev": "turbo run dev --parallel --filter=@commerce/storefront --filter=@commerce/admin --filter=@commerce/api-gateway --filter=@commerce/admin-gateway --filter=@commerce/store-service --filter=@commerce/auth-service --filter=@commerce/catalog-service --filter=@commerce/media-service --filter=@commerce/support-service --filter=@commerce/order-service --filter=@commerce/payment-service --filter=@commerce/inventory-service --filter=@commerce/worker-service --filter=@commerce/logistics-service --filter=@commerce/notification-service --filter=@commerce/review-service --filter=@commerce/ops-service --filter=@commerce/product-import-service",
     "dev:all": "turbo run dev --parallel",
     "build": "turbo run build",
     "e2e": "playwright test",

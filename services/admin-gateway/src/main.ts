@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { Body, Controller, Get, Headers, HttpException, Module, Param, Post, Put, UploadedFile, UseInterceptors } from "@nestjs/common";
+import { Body, Controller, Get, Headers, HttpException, Module, Param, Post, Put, Query, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { NestFactory } from "@nestjs/core";
 import { assertStoreContext } from "@commerce/store-context";
@@ -16,6 +16,7 @@ const logisticsServiceUrl = process.env.LOGISTICS_SERVICE_URL ?? "http://localho
 const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL ?? "http://localhost:4111";
 const reviewServiceUrl = process.env.REVIEW_SERVICE_URL ?? "http://localhost:4112";
 const opsServiceUrl = process.env.OPS_SERVICE_URL ?? "http://localhost:4113";
+const productImportServiceUrl = process.env.PRODUCT_IMPORT_SERVICE_URL ?? "http://localhost:4114";
 const maxUploadBytes = Number(process.env.MEDIA_MAX_UPLOAD_BYTES ?? 8 * 1024 * 1024);
 const forwardedHeaderNames = [
   "x-correlation-id",
@@ -293,6 +294,34 @@ async function forwardOpsJsonWithBody<T>(path: string, headers: HeaderBag, body:
   return payload as T;
 }
 
+async function forwardProductImportJson<T>(path: string, headers: HeaderBag): Promise<T> {
+  const response = await fetch(`${productImportServiceUrl}${path}`, {
+    headers: buildForwardHeaders(headers)
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throwForwardedError(payload, response.status, headers);
+  }
+
+  return payload as T;
+}
+
+async function forwardProductImportJsonWithBody<T>(path: string, headers: HeaderBag, body: unknown, method = "POST"): Promise<T> {
+  const response = await fetch(`${productImportServiceUrl}${path}`, {
+    method,
+    headers: buildForwardHeaders(headers, { "Content-Type": "application/json" }),
+    body: JSON.stringify(body)
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throwForwardedError(payload, response.status, headers);
+  }
+
+  return payload as T;
+}
+
 async function forwardMediaUpload<T>(path: string, headers: HeaderBag, file: UploadedMediaFile): Promise<T> {
   const formData = new FormData();
   const bytes = file.buffer.buffer.slice(file.buffer.byteOffset, file.buffer.byteOffset + file.buffer.byteLength) as ArrayBuffer;
@@ -509,6 +538,58 @@ class HealthController {
   @Get("/ops/audit-events")
   opsAuditEvents(@Headers() headers: HeaderBag) {
     return forwardOpsJson("/audit-events", headers);
+  }
+
+  @Get("/product-import/config")
+  productImportConfig(@Headers() headers: HeaderBag) {
+    return forwardProductImportJson("/config", headers);
+  }
+
+  @Put("/product-import/config")
+  saveProductImportConfig(@Headers() headers: HeaderBag, @Body() body: unknown) {
+    return forwardProductImportJsonWithBody("/config", headers, body, "PUT");
+  }
+
+  @Get("/product-import/imports")
+  productImportTasks(
+    @Headers() headers: HeaderBag,
+    @Query("page") page: string | undefined,
+    @Query("size") size: string | undefined,
+    @Query("status") status: string | undefined,
+    @Query("search") search: string | undefined
+  ) {
+    const params = new URLSearchParams();
+    if (page) params.set("page", page);
+    if (size) params.set("size", size);
+    if (status) params.set("status", status);
+    if (search) params.set("search", search);
+    const suffix = params.size > 0 ? `?${params.toString()}` : "";
+    return forwardProductImportJson(`/imports${suffix}`, headers);
+  }
+
+  @Post("/product-import/imports")
+  createProductImportTasks(@Headers() headers: HeaderBag, @Body() body: unknown) {
+    return forwardProductImportJsonWithBody("/imports", headers, body);
+  }
+
+  @Put("/product-import/imports/:id/draft")
+  updateProductImportDraft(@Headers() headers: HeaderBag, @Param("id") id: string, @Body() body: unknown) {
+    return forwardProductImportJsonWithBody(`/imports/${encodeURIComponent(id)}/draft`, headers, body, "PUT");
+  }
+
+  @Post("/product-import/imports/:id/generate")
+  generateProductImportDraft(@Headers() headers: HeaderBag, @Param("id") id: string) {
+    return forwardProductImportJsonWithBody(`/imports/${encodeURIComponent(id)}/generate`, headers, {});
+  }
+
+  @Post("/product-import/imports/:id/publish")
+  publishProductImportDraft(@Headers() headers: HeaderBag, @Param("id") id: string) {
+    return forwardProductImportJsonWithBody(`/imports/${encodeURIComponent(id)}/publish`, headers, {});
+  }
+
+  @Get("/product-import/audit-events")
+  productImportAuditEvents(@Headers() headers: HeaderBag) {
+    return forwardProductImportJson("/audit-events", headers);
   }
 
   @Put("/catalog/categories")

@@ -19,6 +19,7 @@ This file records gaps that block or weaken a real private cross-border deployme
 13. Legal/compliance storefront pages are restored at first usable level, but production handoff still needs backend-managed legal content, real store contact placeholders, cookie consent controls, and final legal review by the merchant before payment-provider submission.
 14. Storefront preference and consent components are restored at first usable level, but production handoff still needs backend-managed market/currency rules, GeoIP defaulting, third-party script blocking tied to consent, and address/phone validation providers.
 15. Operations management is restored at first usable level, but production handoff still needs real Let's Encrypt automation, Cloudflare API integration, GA4/GSC verification, alert emails, and operator permission/audit hardening.
+16. Product import and AI workflow is restored at first usable level, but production handoff still needs real source-site fetchers, AI copy/image provider adapters, media-service image localization, queue workers, and catalog publish adapter wiring.
 
 ## P0 closure matrix
 
@@ -36,6 +37,7 @@ This file records gaps that block or weaken a real private cross-border deployme
 | Legal pages | Backend-managed policy content, real merchant details, cookie consent controls, and legal review must be completed | PayPal-facing policy routes exist, but customer-specific legal content is not yet configured |
 | Storefront preferences | GeoIP market defaulting, backend market/currency configuration, consent-script gating, and phone/address validation must be completed | Cookie, market, and phone UI exist, but production data controls are not wired |
 | Operations | Real certificate renewal, CDN cache purge, HTTP-resource scanning, analytics verification, alert emails, and role-gated operations must be completed | Admin can save config and record actions, but real cloud execution is not connected |
+| Product import | Real crawler/fetcher adapters, AI copy/image providers, media localization, queue execution, publish-to-catalog adapter, and content risk checks must be completed | Admin can import links, edit drafts, save AI config, and run publish validation, but real AI/crawler execution is not connected |
 
 ## P1 reliability and security
 
@@ -78,3 +80,4 @@ This file records gaps that block or weaken a real private cross-border deployme
 - Storefront legal and payment result pages: `/privacy-policy`, `/refund-return-policy`, `/terms-of-service`, `/contact-us`, `/payment-result`, and the shared storefront footer have been restored using the premium minimal visual system. The content uses merchant placeholders and must be connected to backend site settings before customer handoff.
 - Storefront preference/consent UI: cookie consent, international phone field, market preference selector, line-art teaware loading overlay, and simplified language toggle have been restored. Cookie category management, third-party script gating, GeoIP defaults, backend market rules, and phone/address validation are still pending.
 - Operations service: `ops-service` has been restored with PostgreSQL-backed SSL/CDN/GA4/GSC settings, audit events, action recording, admin-gateway routes, Docker Compose wiring, and an admin operations panel. Real Let's Encrypt renewal, Cloudflare cache purge/rules API, HTTP mixed-content scanning, analytics verification, alert email dispatch, and RBAC/IP allowlist enforcement are still pending.
+- Product import workflow: `product-import-service` has been restored with PostgreSQL-backed AI configuration, link import tasks, editable draft records, publish-field validation, audit events, admin-gateway routes, Docker Compose wiring, and an admin product import panel. Real crawler/fetcher adapters, AI copy/image adapters, media-service image localization, asynchronous queue workers, catalog publish adapter wiring, and risk checks are still pending.

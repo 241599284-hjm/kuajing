@@ -10,6 +10,7 @@ import { InventoryManagementPanel } from "./inventory-management-panel.js";
 import { LogisticsManagementPanel } from "./logistics-management-panel.js";
 import { OrderManagementPanel } from "./order-management-panel.js";
 import { OpsManagementPanel } from "./ops-management-panel.js";
+import { ProductImportManagementPanel } from "./product-import-management-panel.js";
 import { ProductManagementPanel } from "./product-management-panel.js";
 import { RegionManagementPanel } from "./region-management-panel.js";
 import { ReviewManagementPanel } from "./review-management-panel.js";
@@ -20,6 +21,7 @@ type AdminSection =
   | "categories"
   | "regions"
   | "products"
+  | "productImport"
   | "inventory"
   | "orders"
   | "discounts"
@@ -44,6 +46,7 @@ const navigationGroups: Array<{
       { id: "categories", label: "商品分类", description: "分类、中英文名称、排序", icon: Tags },
       { id: "regions", label: "地域分类", description: "省份城市、矢量样式", icon: MapPinned },
       { id: "products", label: "商品管理", description: "上下架、价格、中英文名称", icon: Package },
+      { id: "productImport", label: "商品导入", description: "链接导入、AI草稿、发布校验", icon: Package },
       { id: "inventory", label: "库存管理", description: "库存与仓库", icon: Boxes },
       { id: "orders", label: "订单管理", description: "订单流转", icon: ShoppingCart }
     ]
@@ -85,6 +88,11 @@ const sectionMeta: Record<AdminSection, { title: string; eyebrow: string; body: 
     title: "商品管理",
     eyebrow: "商品运营",
     body: "管理商品上架/下架、中英文名称、价格、分类和地域定制定位。"
+  },
+  productImport: {
+    title: "商品导入",
+    eyebrow: "自动化上架",
+    body: "批量导入外部商品链接，维护 AI 文案/图片 Provider 配置，编辑草稿并做发布前校验。"
   },
   categories: {
     title: "商品分类",
@@ -160,6 +168,7 @@ const sectionMeta: Record<AdminSection, { title: string; eyebrow: string; body: 
 
 const dashboardCards = [
   { title: "商品管理", section: "products" },
+  { title: "商品导入", section: "productImport" },
   { title: "商品分类", section: "categories" },
   { title: "地域分类", section: "regions" },
   { title: "库存管理", section: "inventory" },
@@ -256,6 +265,7 @@ function AdminContent({ activeSection, onNavigate }: { activeSection: AdminSecti
   if (activeSection === "categories") return <CategoryManagementPanel />;
   if (activeSection === "regions") return <RegionManagementPanel />;
   if (activeSection === "products") return <ProductManagementPanel />;
+  if (activeSection === "productImport") return <ProductImportManagementPanel />;
   if (activeSection === "inventory") return <InventoryManagementPanel />;
   if (activeSection === "orders") return <OrderManagementPanel />;
   if (activeSection === "discounts") return <DiscountManagementPanel />;
