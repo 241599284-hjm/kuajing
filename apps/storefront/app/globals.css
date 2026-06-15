@@ -89,3 +89,71 @@ body {
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+
+.teaware-loader {
+  width: 9rem;
+  height: 6rem;
+  overflow: visible;
+}
+
+.teaware-loader__pot,
+.teaware-loader__cup,
+.teaware-loader__steam,
+.teaware-loader__water {
+  fill: none;
+  stroke: #111111;
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.teaware-loader__water {
+  stroke-dasharray: 20;
+  stroke-dashoffset: 20;
+  animation: pour-water 1.35s ease-in-out infinite;
+}
+
+.teaware-loader__steam {
+  stroke-width: 3;
+  opacity: 0.65;
+  animation: tea-steam 1.8s ease-in-out infinite;
+}
+
+.teaware-loader__steam--slow {
+  animation-delay: 0.35s;
+}
+
+@keyframes pour-water {
+  0% {
+    stroke-dashoffset: 20;
+    opacity: 0;
+    transform: translateY(-1px);
+  }
+  35% {
+    opacity: 1;
+  }
+  75% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+    transform: translateY(7px);
+  }
+  100% {
+    stroke-dashoffset: -20;
+    opacity: 0;
+    transform: translateY(9px);
+  }
+}
+
+@keyframes tea-steam {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  45% {
+    opacity: 0.65;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}

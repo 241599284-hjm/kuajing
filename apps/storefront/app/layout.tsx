@@ -1,5 +1,6 @@
 import "./globals.css";
 import type { ReactNode } from "react";
+import { CookieConsentHost } from "./components/cookie-consent-host.js";
 
 export const metadata = {
   title: "Demo Teaware Store",
@@ -9,7 +10,10 @@ export const metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        {children}
+        <CookieConsentHost />
+      </body>
     </html>
   );
 }

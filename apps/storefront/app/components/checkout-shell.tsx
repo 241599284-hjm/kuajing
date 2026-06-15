@@ -8,7 +8,9 @@ import { FormEvent, useMemo, useState } from "react";
 import { clearCart, useCart } from "../lib/cart.js";
 import { products, storefrontCopy } from "../lib/storefront-content.js";
 import { PremiumStorefrontHeader } from "./premium-storefront-header.js";
+import { InternationalPhoneField } from "./international-phone-field.js";
 import { RegistrationDialog } from "./registration-dialog.js";
+import { TeawareLoadingOverlay } from "./teaware-loading-overlay.js";
 import { useStorefrontLocale } from "./use-storefront-locale.js";
 
 const apiGatewayUrl = process.env.NEXT_PUBLIC_API_GATEWAY_URL ?? "http://localhost:4000";
@@ -58,6 +60,7 @@ export function CheckoutShell() {
         },
         body: JSON.stringify({
           customerEmail: String(form.get("email") ?? ""),
+          customerPhone: `${String(form.get("phoneDialCode") ?? "")} ${String(form.get("phoneNumber") ?? "")}`.trim(),
           paymentMethod,
           shippingAddress: {
             country: String(form.get("country") ?? ""),
@@ -154,6 +157,9 @@ export function CheckoutShell() {
                   {isZh ? "邮箱" : "Email"}
                   <input className="h-11 border border-[var(--line)] bg-white px-3" name="email" placeholder="customer@example.com" required type="email" />
                 </label>
+                <div className="mt-4">
+                  <InternationalPhoneField locale={locale} label={isZh ? "手机号" : "Mobile phone"} />
+                </div>
               </section>
 
               <section className="border border-[var(--line)] bg-white/70 p-5">
@@ -266,6 +272,7 @@ export function CheckoutShell() {
         )}
       </section>
       <RegistrationDialog copy={copy.registration} isOpen={isRegistrationOpen} onClose={() => setIsRegistrationOpen(false)} />
+      <TeawareLoadingOverlay isOpen={isSubmitting} locale={locale} />
     </main>
   );
 }

@@ -19,7 +19,7 @@ export function LanguageToggle({ locale, onLocaleChange, variant = "full", class
       type="button"
       aria-label={locale === "en" ? "Switch language to Chinese" : "Switch language to English"}
       className={[
-        "flex h-10 shrink-0 items-center justify-center rounded-full bg-white text-sm font-semibold text-black shadow-sm",
+        "premium-focus flex h-10 shrink-0 items-center justify-center bg-transparent text-sm font-semibold text-black",
         variant === "compact" ? "w-10 px-0" : "px-3 md:px-4",
         className
       ].join(" ")}
