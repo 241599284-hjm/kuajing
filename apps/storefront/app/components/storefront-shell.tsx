@@ -6,6 +6,7 @@ import { MessageCircle } from "lucide-react";
 import { storefrontCopy } from "../lib/storefront-content.js";
 import { ProductCollection } from "./product-collection.js";
 import { RegionCollection } from "./region-collection.js";
+import { StorefrontFooter } from "./storefront-footer.js";
 import { StorefrontCatalogProvider, useStorefrontCatalog } from "./storefront-catalog-provider.js";
 import { StorefrontHero } from "./storefront-hero.js";
 import { useStorefrontLocale } from "./use-storefront-locale.js";
@@ -100,6 +101,8 @@ function StorefrontShellContent() {
           </div>
         </div>
       </details>
+
+      <StorefrontFooter locale={locale} />
     </main>
   );
 }

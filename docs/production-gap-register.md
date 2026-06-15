@@ -16,6 +16,7 @@ This file records gaps that block or weaken a real private cross-border deployme
 10. Transactional email is restored at first usable level, but production email delivery still needs the real Tencent SES/account-pool provider, provider health/failover, quota counters, recipient throttling persistence, and admin audit coverage before production handoff.
 11. Logistics tracking is restored at first usable level, but real 17TRACK/TrackingMore/Ship24 adapters, durable quota reset jobs, external timeout/failover tests, anti-abuse request limiting, and admin audit coverage are still required before production handoff.
 12. Product reviews are restored at first usable level, but production review handling still needs real order-purchase verification, media-service image upload binding, persistent IP/account throttling, CSRF/reCAPTCHA, abuse-word filtering, bulk moderation, and admin audit coverage before production handoff.
+13. Legal/compliance storefront pages are restored at first usable level, but production handoff still needs backend-managed legal content, real store contact placeholders, cookie consent controls, and final legal review by the merchant before payment-provider submission.
 
 ## P0 closure matrix
 
@@ -30,6 +31,7 @@ This file records gaps that block or weaken a real private cross-border deployme
 | Notification | Real SES provider/account pool, durable quota counters, throttling, template audit, and send-point verification must be completed | Transactional emails have templates and service boundaries, but production delivery remains provider-incomplete |
 | Logistics | Real provider adapters, durable quota resets, request throttling, failure drills, and tracking-email verification must be completed | Tracking UI and cache exist, but production logistics data is not yet connected to live aggregators |
 | Reviews | Order-purchase verification, media upload binding, persistent throttling, anti-spam controls, moderation audit, and bulk actions must be completed | Review display and moderation exist, but production anti-abuse and proof-of-purchase controls are incomplete |
+| Legal pages | Backend-managed policy content, real merchant details, cookie consent controls, and legal review must be completed | PayPal-facing policy routes exist, but customer-specific legal content is not yet configured |
 
 ## P1 reliability and security
 
@@ -69,3 +71,4 @@ This file records gaps that block or weaken a real private cross-border deployme
 - Logistics tracking: `logistics-service` has been restored with API-account pool shape, tracking cache, call logs, Mock Provider, admin account/log panel, storefront `/track-order` page, gateway routes, and logistics-update email send endpoint. Real 17TRACK/TrackingMore/Ship24 adapters, monthly quota reset, external provider circuit breaking, and anti-abuse throttling are still pending.
 - Product reviews: `review-service` has been restored with PostgreSQL-backed pending/approved/hidden/deleted reviews, storefront product review display/submission, admin moderation/reply/pin controls, gateway routes, and pending-review admin email notification. Real order-purchase verification, media upload binding for review photos, persistent throttling, CSRF/reCAPTCHA, abuse-word filtering, bulk moderation, and moderation audit logs are still pending.
 - Error system: `@commerce/error-codes` has been restored with standard codes, default messages, HTTP-status mapping, and gateway error payload normalization. Core services still need direct standard-code exceptions, and frontend/admin still need centralized copy rendering instead of page-local error strings.
+- Storefront legal and payment result pages: `/privacy-policy`, `/refund-return-policy`, `/terms-of-service`, `/contact-us`, `/payment-result`, and the shared storefront footer have been restored using the premium minimal visual system. The content uses merchant placeholders and must be connected to backend site settings before customer handoff.
