@@ -28,8 +28,17 @@ type ProductReview = {
   updatedAt: string;
 };
 
+type OrderDetailForReview = {
+  orderId: string;
+  customerEmail: string;
+  status: string;
+  paymentStatus: string;
+  lines: Array<{ productSlug: string }>;
+};
+
 const databaseUrl = process.env.REVIEW_DATABASE_URL;
 const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL ?? "http://localhost:4111";
+const orderServiceUrl = process.env.ORDER_SERVICE_URL ?? "http://localhost:4105";
 const pool = databaseUrl ? new Pool({ connectionString: databaseUrl }) : null;
 const memoryReviews = new Map<string, ProductReview>();
 
@@ -66,6 +75,14 @@ function normalizeRating(value: unknown) {
 function normalizeImages(value: unknown) {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === "string" && /^https?:\/\//.test(item)).slice(0, 6);
+}
+
+function normalizeEmail(value: unknown) {
+  const email = sanitizeText(value, "customerEmail", 5, 180).toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new BadRequestException("valid customerEmail is required");
+  }
+  return email;
 }
 
 function toReview(row: {
@@ -155,11 +172,11 @@ class ReviewRepository {
 
   async create(headers: HeaderBag, productSlug: string, body: Record<string, unknown>) {
     const now = new Date().toISOString();
-    const email = sanitizeText(body.customerEmail, "customerEmail", 5, 180).toLowerCase();
+    const email = normalizeEmail(body.customerEmail);
     const review: ProductReview = {
       id: randomUUID(),
       productSlug,
-      orderId: typeof body.orderId === "string" && body.orderId.trim() ? body.orderId.trim() : null,
+      orderId: sanitizeText(body.orderId, "orderId", 1, 120),
       customerEmail: email,
       nickname: sanitizeText(body.nickname, "nickname", 1, 80),
       rating: normalizeRating(body.rating),
@@ -237,6 +254,45 @@ class ReviewRepository {
 }
 
 @Injectable()
+class OrderPurchaseVerifier {
+  async assertCanReview(headers: HeaderBag, productSlug: string, body: Record<string, unknown>) {
+    const ctx = createContext(headers);
+    const customerEmail = normalizeEmail(body.customerEmail);
+    const orderId = sanitizeText(body.orderId, "orderId", 1, 120);
+
+    let detail: OrderDetailForReview;
+
+    try {
+      const response = await fetch(`${orderServiceUrl}/orders/${encodeURIComponent(orderId)}`, {
+        headers: {
+          "x-correlation-id": ctx.correlationId
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`order-service returned ${response.status}`);
+      }
+
+      detail = (await response.json()) as OrderDetailForReview;
+    } catch {
+      throw new BadRequestException("order verification is unavailable; review was not accepted");
+    }
+
+    if (detail.customerEmail.toLowerCase() !== customerEmail) {
+      throw new BadRequestException("review email does not match the order");
+    }
+
+    if (detail.paymentStatus !== "paid") {
+      throw new BadRequestException("only paid orders can be reviewed");
+    }
+
+    if (!Array.isArray(detail.lines) || !detail.lines.some((line) => line.productSlug === productSlug)) {
+      throw new BadRequestException("this order does not contain the reviewed product");
+    }
+  }
+}
+
+@Injectable()
 class ReviewNotificationService {
   async notifyPending(headers: HeaderBag, review: ProductReview) {
     const ctx = createContext(headers);
@@ -269,6 +325,7 @@ class ReviewNotificationService {
 class ReviewController {
   constructor(
     private readonly repository: ReviewRepository,
+    private readonly orderPurchaseVerifier: OrderPurchaseVerifier,
     private readonly notifications: ReviewNotificationService
   ) {}
 
@@ -292,6 +349,7 @@ class ReviewController {
 
   @Post("/products/:slug/reviews")
   async createReview(@Headers() headers: HeaderBag, @Param("slug") slug: string, @Body() body: Record<string, unknown>) {
+    await this.orderPurchaseVerifier.assertCanReview(headers, slug, body);
     const result = await this.repository.create(headers, slug, body);
     await this.notifications.notifyPending(headers, result.review);
     return result;
@@ -310,7 +368,7 @@ class ReviewController {
 
 @Module({
   controllers: [ReviewController],
-  providers: [ReviewRepository, ReviewNotificationService]
+  providers: [ReviewRepository, OrderPurchaseVerifier, ReviewNotificationService]
 })
 class AppModule {}
 

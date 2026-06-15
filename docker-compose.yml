@@ -162,6 +162,7 @@ services:
       PORT: 4112
       REVIEW_DATABASE_URL: postgresql://${POSTGRES_USER:-commerce}:${POSTGRES_PASSWORD:-commerce}@postgres:5432/review_db
       NOTIFICATION_SERVICE_URL: http://notification-service:4111
+      ORDER_SERVICE_URL: http://order-service:4105
       STOREFRONT_PUBLIC_URL: http://localhost:3000
       ADMIN_PUBLIC_URL: http://localhost:3001
       DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
@@ -173,6 +174,8 @@ services:
       postgres:
         condition: service_healthy
       notification-service:
+        condition: service_started
+      order-service:
         condition: service_started
 
   ops-service:
