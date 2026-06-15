@@ -9,6 +9,7 @@ const catalogServiceUrl = process.env.CATALOG_SERVICE_URL ?? "http://localhost:4
 const orderServiceUrl = process.env.ORDER_SERVICE_URL ?? "http://localhost:4105";
 const logisticsServiceUrl = process.env.LOGISTICS_SERVICE_URL ?? "http://localhost:4110";
 const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL ?? "http://localhost:4111";
+const reviewServiceUrl = process.env.REVIEW_SERVICE_URL ?? "http://localhost:4112";
 const forwardedHeaderNames = [
   "x-correlation-id",
   "accept-language",
@@ -163,6 +164,16 @@ class HealthController {
   @Post("/logistics/tracking/refresh")
   refreshTracking(@Headers() headers: HeaderBag, @Body() body: unknown) {
     return forwardServiceJson(logisticsServiceUrl, "/tracking/refresh", headers, body);
+  }
+
+  @Get("/products/:slug/reviews")
+  productReviews(@Headers() headers: HeaderBag, @Param("slug") slug: string) {
+    return forwardServiceJson(reviewServiceUrl, `/products/${encodeURIComponent(slug)}/reviews`, headers);
+  }
+
+  @Post("/products/:slug/reviews")
+  createProductReview(@Headers() headers: HeaderBag, @Param("slug") slug: string, @Body() body: unknown) {
+    return forwardServiceJson(reviewServiceUrl, `/products/${encodeURIComponent(slug)}/reviews`, headers, body);
   }
 }
 

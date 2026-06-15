@@ -13,6 +13,7 @@ const workerServiceUrl = process.env.WORKER_SERVICE_URL ?? "http://localhost:410
 const mediaServiceUrl = process.env.MEDIA_SERVICE_URL ?? "http://localhost:4108";
 const logisticsServiceUrl = process.env.LOGISTICS_SERVICE_URL ?? "http://localhost:4110";
 const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL ?? "http://localhost:4111";
+const reviewServiceUrl = process.env.REVIEW_SERVICE_URL ?? "http://localhost:4112";
 const maxUploadBytes = Number(process.env.MEDIA_MAX_UPLOAD_BYTES ?? 8 * 1024 * 1024);
 const forwardedHeaderNames = [
   "x-correlation-id",
@@ -230,6 +231,34 @@ async function forwardLogisticsJsonWithBody<T>(path: string, headers: HeaderBag,
   return payload as T;
 }
 
+async function forwardReviewJson<T>(path: string, headers: HeaderBag): Promise<T> {
+  const response = await fetch(`${reviewServiceUrl}${path}`, {
+    headers: buildForwardHeaders(headers)
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new HttpException(payload, response.status);
+  }
+
+  return payload as T;
+}
+
+async function forwardReviewJsonWithBody<T>(path: string, headers: HeaderBag, body: unknown, method = "PUT"): Promise<T> {
+  const response = await fetch(`${reviewServiceUrl}${path}`, {
+    method,
+    headers: buildForwardHeaders(headers, { "Content-Type": "application/json" }),
+    body: JSON.stringify(body)
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new HttpException(payload, response.status);
+  }
+
+  return payload as T;
+}
+
 async function forwardMediaUpload<T>(path: string, headers: HeaderBag, file: UploadedMediaFile): Promise<T> {
   const formData = new FormData();
   const bytes = file.buffer.buffer.slice(file.buffer.byteOffset, file.buffer.byteOffset + file.buffer.byteLength) as ArrayBuffer;
@@ -416,6 +445,16 @@ class HealthController {
   @Post("/logistics/send-update-email")
   sendLogisticsUpdateEmail(@Headers() headers: HeaderBag, @Body() body: unknown) {
     return forwardLogisticsJsonWithBody("/admin/logistics/send-update-email", headers, body);
+  }
+
+  @Get("/reviews")
+  reviews(@Headers() headers: HeaderBag) {
+    return forwardReviewJson("/admin/reviews", headers);
+  }
+
+  @Put("/reviews/:id")
+  updateReview(@Headers() headers: HeaderBag, @Param("id") id: string, @Body() body: unknown) {
+    return forwardReviewJsonWithBody(`/admin/reviews/${encodeURIComponent(id)}`, headers, body);
   }
 
   @Put("/catalog/categories")

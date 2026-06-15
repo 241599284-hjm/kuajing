@@ -15,6 +15,7 @@ This file records gaps that block or weaken a real private cross-border deployme
 9. Unified business error codes and frontend error copy must exist for common failures: invalid input, missing data, inventory shortage, upload rejected, idempotency conflict, provider unavailable, compensation pending.
 10. Transactional email is restored at first usable level, but production email delivery still needs the real Tencent SES/account-pool provider, provider health/failover, quota counters, recipient throttling persistence, and admin audit coverage before production handoff.
 11. Logistics tracking is restored at first usable level, but real 17TRACK/TrackingMore/Ship24 adapters, durable quota reset jobs, external timeout/failover tests, anti-abuse request limiting, and admin audit coverage are still required before production handoff.
+12. Product reviews are restored at first usable level, but production review handling still needs real order-purchase verification, media-service image upload binding, persistent IP/account throttling, CSRF/reCAPTCHA, abuse-word filtering, bulk moderation, and admin audit coverage before production handoff.
 
 ## P0 closure matrix
 
@@ -28,6 +29,7 @@ This file records gaps that block or weaken a real private cross-border deployme
 | Error system | Unified business error codes and user-facing copy must replace random service `message` strings | Frontend and admin cannot reliably distinguish validation, inventory, provider, or system failures |
 | Notification | Real SES provider/account pool, durable quota counters, throttling, template audit, and send-point verification must be completed | Transactional emails have templates and service boundaries, but production delivery remains provider-incomplete |
 | Logistics | Real provider adapters, durable quota resets, request throttling, failure drills, and tracking-email verification must be completed | Tracking UI and cache exist, but production logistics data is not yet connected to live aggregators |
+| Reviews | Order-purchase verification, media upload binding, persistent throttling, anti-spam controls, moderation audit, and bulk actions must be completed | Review display and moderation exist, but production anti-abuse and proof-of-purchase controls are incomplete |
 
 ## P1 reliability and security
 
@@ -65,3 +67,4 @@ This file records gaps that block or weaken a real private cross-border deployme
 - Compensation failure drill: `scripts/run-compensation-drill.ps1` and Runbook steps are implemented. The drill is not yet closed because the current workstation Docker daemon is unavailable; it must pass on repaired local Docker or the first test server before production handoff.
 - Transactional notification: `notification-service` has been restored with PostgreSQL-backed templates/logs, admin template editing, auth registration/password emails, payment success emails, and review invitation emails. Real Tencent SES account-pool delivery, persistent quota/rate-limit counters, template operation audit, and end-to-end SMTP/API sandbox verification are still pending.
 - Logistics tracking: `logistics-service` has been restored with API-account pool shape, tracking cache, call logs, Mock Provider, admin account/log panel, storefront `/track-order` page, gateway routes, and logistics-update email send endpoint. Real 17TRACK/TrackingMore/Ship24 adapters, monthly quota reset, external provider circuit breaking, and anti-abuse throttling are still pending.
+- Product reviews: `review-service` has been restored with PostgreSQL-backed pending/approved/hidden/deleted reviews, storefront product review display/submission, admin moderation/reply/pin controls, gateway routes, and pending-review admin email notification. Real order-purchase verification, media upload binding for review photos, persistent throttling, CSRF/reCAPTCHA, abuse-word filtering, bulk moderation, and moderation audit logs are still pending.

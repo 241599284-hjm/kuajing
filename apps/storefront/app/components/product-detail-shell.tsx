@@ -8,6 +8,7 @@ import { addCartItem } from "../lib/cart.js";
 import type { ProductContent, StorefrontProduct } from "../lib/storefront-content.js";
 import { storefrontCopy } from "../lib/storefront-content.js";
 import { PremiumStorefrontHeader } from "./premium-storefront-header.js";
+import { ProductReviews } from "./product-reviews.js";
 import { RegistrationDialog } from "./registration-dialog.js";
 import { useStorefrontLocale } from "./use-storefront-locale.js";
 
@@ -259,6 +260,8 @@ export function ProductDetailShell({ product }: ProductDetailShellProps) {
               <span>{copy.detail.aftersales}</span>
             </p>
           </div>
+
+          <ProductReviews locale={locale} productSlug={product.slug} />
         </article>
       </section>
 

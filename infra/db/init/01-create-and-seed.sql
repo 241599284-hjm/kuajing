@@ -4,6 +4,7 @@ CREATE DATABASE inventory_db;
 CREATE DATABASE ledger_db;
 CREATE DATABASE logistics_db;
 CREATE DATABASE notification_db;
+CREATE DATABASE review_db;
 
 \connect app_db
 

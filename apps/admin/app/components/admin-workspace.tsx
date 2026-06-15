@@ -11,6 +11,7 @@ import { LogisticsManagementPanel } from "./logistics-management-panel.js";
 import { OrderManagementPanel } from "./order-management-panel.js";
 import { ProductManagementPanel } from "./product-management-panel.js";
 import { RegionManagementPanel } from "./region-management-panel.js";
+import { ReviewManagementPanel } from "./review-management-panel.js";
 import { TradeSettingsPanel } from "./trade-settings-panel.js";
 
 type AdminSection =
@@ -21,6 +22,7 @@ type AdminSection =
   | "inventory"
   | "orders"
   | "discounts"
+  | "reviews"
   | "payments"
   | "logistics"
   | "trade"
@@ -48,6 +50,7 @@ const navigationGroups: Array<{
     title: "增长",
     items: [
       { id: "discounts", label: "折扣管理", description: "折扣码、金额、排序", icon: Percent },
+      { id: "reviews", label: "评论管理", description: "审核、回复、置顶", icon: ShieldCheck },
       { id: "support", label: "客服售后", description: "工单与售后", icon: ShieldCheck }
     ]
   },
@@ -104,6 +107,11 @@ const sectionMeta: Record<AdminSection, { title: string; eyebrow: string; body: 
     title: "折扣管理",
     eyebrow: "促销运营",
     body: "管理折扣码、固定金额折扣、百分比折扣、启停状态和展示排序。"
+  },
+  reviews: {
+    title: "评论管理",
+    eyebrow: "用户内容",
+    body: "审核商品评价、回复买家评论、处理图片评论和置顶优质内容。"
   },
   payments: {
     title: "支付管理",
@@ -242,6 +250,7 @@ function AdminContent({ activeSection, onNavigate }: { activeSection: AdminSecti
   if (activeSection === "inventory") return <InventoryManagementPanel />;
   if (activeSection === "orders") return <OrderManagementPanel />;
   if (activeSection === "discounts") return <DiscountManagementPanel />;
+  if (activeSection === "reviews") return <ReviewManagementPanel />;
   if (activeSection === "trade") return <TradeSettingsPanel />;
   if (activeSection === "logistics") return <LogisticsManagementPanel />;
   if (activeSection === "email") return <EmailSettingsPanel />;
