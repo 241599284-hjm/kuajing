@@ -28,7 +28,11 @@ export function CookieConsentBanner({ locale }: { locale: Locale }) {
   if (!visible) return null;
 
   return (
-    <aside className="fixed inset-x-0 bottom-0 z-50 border-t border-[var(--line)] bg-[var(--bg)] px-4 py-4 shadow-[0_-8px_30px_rgba(0,0,0,0.06)]">
+    <aside
+      aria-label={locale === "zh" ? "Cookie 同意提示" : "Cookie consent"}
+      className="fixed inset-x-0 bottom-0 z-50 border-t border-[var(--line)] bg-[var(--bg)] px-4 py-4 shadow-[0_-8px_30px_rgba(0,0,0,0.06)]"
+      role="region"
+    >
       <div className="mx-auto flex max-w-6xl flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div className="max-w-3xl">
           <p className="text-xs font-bold uppercase tracking-[0.14em] text-black">

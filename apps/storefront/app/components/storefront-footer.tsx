@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 import type { Locale } from "../lib/storefront-content.js";
+import { HLArtisanLogo } from "./hl-artisan-logo.js";
 
 const columns = {
   en: [
@@ -64,7 +65,7 @@ export function StorefrontFooter({ locale }: { locale: Locale }) {
     <footer className="border-t border-[var(--line)] bg-[rgba(251,250,247,0.96)]">
       <div className="premium-container grid gap-10 py-12 md:grid-cols-[1.2fr_2fr] md:py-16">
         <div>
-          <h2 className="premium-display text-2xl text-black">{locale === "zh" ? "代茶具" : "CERATEA"}</h2>
+          <HLArtisanLogo className="h-auto w-56" showSeal={false} variant="wordmark" />
           <p className="mt-4 max-w-xs text-sm leading-6 text-[var(--ink-soft)]">
             {locale === "zh"
               ? "用于跨境茶具独立站的自营精品商城底座，后续可替换品牌、政策、支付和物流配置。"

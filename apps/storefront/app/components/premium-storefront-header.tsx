@@ -7,6 +7,7 @@ import type { Locale, storefrontCopy } from "../lib/storefront-content.js";
 import { useCart } from "../lib/cart.js";
 import { useCustomerSession } from "../lib/customer-session.js";
 import { LanguageToggle } from "./language-toggle.js";
+import { HLArtisanLogo } from "./hl-artisan-logo.js";
 import { MobileNavigation } from "./mobile-navigation.js";
 import { ProductSearchBox } from "./product-search-box.js";
 
@@ -75,10 +76,12 @@ export function PremiumStorefrontHeader({
         />
 
         <Link
-          className="premium-focus premium-display shrink-0 text-xl text-black md:text-2xl"
+          aria-label={locale === "zh" ? "返回首页" : "Home"}
+          className="premium-focus shrink-0 text-black"
           href="/"
         >
-          {locale === "zh" ? "代茶具" : "CERATEA"}
+          <HLArtisanLogo className="h-11 w-[9.75rem] md:h-14 md:w-[12rem]" decorative showSeal={false} variant="wordmark" />
+          <span className="sr-only">{locale === "zh" ? "H & L Artisan 北京" : "H & L Artisan Beijing"}</span>
         </Link>
 
         <nav className="mx-auto hidden items-center gap-7 text-[12px] font-medium text-black md:flex">

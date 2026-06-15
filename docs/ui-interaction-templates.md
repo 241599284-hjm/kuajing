@@ -5,9 +5,10 @@ All new storefront and admin pages must reuse these interaction patterns. Do not
 ## Storefront
 
 - Header: premium minimal, white background, thin line, compact desktop navigation, icon-led mobile drawer.
+- Brand elements: use the shared `HLArtisanLogo`, `HLArtisanSeal`, and `HLArtisanDivider` components for logo, seal, and brand dividers. Do not redraw or rasterize the logo in individual pages.
 - Language and market selectors: text/dropdown pattern, no mismatched round badges.
 - Buttons: black primary button, thin-border secondary button, minimum touch target 44px.
-- Loading: use the teaware line-art pouring animation for checkout, buy-now, payment, registration, tracking, and review submission waits.
+- Loading: use the animated `HLArtisanLogo` mark for checkout, buy-now, payment, registration, tracking, upload, import, review submission, and other full-screen waits.
 - Legal pages: use `LegalPageShell`, one shared layout, English content by default, footer links to the other policy pages.
 - Payment result pages: use `PaymentResultShell`, no ad-hoc success/failure screens.
 - Forms: explicit error state, no silent failure, no fake save.

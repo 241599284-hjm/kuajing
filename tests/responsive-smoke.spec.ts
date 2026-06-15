@@ -191,6 +191,43 @@ test("storefront buy now opens checkout with the selected product", async ({ pag
   await expect(page.getByText("Qty 1")).toBeVisible();
 });
 
+test("storefront waiting overlay uses the vector artisan mark", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route("**/checkout/mock-order", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        orderNumber: "MOCK-LOADING-1",
+        inventoryMode: "memory",
+        storageMode: "memory",
+        paymentMode: "local-fallback"
+      })
+    });
+  });
+  await page.goto("http://localhost:3000/checkout?buyNow=porcelain-tea-set", { waitUntil: "networkidle" });
+  const acceptCookies = page.getByRole("button", { name: "Accept" });
+  if (await acceptCookies.isVisible().catch(() => false)) {
+    await acceptCookies.click();
+  }
+
+  await page.getByLabel("Email").fill("buyer@example.com");
+  await page.getByLabel("City").fill("Los Angeles");
+  await page.getByLabel("Postal code").fill("90001");
+  await page.getByLabel("Street address").fill("100 Tea Market Road");
+  await page.getByRole("button", { name: "Place mock order" }).click();
+
+  const status = page.locator("div[role='status']").filter({
+    has: page.locator("svg[aria-label='H and L Artisan loading mark']")
+  });
+  await expect(status).toBeVisible();
+  await expect(status.locator("svg[aria-label='H and L Artisan loading mark']")).toBeVisible();
+  await page.screenshot({
+    path: `${screenshotDir}/storefront-artisan-loading-overlay.png`,
+    fullPage: true
+  });
+});
+
 test("storefront regional cards open custom porcelain pages", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("http://localhost:3000", { waitUntil: "networkidle" });

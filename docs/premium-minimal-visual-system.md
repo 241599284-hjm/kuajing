@@ -21,6 +21,7 @@
 - `AdminTextarea`、`AdminFileInput` 已补充，用于商品详情图文和图片选择入口。
 - `docs/module-visual-templates.md` 已补充“模块到模板映射表”，后续 `catalog`、`media`、`inventory`、`order`、`payment`、`logistics`、`aftersales`、`promotion`、`risk`、`finance`、`tax`、`fx`、`notification`、`content`、`search`、`theme`、`reporting` 模块都必须先按矩阵选模板。
 - 后续开发必须先补公共组件/公共 class，再改业务页。禁止新增页面各写一套局部视觉。
+- 品牌元素库已开始落地：`HLArtisanLogo`、`HLArtisanSeal`、`HLArtisanDivider` 统一承载 H & L ARTISAN 矢量 Logo、北京印章、品牌分隔线和等待动效。
 
 ## 基础风格
 
@@ -86,6 +87,7 @@
 ## 前台公共规则
 
 - Header：使用 `PremiumStorefrontHeader`，所有前台页面共用。
+- 品牌元素：Logo、印章、品牌分隔线、等待动效必须使用 `apps/storefront/app/components/hl-artisan-logo.tsx`，不得在页面里复制 SVG、使用截图或另画一版。
 - 容器：使用 `.premium-container`。
 - 页面外壳：使用 `.premium-shell`。
 - 主按钮：使用 `.premium-btn`。
