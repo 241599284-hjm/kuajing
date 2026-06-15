@@ -90,6 +90,7 @@ type AdminOrderSummary = {
 };
 
 type AdminOrderLine = {
+  productSlug: string;
   skuId: string;
   skuCode: string;
   title: string;
@@ -107,6 +108,13 @@ type AdminOrderDetail = AdminOrderSummary & {
   idempotencyKey: string;
   lines: AdminOrderLine[];
   auditTrail: AdminOrderAuditEvent[];
+};
+
+type TransactionalEmailBody = {
+  to: string;
+  templateKey: string;
+  variables: Record<string, string | number | boolean | null>;
+  idempotencyKey: string;
 };
 
 type InventoryReservationResult = {
@@ -189,6 +197,7 @@ type OrderAuditRow = {
 const mockOrdersByIdempotencyKey = new Map<string, MockCheckoutOrder>();
 const paymentServiceUrl = process.env.PAYMENT_SERVICE_URL ?? "http://localhost:4106";
 const inventoryServiceUrl = process.env.INVENTORY_SERVICE_URL ?? "http://localhost:4104";
+const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL ?? "http://localhost:4111";
 const selfHostedStore = {
   storeId: process.env.DEFAULT_STORE_ID ?? "00000000-0000-4000-8000-000000000001",
   region: process.env.DEFAULT_STORE_REGION ?? "local",
@@ -205,6 +214,50 @@ function createStoreContext(correlationId: string | undefined): StoreContext {
     timezone: selfHostedStore.timezone,
     correlationId: correlationId ?? randomUUID()
   });
+}
+
+function storefrontBaseUrl(): string {
+  return process.env.STOREFRONT_PUBLIC_URL ?? "http://localhost:3000";
+}
+
+function formatMinorAmount(minor: number): string {
+  const sign = minor < 0 ? "-" : "";
+  const absolute = Math.abs(minor);
+  return `${sign}${Math.trunc(absolute / 100)}.${String(absolute % 100).padStart(2, "0")}`;
+}
+
+function htmlEscape(value: string) {
+  return value.replace(/[&<>"']/g, (char) => {
+    const map: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+    return map[char] ?? char;
+  });
+}
+
+async function sendTransactionalEmail(ctx: StoreContext, body: TransactionalEmailBody): Promise<void> {
+  const response = await fetch(`${notificationServiceUrl}/emails/transactional`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-correlation-id": ctx.correlationId,
+      "idempotency-key": body.idempotencyKey
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    console.warn(
+      JSON.stringify({
+        event: "transactional_email_failed",
+        service: "order-service",
+        templateKey: body.templateKey,
+        orderId: body.variables.orderId,
+        statusCode: response.status,
+        payload,
+        correlationId: ctx.correlationId
+      })
+    );
+  }
 }
 
 function isExceptionState(status: string, inventoryStatus: string): boolean {
@@ -723,6 +776,7 @@ class OrderRepository implements OnApplicationShutdown {
         [ctx.storeId, orderId]
       ),
       this.pool.query<{
+        product_slug_snapshot: string | null;
         sku_id: string;
         title_snapshot: string;
         sku_code_snapshot: string;
@@ -736,6 +790,7 @@ class OrderRepository implements OnApplicationShutdown {
       }>(
         `
           SELECT
+            product_slug_snapshot,
             sku_id,
             title_snapshot,
             sku_code_snapshot,
@@ -787,6 +842,7 @@ class OrderRepository implements OnApplicationShutdown {
       createdAt: order.created_at.toISOString(),
       idempotencyKey: order.idempotency_key,
       lines: lineResult.rows.map((line) => ({
+        productSlug: line.product_slug_snapshot ?? "",
         skuId: line.sku_id,
         skuCode: line.sku_code_snapshot,
         title: line.title_snapshot,
@@ -1230,6 +1286,7 @@ class OrderRepository implements OnApplicationShutdown {
             store_id,
             order_id,
             sku_id,
+            product_slug_snapshot,
             title_snapshot,
             sku_code_snapshot,
             hs_code_snapshot,
@@ -1240,13 +1297,14 @@ class OrderRepository implements OnApplicationShutdown {
             unit_price_minor,
             currency
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         `,
         [
           randomUUID(),
           ctx.storeId,
           order.orderId,
           line.skuId,
+          line.slug,
           line.title,
           line.skuCode,
           "LOCAL-MOCK",
@@ -1343,6 +1401,7 @@ class OrderController {
         createdAt: memoryOrder.createdAt,
         idempotencyKey: memoryOrder.idempotencyKey,
         lines: memoryOrder.lines.map((line, index) => ({
+          productSlug: line.slug,
           skuId: line.skuId,
           skuCode: line.skuCode,
           title: line.title,
@@ -1485,7 +1544,7 @@ class OrderController {
       const reservations = memoryOrder.inventoryReservations;
       const compensationQueued = await this.applyInventoryTransition(ctx, orderId, reservations, action, false);
       const inventoryStatus = compensationQueued ? "compensation_pending" : action === "confirm" ? "confirmed" : "cancelled";
-      return (
+      const transition = (
         transitionMemoryOrder(
           orderId,
           compensationQueued ? "compensating" : action === "confirm" ? "paid" : "cancelled",
@@ -1500,6 +1559,8 @@ class OrderController {
           storageMode: "memory"
         }
       );
+      await this.notifyOrderPaidIfNeeded(ctx, orderId, action, transition);
+      return transition;
     }
 
     let currentState: OrderStateSnapshot;
@@ -1539,13 +1600,130 @@ class OrderController {
     }
 
     const compensationQueued = await this.applyInventoryTransition(ctx, orderId, reservations, action, true);
-    return this.orderRepository.transitionOrder(
+    const transition = await this.orderRepository.transitionOrder(
       ctx,
       orderId,
       compensationQueued ? "compensating" : action === "confirm" ? "paid" : "cancelled",
       action === "confirm" ? "paid" : "cancelled",
       compensationQueued ? "compensation_pending" : action === "confirm" ? "confirmed" : "cancelled"
     );
+    await this.notifyOrderPaidIfNeeded(ctx, orderId, action, transition);
+    return transition;
+  }
+
+  private async notifyOrderPaidIfNeeded(
+    ctx: StoreContext,
+    orderId: string,
+    action: "confirm" | "cancel",
+    transition: PaymentTransitionResult
+  ) {
+    if (action !== "confirm" || transition.status !== "paid" || transition.compensationQueued) {
+      return;
+    }
+
+    try {
+      const detail = await this.orderDetailForNotification(ctx, orderId);
+      const orderUrl = `${storefrontBaseUrl()}/account?orderId=${encodeURIComponent(orderId)}`;
+      const reviewLinks = this.buildReviewLinks(detail);
+
+      await sendTransactionalEmail(ctx, {
+        to: detail.customerEmail,
+        templateKey: "payment_success",
+        idempotencyKey: `order-payment-success:${orderId}`,
+        variables: {
+          brandName: process.env.STOREFRONT_BRAND_NAME ?? "Demo Teaware",
+          orderId,
+          orderNumber: detail.orderNumber,
+          currency: detail.currency,
+          total: formatMinorAmount(detail.totalMinor),
+          orderUrl,
+          locale: process.env.DEFAULT_BUYER_LOCALE ?? "en"
+        }
+      });
+
+      if (reviewLinks.text) {
+        await sendTransactionalEmail(ctx, {
+          to: detail.customerEmail,
+          templateKey: "review_invitation",
+          idempotencyKey: `order-review-invitation:${orderId}`,
+          variables: {
+            brandName: process.env.STOREFRONT_BRAND_NAME ?? "Demo Teaware",
+            orderId,
+            orderNumber: detail.orderNumber,
+            reviewLinksHtml: reviewLinks.html,
+            reviewLinksText: reviewLinks.text,
+            locale: process.env.DEFAULT_BUYER_LOCALE ?? "en"
+          }
+        });
+      }
+    } catch (error) {
+      console.warn(
+        JSON.stringify({
+          event: "order_paid_notification_failed",
+          service: "order-service",
+          orderId,
+          message: error instanceof Error ? error.message : "unknown notification error",
+          correlationId: ctx.correlationId
+        })
+      );
+    }
+  }
+
+  private async orderDetailForNotification(ctx: StoreContext, orderId: string): Promise<AdminOrderDetail> {
+    try {
+      return await this.orderRepository.getOrderDetail(ctx, orderId);
+    } catch {
+      const memoryOrder = findMemoryOrder(orderId);
+      if (!memoryOrder) {
+        throw new BadRequestException("order does not exist");
+      }
+
+      return {
+        orderId: memoryOrder.orderId,
+        orderNumber: memoryOrder.orderNumber,
+        customerEmail: memoryOrder.customerEmail,
+        status: memoryOrder.status,
+        paymentStatus: memoryOrder.paymentStatus,
+        inventoryStatus: memoryOrder.inventoryStatus,
+        isException: isExceptionState(memoryOrder.status, memoryOrder.inventoryStatus),
+        failureCount: 0,
+        lastFailureReason: "",
+        totalMinor: memoryOrder.totalMinor,
+        currency: memoryOrder.currency,
+        storageMode: "memory",
+        createdAt: memoryOrder.createdAt,
+        idempotencyKey: memoryOrder.idempotencyKey,
+        lines: memoryOrder.lines.map((line, index) => ({
+          productSlug: line.slug,
+          skuId: line.skuId,
+          skuCode: line.skuCode,
+          title: line.title,
+          hsCode: "LOCAL-MOCK",
+          material: "LOCAL-MOCK",
+          inventoryVersion: memoryOrder.inventoryReservations[index]?.inventoryVersion ?? 1,
+          inventoryReservationKey: memoryOrder.inventoryReservations[index]?.idempotencyKey ?? `${memoryOrder.idempotencyKey}:inventory:${index}`,
+          quantity: line.quantity,
+          unitPriceMinor: line.unitPriceMinor,
+          lineTotalMinor: line.unitPriceMinor * line.quantity,
+          currency: line.currency
+        })),
+        auditTrail: []
+      };
+    }
+  }
+
+  private buildReviewLinks(detail: AdminOrderDetail): { html: string; text: string } {
+    const links = detail.lines
+      .filter((line) => line.productSlug)
+      .map((line) => {
+        const url = `${storefrontBaseUrl()}/products/${encodeURIComponent(line.productSlug)}?orderId=${encodeURIComponent(detail.orderId)}&email=${encodeURIComponent(detail.customerEmail)}#reviews`;
+        return { title: line.title, url };
+      });
+
+    return {
+      html: links.map((link) => `<a href="${htmlEscape(link.url)}">${htmlEscape(link.title)}</a>`).join("<br>"),
+      text: links.map((link) => `${link.title}: ${link.url}`).join("\n")
+    };
   }
 
   private async applyInventoryTransition(

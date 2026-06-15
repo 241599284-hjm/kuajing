@@ -2,6 +2,7 @@ CREATE DATABASE app_db;
 CREATE DATABASE order_db;
 CREATE DATABASE inventory_db;
 CREATE DATABASE ledger_db;
+CREATE DATABASE notification_db;
 
 \connect app_db
 
@@ -269,6 +270,7 @@ CREATE TABLE order_lines (
   store_id uuid NOT NULL,
   order_id uuid NOT NULL REFERENCES orders(id),
   sku_id uuid NOT NULL,
+  product_slug_snapshot text,
   title_snapshot text NOT NULL,
   sku_code_snapshot text NOT NULL,
   hs_code_snapshot text NOT NULL,

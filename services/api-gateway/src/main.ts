@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 const serviceName = "api-gateway";
 const catalogServiceUrl = process.env.CATALOG_SERVICE_URL ?? "http://localhost:4103";
 const orderServiceUrl = process.env.ORDER_SERVICE_URL ?? "http://localhost:4105";
+const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL ?? "http://localhost:4111";
 const forwardedHeaderNames = [
   "x-correlation-id",
   "accept-language",
@@ -73,6 +74,24 @@ async function forwardOrderJson<T>(path: string, headers: HeaderBag, body?: unkn
   return payload as T;
 }
 
+async function forwardServiceJson<T>(baseUrl: string, path: string, headers: HeaderBag, body?: unknown): Promise<T> {
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: body === undefined ? "GET" : "POST",
+    headers: {
+      ...buildForwardHeaders(headers),
+      ...(body === undefined ? {} : { "content-type": "application/json" })
+    },
+    body: body === undefined ? undefined : JSON.stringify(body)
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new HttpException(payload, response.status);
+  }
+
+  return payload as T;
+}
+
 @Controller()
 class HealthController {
   @Get("/health")
@@ -128,6 +147,11 @@ class HealthController {
   @Post("/payments/mock-cancel")
   cancelMockPayment(@Headers() headers: HeaderBag, @Body() body: unknown) {
     return forwardOrderJson("/payments/mock-cancel", headers, body);
+  }
+
+  @Post("/notifications/transactional-email")
+  sendTransactionalEmail(@Headers() headers: HeaderBag, @Body() body: unknown) {
+    return forwardServiceJson(notificationServiceUrl, "/emails/transactional", headers, body);
   }
 }
 

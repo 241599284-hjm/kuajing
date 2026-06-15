@@ -53,6 +53,7 @@ services:
       NODE_ENV: development
       CATALOG_SERVICE_URL: http://catalog-service:4103
       ORDER_SERVICE_URL: http://order-service:4105
+      NOTIFICATION_SERVICE_URL: http://notification-service:4111
       DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
       DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
       DEFAULT_STORE_TIMEZONE: ${DEFAULT_STORE_TIMEZONE:-Asia/Hong_Kong}
@@ -79,6 +80,7 @@ services:
       INVENTORY_SERVICE_URL: http://inventory-service:4104
       WORKER_SERVICE_URL: http://worker-service:4109
       MEDIA_SERVICE_URL: http://media-service:4108
+      NOTIFICATION_SERVICE_URL: http://notification-service:4111
       DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
       DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
       DEFAULT_STORE_TIMEZONE: ${DEFAULT_STORE_TIMEZONE:-Asia/Hong_Kong}
@@ -88,6 +90,8 @@ services:
       catalog-service:
         condition: service_started
       order-service:
+        condition: service_started
+      notification-service:
         condition: service_started
       inventory-service:
         condition: service_started
@@ -112,6 +116,7 @@ services:
       MAILPIT_SMTP_PORT: 1025
       STOREFRONT_PUBLIC_URL: http://localhost:3000
       AUTH_VERIFY_BASE_URL: http://localhost:4102
+      NOTIFICATION_SERVICE_URL: http://notification-service:4111
       DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
       DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
       DEFAULT_STORE_TIMEZONE: ${DEFAULT_STORE_TIMEZONE:-Asia/Hong_Kong}
@@ -121,6 +126,30 @@ services:
       postgres:
         condition: service_healthy
       mailpit:
+        condition: service_healthy
+      notification-service:
+        condition: service_started
+
+  notification-service:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: infra/docker/node-app.Dockerfile
+      args:
+        APP_FILTER: "@commerce/notification-service"
+    container_name: cbck-notification-service
+    environment:
+      NODE_ENV: development
+      PORT: 4111
+      NOTIFICATION_DATABASE_URL: postgresql://${POSTGRES_USER:-commerce}:${POSTGRES_PASSWORD:-commerce}@postgres:5432/notification_db
+      DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
+      DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
+      DEFAULT_STORE_TIMEZONE: ${DEFAULT_STORE_TIMEZONE:-Asia/Hong_Kong}
+      NOTIFICATION_FROM_EMAIL: Demo Teaware <notify@demo-teaware.local>
+    ports:
+      - "4111:4111"
+    depends_on:
+      postgres:
         condition: service_healthy
 
   catalog-service:
@@ -186,6 +215,7 @@ services:
       ORDER_DATABASE_URL: postgresql://${POSTGRES_USER:-commerce}:${POSTGRES_PASSWORD:-commerce}@postgres:5432/order_db
       INVENTORY_SERVICE_URL: http://inventory-service:4104
       PAYMENT_SERVICE_URL: http://payment-service:4106
+      NOTIFICATION_SERVICE_URL: http://notification-service:4111
       STOREFRONT_PUBLIC_URL: http://localhost:3000
       DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
       DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
@@ -199,6 +229,8 @@ services:
       inventory-service:
         condition: service_started
       payment-service:
+        condition: service_started
+      notification-service:
         condition: service_started
 
   payment-service:

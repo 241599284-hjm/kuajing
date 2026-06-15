@@ -13,6 +13,7 @@ This file records gaps that block or weaken a real private cross-border deployme
 7. `worker-service` compensation retry and DLQ insertion must be verified against PostgreSQL, not only typechecked.
 8. Catalog Redis invalidation must be tested by dimension: storefront aggregate, categories, regions, product summaries, product detail/projection.
 9. Unified business error codes and frontend error copy must exist for common failures: invalid input, missing data, inventory shortage, upload rejected, idempotency conflict, provider unavailable, compensation pending.
+10. Transactional email is restored at first usable level, but production email delivery still needs the real Tencent SES/account-pool provider, provider health/failover, quota counters, recipient throttling persistence, and admin audit coverage before production handoff.
 
 ## P0 closure matrix
 
@@ -24,6 +25,7 @@ This file records gaps that block or weaken a real private cross-border deployme
 | Audit and compliance | Order actions, inventory actions, product writes, and configuration writes must create audit events; DLQ action audit is first-usable complete | Production incidents cannot be traced to an operator or decision |
 | Failure drills | PostgreSQL failure must be used to verify compensation task creation, worker retry, and DLQ insertion | Distributed failure recovery remains unproven |
 | Error system | Unified business error codes and user-facing copy must replace random service `message` strings | Frontend and admin cannot reliably distinguish validation, inventory, provider, or system failures |
+| Notification | Real SES provider/account pool, durable quota counters, throttling, template audit, and send-point verification must be completed | Transactional emails have templates and service boundaries, but production delivery remains provider-incomplete |
 
 ## P1 reliability and security
 
@@ -59,3 +61,4 @@ This file records gaps that block or weaken a real private cross-border deployme
 - Inventory operations: human-readable fields, reservation ledger, confirm/cancel status lookup, manual release for reserved reservations, stock adjustment, stocktaking-style available quantity setting, safety-stock update, low-stock indicator, and inventory action audit are implemented at first usable level through `inventory-service`, `admin-gateway`, PostgreSQL `inventory_audit_events`, and admin UI. PostgreSQL failure drill, batch stocktaking, formal alert rules, and aftersales locked-stock writes are still pending.
 - Slow request structured logs: implemented for order create, inventory reserve, and catalog reads. Grafana alert rules are still pending.
 - Compensation failure drill: `scripts/run-compensation-drill.ps1` and Runbook steps are implemented. The drill is not yet closed because the current workstation Docker daemon is unavailable; it must pass on repaired local Docker or the first test server before production handoff.
+- Transactional notification: `notification-service` has been restored with PostgreSQL-backed templates/logs, admin template editing, auth registration/password emails, payment success emails, and review invitation emails. Real Tencent SES account-pool delivery, persistent quota/rate-limit counters, template operation audit, and end-to-end SMTP/API sandbox verification are still pending.

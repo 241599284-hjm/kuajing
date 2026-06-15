@@ -78,6 +78,13 @@ type EmailSettingsResponse = Omit<EmailSettings, "smtpPassword"> & {
   smtpPasswordConfigured: boolean;
 };
 
+type TransactionalEmailBody = {
+  to: string;
+  templateKey: string;
+  variables: Record<string, string | number | boolean | null>;
+  idempotencyKey: string;
+};
+
 type CustomerRegistration = {
   customerId: string;
   email: string;
@@ -89,6 +96,7 @@ type CustomerRegistration = {
 type PasswordReset = {
   email: string;
   username: string;
+  resetToken: string;
   resetLink: string;
 };
 
@@ -97,6 +105,8 @@ const selfHostedStore = {
   region: process.env.DEFAULT_STORE_REGION ?? "local",
   timezone: process.env.DEFAULT_STORE_TIMEZONE ?? "Asia/Hong_Kong"
 };
+const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL ?? "http://localhost:4111";
+const emailDeliveryMode = process.env.AUTH_EMAIL_DELIVERY_MODE ?? "notification-service";
 
 function isEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
@@ -133,6 +143,31 @@ function createStoreContext(correlationId: string | undefined): StoreContext {
     timezone: selfHostedStore.timezone,
     correlationId: correlationId ?? randomUUID()
   });
+}
+
+function publicBrandName(settings: EmailSettings): string {
+  return settings.fromName || process.env.STOREFRONT_BRAND_NAME || "Demo Teaware";
+}
+
+async function sendTransactionalEmail(ctx: StoreContext, body: TransactionalEmailBody): Promise<void> {
+  const response = await fetch(`${notificationServiceUrl}/emails/transactional`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-correlation-id": ctx.correlationId,
+      "idempotency-key": body.idempotencyKey
+    },
+    body: JSON.stringify(body)
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new BadRequestException({
+      message: "notification-service email delivery failed",
+      statusCode: response.status,
+      details: payload
+    });
+  }
 }
 
 function normalizeRegisterRequest(body: RegisterRequest) {
@@ -593,6 +628,7 @@ class AuthRepository implements OnApplicationShutdown {
     return {
       email: customer.email,
       username: customer.username,
+      resetToken: token,
       resetLink: `${process.env.STOREFRONT_PUBLIC_URL ?? "http://localhost:3000"}/reset-password?token=${token}`
     };
   }
@@ -699,9 +735,26 @@ class AuthRepository implements OnApplicationShutdown {
 
 @Injectable()
 class VerificationEmailSender {
-  async send(registration: CustomerRegistration, settings: EmailSettings): Promise<void> {
+  async send(ctx: StoreContext, registration: CustomerRegistration, settings: EmailSettings): Promise<void> {
     if (!settings.enabled) {
       throw new BadRequestException("email delivery is disabled");
+    }
+
+    if (emailDeliveryMode !== "smtp") {
+      await sendTransactionalEmail(ctx, {
+        to: registration.email,
+        templateKey: "registration_verification",
+        idempotencyKey: `auth-registration-${registration.customerId}`,
+        variables: {
+          brandName: publicBrandName(settings),
+          name: registration.username,
+          email: registration.email,
+          verificationUrl: registration.verificationLink,
+          verificationCode: registration.verificationCode,
+          locale: process.env.DEFAULT_BUYER_LOCALE ?? "en"
+        }
+      });
+      return;
     }
 
     const auth = settings.smtpUsername
@@ -742,9 +795,25 @@ class VerificationEmailSender {
 
 @Injectable()
 class PasswordResetEmailSender {
-  async send(reset: PasswordReset, settings: EmailSettings): Promise<void> {
+  async send(ctx: StoreContext, reset: PasswordReset, settings: EmailSettings): Promise<void> {
     if (!settings.enabled) {
       throw new BadRequestException("email delivery is disabled");
+    }
+
+    if (emailDeliveryMode !== "smtp") {
+      await sendTransactionalEmail(ctx, {
+        to: reset.email,
+        templateKey: "password_reset",
+        idempotencyKey: `auth-password-reset-${reset.resetToken}`,
+        variables: {
+          brandName: publicBrandName(settings),
+          name: reset.username,
+          email: reset.email,
+          resetUrl: reset.resetLink,
+          locale: process.env.DEFAULT_BUYER_LOCALE ?? "en"
+        }
+      });
+      return;
     }
 
     const auth = settings.smtpUsername
@@ -793,7 +862,7 @@ class AuthService {
     const input = normalizeRegisterRequest(body);
     const emailSettings = await this.authRepository.getEmailSettings(ctx);
     const registration = await this.authRepository.createPendingCustomer(ctx, input);
-    await this.verificationEmailSender.send(registration, emailSettings);
+    await this.verificationEmailSender.send(ctx, registration, emailSettings);
 
     return {
       customerId: registration.customerId,
@@ -802,12 +871,32 @@ class AuthService {
     };
   }
 
-  async verifyEmail(token: string) {
+  async verifyEmail(ctx: StoreContext, token: string) {
     if (!token) {
       throw new BadRequestException("token is required");
     }
 
-    return this.authRepository.verifyEmail(token);
+    const customer = await this.authRepository.verifyEmail(token);
+    const emailSettings = await this.authRepository.getEmailSettings(ctx);
+
+    if (emailSettings.enabled && emailDeliveryMode !== "smtp") {
+      sendTransactionalEmail(ctx, {
+        to: customer.email,
+        templateKey: "registration_success",
+        idempotencyKey: `auth-registration-success-${customer.email}`,
+        variables: {
+          brandName: publicBrandName(emailSettings),
+          name: customer.username,
+          email: customer.email,
+          accountUrl: `${process.env.STOREFRONT_PUBLIC_URL ?? "http://localhost:3000"}/account`,
+          locale: process.env.DEFAULT_BUYER_LOCALE ?? "en"
+        }
+      }).catch((error) => {
+        console.warn("registration success email failed", error);
+      });
+    }
+
+    return customer;
   }
 
   async login(ctx: StoreContext, body: LoginRequest) {
@@ -820,7 +909,7 @@ class AuthService {
     const reset = await this.authRepository.createPasswordReset(ctx, input.email);
 
     if (reset) {
-      await this.passwordResetEmailSender.send(reset, emailSettings);
+      await this.passwordResetEmailSender.send(ctx, reset, emailSettings);
     }
 
     return { status: "password_reset_email_sent_if_account_exists" };
@@ -917,8 +1006,8 @@ class AuthController {
 
   @Get("/verify-email")
   @Header("Content-Type", "text/html; charset=utf-8")
-  async verifyEmail(@Query("token") token: string) {
-    const customer = await this.authService.verifyEmail(token);
+  async verifyEmail(@Headers("x-correlation-id") correlationId: string | undefined, @Query("token") token: string) {
+    const customer = await this.authService.verifyEmail(createStoreContext(correlationId), token);
 
     return `
       <!doctype html>

@@ -11,6 +11,7 @@ const orderServiceUrl = process.env.ORDER_SERVICE_URL ?? "http://localhost:4105"
 const inventoryServiceUrl = process.env.INVENTORY_SERVICE_URL ?? "http://localhost:4104";
 const workerServiceUrl = process.env.WORKER_SERVICE_URL ?? "http://localhost:4109";
 const mediaServiceUrl = process.env.MEDIA_SERVICE_URL ?? "http://localhost:4108";
+const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL ?? "http://localhost:4111";
 const maxUploadBytes = Number(process.env.MEDIA_MAX_UPLOAD_BYTES ?? 8 * 1024 * 1024);
 const forwardedHeaderNames = [
   "x-correlation-id",
@@ -172,6 +173,34 @@ async function forwardWorkerJsonWithBody<T>(path: string, headers: HeaderBag, bo
   return payload as T;
 }
 
+async function forwardNotificationJson<T>(path: string, headers: HeaderBag): Promise<T> {
+  const response = await fetch(`${notificationServiceUrl}${path}`, {
+    headers: buildForwardHeaders(headers)
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new HttpException(payload, response.status);
+  }
+
+  return payload as T;
+}
+
+async function forwardNotificationPutJson<T>(path: string, headers: HeaderBag, body: unknown): Promise<T> {
+  const response = await fetch(`${notificationServiceUrl}${path}`, {
+    method: "PUT",
+    headers: buildForwardHeaders(headers, { "Content-Type": "application/json" }),
+    body: JSON.stringify(body)
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new HttpException(payload, response.status);
+  }
+
+  return payload as T;
+}
+
 async function forwardMediaUpload<T>(path: string, headers: HeaderBag, file: UploadedMediaFile): Promise<T> {
   const formData = new FormData();
   const bytes = file.buffer.buffer.slice(file.buffer.byteOffset, file.buffer.byteOffset + file.buffer.byteLength) as ArrayBuffer;
@@ -308,6 +337,26 @@ class HealthController {
   @UseInterceptors(FileInterceptor("file", { limits: { fileSize: maxUploadBytes } }))
   uploadProductAsset(@Headers() headers: HeaderBag, @UploadedFile() file: UploadedMediaFile) {
     return forwardMediaUpload("/media/product-assets", headers, file);
+  }
+
+  @Get("/notification/email-accounts")
+  notificationEmailAccounts(@Headers() headers: HeaderBag) {
+    return forwardNotificationJson("/admin/notification/email-accounts", headers);
+  }
+
+  @Get("/notification/email-logs")
+  notificationEmailLogs(@Headers() headers: HeaderBag) {
+    return forwardNotificationJson("/admin/notification/email-logs", headers);
+  }
+
+  @Get("/notification/templates")
+  notificationTemplates(@Headers() headers: HeaderBag) {
+    return forwardNotificationJson("/admin/notification/templates", headers);
+  }
+
+  @Put("/notification/templates/:key")
+  saveNotificationTemplate(@Headers() headers: HeaderBag, @Param("key") key: string, @Body() body: unknown) {
+    return forwardNotificationPutJson(`/admin/notification/templates/${encodeURIComponent(key)}`, headers, body);
   }
 
   @Put("/catalog/categories")
