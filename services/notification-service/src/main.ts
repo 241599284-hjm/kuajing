@@ -46,6 +46,21 @@ type EmailLogRecord = {
   createdAt: string;
 };
 
+type EmailAccountRecord = {
+  id: string;
+  provider: string;
+  label: string;
+  fromEmailAddress: string;
+  dailyLimit: number;
+  usedCount: number;
+  status: "active" | "quota_exhausted" | "disabled";
+  failureCount: number;
+  secretIdRef: string;
+  secretKeyRef: string;
+  usageDate: string;
+  storageMode?: "postgres" | "memory";
+};
+
 type NormalizedEmail = {
   to: string;
   subject: string;
@@ -64,6 +79,22 @@ const selfHostedStore = {
 const globalPerMinuteLimit = Number(process.env.NOTIFICATION_GLOBAL_PER_MINUTE_LIMIT ?? 10);
 const recipientCooldownMinutes = Number(process.env.NOTIFICATION_RECIPIENT_COOLDOWN_MINUTES ?? 60);
 const memoryLogs: EmailLogRecord[] = [];
+const memoryAccounts: EmailAccountRecord[] = [
+  {
+    id: "00000000-0000-4000-8000-000000411101",
+    provider: "mock",
+    label: "local-mock",
+    fromEmailAddress: process.env.NOTIFICATION_FROM_EMAIL ?? "Demo Teaware <notify@demo-teaware.local>",
+    dailyLimit: Number(process.env.NOTIFICATION_DAILY_LIMIT ?? 40),
+    usedCount: 0,
+    status: "active",
+    failureCount: 0,
+    secretIdRef: "env:NOTIFICATION_EMAIL_ACCOUNTS_JSON",
+    secretKeyRef: "env:NOTIFICATION_EMAIL_ACCOUNTS_JSON",
+    usageDate: new Date().toISOString().slice(0, 10),
+    storageMode: "memory"
+  }
+];
 
 const defaultTemplates: EmailTemplateRecord[] = [
   {
@@ -299,12 +330,176 @@ function normalizeEmail(body: SendEmailBody): NormalizedEmail {
   };
 }
 
+function normalizeText(value: unknown, field: string, min: number, max: number) {
+  if (typeof value !== "string") throw new BadRequestException(`${field} is required`);
+  const text = value.trim();
+  if (text.length < min || text.length > max || /[\r\n]/.test(text)) {
+    throw new BadRequestException(`${field} must be ${min}-${max} characters`);
+  }
+  return text;
+}
+
+function normalizeAccount(input: Partial<EmailAccountRecord>): EmailAccountRecord {
+  const dailyLimit = Number(input.dailyLimit);
+  const usedCount = Number(input.usedCount ?? 0);
+  const failureCount = Number(input.failureCount ?? 0);
+  const status = input.status ?? "active";
+
+  if (!Number.isInteger(dailyLimit) || dailyLimit < 1 || dailyLimit > 100000) {
+    throw new BadRequestException("dailyLimit must be 1-100000");
+  }
+  if (!Number.isInteger(usedCount) || usedCount < 0) {
+    throw new BadRequestException("usedCount must be a non-negative integer");
+  }
+  if (!Number.isInteger(failureCount) || failureCount < 0) {
+    throw new BadRequestException("failureCount must be a non-negative integer");
+  }
+  if (!["active", "quota_exhausted", "disabled"].includes(status)) {
+    throw new BadRequestException("account status is invalid");
+  }
+
+  return {
+    id: input.id && /^[0-9a-f-]{36}$/i.test(input.id) ? input.id : randomUUID(),
+    provider: normalizeText(input.provider, "provider", 2, 80),
+    label: normalizeText(input.label, "label", 2, 120),
+    fromEmailAddress: normalizeText(input.fromEmailAddress, "fromEmailAddress", 3, 240),
+    dailyLimit,
+    usedCount: Math.min(usedCount, dailyLimit),
+    status: usedCount >= dailyLimit && status === "active" ? "quota_exhausted" : status,
+    failureCount,
+    secretIdRef: normalizeText(input.secretIdRef, "secretIdRef", 3, 240),
+    secretKeyRef: normalizeText(input.secretKeyRef, "secretKeyRef", 3, 240),
+    usageDate: input.usageDate && /^\d{4}-\d{2}-\d{2}$/.test(input.usageDate) ? input.usageDate : new Date().toISOString().slice(0, 10),
+    storageMode: input.storageMode
+  };
+}
+
 @Injectable()
 class EmailStore {
   private readonly pool = new Pool({
     connectionString: process.env.NOTIFICATION_DATABASE_URL ?? "postgres://commerce:commerce@localhost:5432/notification_db",
     connectionTimeoutMillis: 500
   });
+
+  async listAccounts(store: StoreContext): Promise<EmailAccountRecord[]> {
+    try {
+      await this.pool.query(
+        `UPDATE notification_email_accounts
+         SET used_count = 0,
+             status = CASE WHEN status = 'quota_exhausted' THEN 'active' ELSE status END,
+             usage_date = current_date,
+             updated_at = now()
+         WHERE store_id = $1 AND usage_date < current_date`,
+        [store.storeId]
+      );
+
+      const result = await this.pool.query<{
+        id: string;
+        provider: string;
+        label: string;
+        from_email_address: string;
+        daily_limit: number;
+        used_count: number;
+        status: EmailAccountRecord["status"];
+        failure_count: number;
+        secret_id_ref: string;
+        secret_key_ref: string;
+        usage_date: Date;
+      }>(
+        `SELECT id, provider, label, from_email_address, daily_limit, used_count, status,
+                failure_count, secret_id_ref, secret_key_ref, usage_date
+         FROM notification_email_accounts
+         WHERE store_id = $1
+         ORDER BY created_at ASC`,
+        [store.storeId]
+      );
+
+      if (result.rows.length === 0) return memoryAccounts;
+
+      return result.rows.map((row) => ({
+        id: row.id,
+        provider: row.provider,
+        label: row.label,
+        fromEmailAddress: row.from_email_address,
+        dailyLimit: row.daily_limit,
+        usedCount: row.used_count,
+        status: row.status,
+        failureCount: row.failure_count,
+        secretIdRef: row.secret_id_ref,
+        secretKeyRef: row.secret_key_ref,
+        usageDate: row.usage_date.toISOString().slice(0, 10),
+        storageMode: "postgres"
+      }));
+    } catch {
+      return memoryAccounts;
+    }
+  }
+
+  async saveAccounts(store: StoreContext, input: unknown) {
+    const rawAccounts = Array.isArray(input) ? input : typeof input === "object" && input && "accounts" in input ? (input as { accounts?: unknown }).accounts : undefined;
+    if (!Array.isArray(rawAccounts) || rawAccounts.length === 0 || rawAccounts.length > 20) {
+      throw new BadRequestException("accounts must contain 1-20 items");
+    }
+    const accounts = rawAccounts.map((item) => normalizeAccount(item as Partial<EmailAccountRecord>));
+
+    const client = await this.pool.connect().catch(() => null);
+    if (!client) {
+      memoryAccounts.splice(0, memoryAccounts.length, ...accounts.map((account) => ({ ...account, storageMode: "memory" as const })));
+      return memoryAccounts;
+    }
+
+    try {
+      await client.query("BEGIN");
+      await client.query("DELETE FROM notification_email_accounts WHERE store_id = $1", [store.storeId]);
+      for (const account of accounts) {
+        await client.query(
+          `INSERT INTO notification_email_accounts
+            (id, store_id, provider, label, from_email_address, daily_limit, used_count, status,
+             failure_count, secret_id_ref, secret_key_ref, usage_date, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::date,now())`,
+          [
+            account.id,
+            store.storeId,
+            account.provider,
+            account.label,
+            account.fromEmailAddress,
+            account.dailyLimit,
+            account.usedCount,
+            account.status,
+            account.failureCount,
+            account.secretIdRef,
+            account.secretKeyRef,
+            account.usageDate
+          ]
+        );
+      }
+      await client.query("COMMIT");
+      return this.listAccounts(store);
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      memoryAccounts.splice(0, memoryAccounts.length, ...accounts.map((account) => ({ ...account, storageMode: "memory" as const })));
+      return memoryAccounts;
+    } finally {
+      client.release();
+    }
+  }
+
+  async consumeAccountQuota(store: StoreContext, account: EmailAccountRecord) {
+    if (account.storageMode === "postgres") {
+      await this.pool.query(
+        `UPDATE notification_email_accounts
+         SET used_count = used_count + 1,
+             status = CASE WHEN used_count + 1 >= daily_limit THEN 'quota_exhausted' ELSE status END,
+             updated_at = now()
+         WHERE store_id = $1 AND id = $2`,
+        [store.storeId, account.id]
+      ).catch(() => undefined);
+      return;
+    }
+
+    account.usedCount += 1;
+    if (account.usedCount >= account.dailyLimit) account.status = "quota_exhausted";
+  }
 
   async listTemplates(store: StoreContext): Promise<EmailTemplateRecord[]> {
     try {
@@ -547,22 +742,17 @@ class EmailStore {
 class NotificationService {
   constructor(private readonly store: EmailStore) {}
 
-  accounts() {
-    return [
-      {
-        id: "local-mock",
-        provider: "mock",
-        label: "local-mock",
-        fromEmailAddress: process.env.NOTIFICATION_FROM_EMAIL ?? "Demo Teaware <notify@demo-teaware.local>",
-        dailyLimit: Number(process.env.NOTIFICATION_DAILY_LIMIT ?? 40),
-        usedCount: memoryLogs.filter((log) => log.status === "sent").length,
-        status: "active",
-        failureCount: 0,
-        secretIdRef: "env:NOTIFICATION_EMAIL_ACCOUNTS_JSON",
-        secretKeyRef: "env:NOTIFICATION_EMAIL_ACCOUNTS_JSON",
-        usageDate: new Date().toISOString().slice(0, 10)
-      }
-    ];
+  accounts(store: StoreContext) {
+    return this.store.listAccounts(store);
+  }
+
+  saveAccounts(store: StoreContext, body: unknown) {
+    return this.store.saveAccounts(store, body);
+  }
+
+  private async chooseAccount(store: StoreContext) {
+    const accounts = await this.store.listAccounts(store);
+    return accounts.find((account) => account.status === "active" && account.usedCount < account.dailyLimit);
   }
 
   async prepare(store: StoreContext, body: SendEmailBody): Promise<NormalizedEmail> {
@@ -619,20 +809,37 @@ class NotificationService {
       return { status: "rate_limited", message: "同一收件邮箱短时间内已发送过同类事务邮件。" };
     }
 
+    const account = await this.chooseAccount(store);
+    if (!account) {
+      await this.store.log(store, {
+        idempotencyKey: email.idempotencyKey,
+        recipientEmail: email.to,
+        subject: email.subject,
+        templateKey: email.templateKey,
+        provider: "none",
+        status: "rate_limited",
+        errorSummary: "email account pool quota exhausted or disabled",
+        consumedQuota: false,
+        durationMs: 0
+      });
+      return { status: "rate_limited", message: "邮件账号池没有可用账号，请检查额度或启用状态。" };
+    }
+
     const startedAt = Date.now();
-    const providerMessageId = `mock_email_${email.idempotencyKey}`;
+    const providerMessageId = `${account.provider}_${account.id}_${email.idempotencyKey}`;
+    await this.store.consumeAccountQuota(store, account);
     await this.store.log(store, {
       idempotencyKey: email.idempotencyKey,
       recipientEmail: email.to,
       subject: email.subject,
       templateKey: email.templateKey,
-      provider: "mock",
+      provider: `${account.provider}:${account.label}`,
       status: "sent",
       providerMessageId,
       consumedQuota: true,
       durationMs: Date.now() - startedAt
     });
-    return { status: "sent", message: "邮件已进入事务发送通道", provider: "mock", providerMessageId };
+    return { status: "sent", message: "邮件已进入事务发送通道", provider: `${account.provider}:${account.label}`, providerMessageId };
   }
 }
 
@@ -651,8 +858,13 @@ class NotificationController {
   }
 
   @Get("/admin/notification/email-accounts")
-  accounts() {
-    return this.service.accounts();
+  accounts(@Headers("x-correlation-id") correlationId: string | undefined) {
+    return this.service.accounts(createStoreContext(correlationId));
+  }
+
+  @Put("/admin/notification/email-accounts")
+  saveAccounts(@Headers("x-correlation-id") correlationId: string | undefined, @Body() body: unknown) {
+    return this.service.saveAccounts(createStoreContext(correlationId), body);
   }
 
   @Get("/admin/notification/email-logs")

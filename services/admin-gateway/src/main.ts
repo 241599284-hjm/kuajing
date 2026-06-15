@@ -508,6 +508,11 @@ class HealthController {
     return forwardNotificationJson("/admin/notification/email-accounts", headers);
   }
 
+  @Put("/notification/email-accounts")
+  saveNotificationEmailAccounts(@Headers() headers: HeaderBag, @Body() body: unknown) {
+    return forwardNotificationPutJson("/admin/notification/email-accounts", headers, body);
+  }
+
   @Get("/notification/email-logs")
   notificationEmailLogs(@Headers() headers: HeaderBag) {
     return forwardNotificationJson("/admin/notification/email-logs", headers);

@@ -472,6 +472,7 @@ services:
       - ./infra/db/migrations/023-notification-email-templates.sql:/docker-entrypoint-initdb.d/20-notification-email-templates.sql:ro
       - ./infra/db/migrations/024-order-line-product-slug.sql:/docker-entrypoint-initdb.d/21-order-line-product-slug.sql:ro
       - ./infra/db/migrations/025-email-verification-policy.sql:/docker-entrypoint-initdb.d/22-email-verification-policy.sql:ro
+      - ./infra/db/migrations/026-notification-email-accounts.sql:/docker-entrypoint-initdb.d/23-notification-email-accounts.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U commerce -d postgres"]
       interval: 5s

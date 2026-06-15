@@ -11,6 +11,7 @@ import {
   AdminPanel,
   AdminPrimaryButton,
   AdminSecondaryButton,
+  AdminSelect,
   AdminTextInput,
   AdminTextarea
 } from "./admin-ui.js";
@@ -55,6 +56,21 @@ type NotificationEmailLog = {
   createdAt: string;
 };
 
+type EmailAccountRecord = {
+  id: string;
+  provider: string;
+  label: string;
+  fromEmailAddress: string;
+  dailyLimit: number;
+  usedCount: number;
+  status: "active" | "quota_exhausted" | "disabled";
+  failureCount: number;
+  secretIdRef: string;
+  secretKeyRef: string;
+  usageDate: string;
+  storageMode?: "postgres" | "memory";
+};
+
 const authServiceUrl = process.env.NEXT_PUBLIC_AUTH_SERVICE_URL ?? "http://localhost:4102";
 const adminGatewayUrl = process.env.NEXT_PUBLIC_ADMIN_GATEWAY_URL ?? "http://localhost:4001";
 
@@ -84,6 +100,9 @@ export function EmailSettingsPanel() {
   const [templateStatus, setTemplateStatus] = useState("加载中");
   const [isSavingTemplate, setIsSavingTemplate] = useState(false);
   const [emailLogs, setEmailLogs] = useState<NotificationEmailLog[]>([]);
+  const [emailAccounts, setEmailAccounts] = useState<EmailAccountRecord[]>([]);
+  const [accountsStatus, setAccountsStatus] = useState("加载中");
+  const [isSavingAccounts, setIsSavingAccounts] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -142,9 +161,27 @@ export function EmailSettingsPanel() {
       }
     }
 
+    async function loadEmailAccounts() {
+      try {
+        const response = await fetch(`${adminGatewayUrl}/notification/email-accounts`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = (await response.json()) as EmailAccountRecord[];
+        if (isMounted) {
+          setEmailAccounts(data);
+          setAccountsStatus("已加载");
+        }
+      } catch (error) {
+        if (isMounted) {
+          setEmailAccounts([]);
+          setAccountsStatus(error instanceof Error ? error.message : "notification-service API 未连接");
+        }
+      }
+    }
+
     void loadSettings();
     void loadTemplates();
     void loadEmailLogs();
+    void loadEmailAccounts();
 
     return () => {
       isMounted = false;
@@ -235,6 +272,59 @@ export function EmailSettingsPanel() {
       setTemplateStatus(message === "Internal server error" || message.startsWith("HTTP 5") ? "API 未连接，本地已保留修改" : message);
     } finally {
       setIsSavingTemplate(false);
+    }
+  }
+
+  function updateAccount(index: number, patch: Partial<EmailAccountRecord>) {
+    setEmailAccounts((accounts) => accounts.map((account, currentIndex) => (currentIndex === index ? { ...account, ...patch } : account)));
+  }
+
+  function addAccount() {
+    setEmailAccounts((accounts) => [
+      ...accounts,
+      {
+        id: crypto.randomUUID(),
+        provider: "tencent_ses",
+        label: "Tencent SES",
+        fromEmailAddress: settings.fromEmail,
+        dailyLimit: 40,
+        usedCount: 0,
+        status: "active",
+        failureCount: 0,
+        secretIdRef: "env:TENCENT_SES_SECRET_ID",
+        secretKeyRef: "env:TENCENT_SES_SECRET_KEY",
+        usageDate: new Date().toISOString().slice(0, 10),
+        storageMode: "memory"
+      }
+    ]);
+  }
+
+  async function saveAccounts() {
+    setIsSavingAccounts(true);
+    setAccountsStatus("保存中");
+
+    try {
+      const response = await fetch(`${adminGatewayUrl}/notification/email-accounts`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "idempotency-key": `email-accounts:${Date.now()}`
+        },
+        body: JSON.stringify({ accounts: emailAccounts })
+      });
+
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { message?: string };
+        throw new Error(body.message ?? `HTTP ${response.status}`);
+      }
+
+      const saved = (await response.json()) as EmailAccountRecord[];
+      setEmailAccounts(saved);
+      setAccountsStatus(saved.some((account) => account.storageMode === "memory") ? "已保存到内存，数据库未连接" : "已保存");
+    } catch (error) {
+      setAccountsStatus(error instanceof Error ? error.message : "保存失败");
+    } finally {
+      setIsSavingAccounts(false);
     }
   }
 
@@ -361,6 +451,87 @@ export function EmailSettingsPanel() {
           </AdminActionRow>
         </div>
       </form>
+      </AdminPanel>
+
+      <AdminPanel
+        eyebrow="Provider Pool"
+        id="transactional-email-accounts-title"
+        status={accountsStatus}
+        title="邮件 API 账号池"
+      >
+        <div className="mt-5 grid gap-4">
+          {emailAccounts.length === 0 ? (
+            <AdminListCard eyebrow="账号池" title="暂无账号" description="notification-service 未连接时不会展示假账号。">
+              <p className="mt-3 text-xs text-[var(--ink-soft)]">可新增腾讯云 SES、Mock 或其他事务邮件 Provider 账号，密钥只填写环境变量引用，不在后台明文保存真实密钥。</p>
+            </AdminListCard>
+          ) : null}
+
+          {emailAccounts.map((account, index) => (
+            <AdminListCard
+              key={account.id}
+              eyebrow={`${account.provider} · ${account.status}`}
+              title={account.label}
+              description={`今日额度 ${account.usedCount}/${account.dailyLimit} · ${account.usageDate}`}
+            >
+              <div className="mt-4 grid gap-4 lg:grid-cols-3">
+                <AdminField label="Provider">
+                  <AdminSelect value={account.provider} onChange={(event) => updateAccount(index, { provider: event.target.value })}>
+                    <option value="mock">Mock</option>
+                    <option value="tencent_ses">腾讯云 SES</option>
+                    <option value="sendgrid">SendGrid</option>
+                    <option value="amazon_ses">Amazon SES</option>
+                  </AdminSelect>
+                </AdminField>
+                <AdminField label="账号名称">
+                  <AdminTextInput value={account.label} onChange={(event) => updateAccount(index, { label: event.target.value })} />
+                </AdminField>
+                <AdminField label="状态">
+                  <AdminSelect value={account.status} onChange={(event) => updateAccount(index, { status: event.target.value as EmailAccountRecord["status"] })}>
+                    <option value="active">启用</option>
+                    <option value="quota_exhausted">额度耗尽</option>
+                    <option value="disabled">禁用</option>
+                  </AdminSelect>
+                </AdminField>
+                <AdminField label="发件人">
+                  <AdminTextInput value={account.fromEmailAddress} onChange={(event) => updateAccount(index, { fromEmailAddress: event.target.value })} />
+                </AdminField>
+                <AdminField label="每日额度">
+                  <AdminNumberInput min={1} value={account.dailyLimit} onChange={(event) => updateAccount(index, { dailyLimit: Number(event.target.value) })} />
+                </AdminField>
+                <AdminField label="今日已用">
+                  <AdminNumberInput min={0} value={account.usedCount} onChange={(event) => updateAccount(index, { usedCount: Number(event.target.value) })} />
+                </AdminField>
+                <AdminField label="SecretId 引用">
+                  <AdminTextInput value={account.secretIdRef} onChange={(event) => updateAccount(index, { secretIdRef: event.target.value })} />
+                </AdminField>
+                <AdminField label="SecretKey 引用">
+                  <AdminTextInput value={account.secretKeyRef} onChange={(event) => updateAccount(index, { secretKeyRef: event.target.value })} />
+                </AdminField>
+                <AdminField label="失败次数">
+                  <AdminNumberInput min={0} value={account.failureCount} onChange={(event) => updateAccount(index, { failureCount: Number(event.target.value) })} />
+                </AdminField>
+              </div>
+              <AdminActionRow className="mt-4">
+                <AdminSecondaryButton
+                  type="button"
+                  onClick={() => setEmailAccounts((accounts) => accounts.filter((_, currentIndex) => currentIndex !== index))}
+                >
+                  删除账号
+                </AdminSecondaryButton>
+              </AdminActionRow>
+            </AdminListCard>
+          ))}
+
+          <AdminActionRow>
+            <AdminSecondaryButton type="button" onClick={addAccount}>
+              新增账号
+            </AdminSecondaryButton>
+            <AdminPrimaryButton disabled={isSavingAccounts || emailAccounts.length === 0} type="button" onClick={() => void saveAccounts()}>
+              {isSavingAccounts ? "保存中" : "保存账号池"}
+            </AdminPrimaryButton>
+            <AdminInlineStatus>{accountsStatus}</AdminInlineStatus>
+          </AdminActionRow>
+        </div>
       </AdminPanel>
 
       <AdminPanel
