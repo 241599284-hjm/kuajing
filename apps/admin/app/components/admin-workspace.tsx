@@ -3,6 +3,7 @@
 import { BarChart3, Boxes, CreditCard, FileClock, Globe2, Mail, MapPinned, Menu, Package, Percent, Settings, ShieldCheck, ShoppingCart, Tags, Truck, X } from "lucide-react";
 import { useState } from "react";
 import { CategoryManagementPanel } from "./category-management-panel.js";
+import { AuditLogPanel } from "./audit-log-panel.js";
 import { DeadLetterManagementPanel } from "./dead-letter-management-panel.js";
 import { DiscountManagementPanel } from "./discount-management-panel.js";
 import { EmailSettingsPanel } from "./email-settings-panel.js";
@@ -275,6 +276,7 @@ function AdminContent({ activeSection, onNavigate }: { activeSection: AdminSecti
   if (activeSection === "email") return <EmailSettingsPanel />;
   if (activeSection === "dlq") return <DeadLetterManagementPanel />;
   if (activeSection === "ops") return <OpsManagementPanel />;
+  if (activeSection === "audit") return <AuditLogPanel />;
   return <PlaceholderPanel section={activeSection} />;
 }
 
