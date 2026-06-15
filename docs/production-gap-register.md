@@ -63,6 +63,7 @@ This file records gaps that block or weaken a real private cross-border deployme
 5. Environment files must be layered by deployment target and validated at service startup.
 6. API versioning must be defined before external customer integrations depend on endpoints.
 7. ADRs must record load-bearing decisions such as TCC/Saga, Redis caching, Docker Compose first, managed state services, and Provider interfaces.
+8. Local verification and deployment configuration scripts are restored, but production-specific `.env.prod` validation must be run for every customer handoff.
 
 ## Current closure status
 
@@ -82,3 +83,4 @@ This file records gaps that block or weaken a real private cross-border deployme
 - Operations service: `ops-service` has been restored with PostgreSQL-backed SSL/CDN/GA4/GSC settings, audit events, action recording, admin-gateway routes, Docker Compose wiring, and an admin operations panel. Real Let's Encrypt renewal, Cloudflare cache purge/rules API, HTTP mixed-content scanning, analytics verification, alert email dispatch, and RBAC/IP allowlist enforcement are still pending.
 - Product import workflow: `product-import-service` has been restored with PostgreSQL-backed AI configuration, link import tasks, editable draft records, publish-field validation, audit events, admin-gateway routes, Docker Compose wiring, and an admin product import panel. Real crawler/fetcher adapters, AI copy/image adapters, media-service image localization, asynchronous queue workers, catalog publish adapter wiring, and risk checks are still pending.
 - Unified audit viewer: the admin `审计日志` page has been restored and aggregates real inventory, operations, and product-import audit sources through `admin-gateway`. Order detail and DLQ audit trails remain module-local, and product/catalog/media write audits still need broader coverage before production handoff.
+- Delivery guardrails: `scripts/run-local-verification.ps1`, `scripts/validate-deployment-config.ps1`, `docs/product-import-ai-workflow.md`, and `docs/ui-interaction-templates.md` have been restored. Customer-specific production environment validation still must be run against real, non-placeholder secrets and service endpoints.
