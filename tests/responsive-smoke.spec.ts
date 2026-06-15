@@ -624,8 +624,10 @@ test("admin restored logistics, review, ops, product import, email template, and
   await expect(page.locator("body")).toContainText(/(注册|付款成功|物流|评价|暂无模板|HTTP|API 未连接)/);
 
   await openAdminSection(/审计日志/);
-  await expect(page.locator("section[aria-labelledby='audit-log']").getByRole("heading", { name: "审计日志" })).toBeVisible();
+  const auditPanel = page.locator("section[aria-labelledby='audit-log']");
+  await expect(auditPanel.getByRole("heading", { name: "审计日志" })).toBeVisible();
   await expect(page.getByRole("button", { name: "刷新审计" })).toBeVisible();
+  await expect(auditPanel.locator("select")).toContainText("商品资料");
 
   const horizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(horizontalOverflow).toBeLessThanOrEqual(1);

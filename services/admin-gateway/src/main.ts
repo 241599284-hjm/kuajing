@@ -417,6 +417,11 @@ class HealthController {
     return forwardJson("/regions", headers);
   }
 
+  @Get("/catalog/audit-events")
+  catalogAuditEvents(@Headers() headers: HeaderBag) {
+    return forwardJson("/audit-events", headers);
+  }
+
   @Get("/orders")
   orders(@Headers() headers: HeaderBag) {
     return forwardOrderJson("/orders", headers);

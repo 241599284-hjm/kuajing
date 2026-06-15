@@ -17,7 +17,7 @@ import type {
 import { assertStoreContext, storeCacheKey, type StoreContext } from "@commerce/store-context";
 import { Redis } from "ioredis";
 import { randomUUID } from "node:crypto";
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
 
 type CatalogProductRow = {
   product_id: string;
@@ -207,6 +207,34 @@ type AdminProductList = {
   total: number;
 };
 
+type CatalogAuditEvent = {
+  id: string;
+  storeId: string;
+  entityType: "category" | "region" | "product";
+  entityId: string;
+  action: string;
+  actorId: string;
+  summary: string;
+  oldValue: unknown;
+  newValue: unknown;
+  correlationId: string;
+  createdAt: string;
+};
+
+type CatalogAuditEventRow = {
+  id: string;
+  store_id: string;
+  entity_type: "category" | "region" | "product";
+  entity_id: string;
+  action: string;
+  actor_id: string;
+  summary: string;
+  old_value: unknown;
+  new_value: unknown;
+  correlation_id: string;
+  created_at: Date;
+};
+
 type CatalogReadiness = {
   service: "catalog-service";
   status: "ready" | "degraded";
@@ -233,6 +261,10 @@ function createStoreContext(correlationId: string | undefined): StoreContext {
     timezone: process.env.DEFAULT_STORE_TIMEZONE ?? "Asia/Hong_Kong",
     correlationId: correlationId ?? randomUUID()
   });
+}
+
+function actorFromHeader(actorId: string | undefined): string {
+  return actorId?.trim() || "local-admin";
 }
 
 function warnIfSlow(operation: string, startedAt: number, thresholdMs: number, ctx: StoreContext) {
@@ -913,7 +945,37 @@ class CatalogRepository implements OnApplicationShutdown {
     return snapshot;
   }
 
-  async saveCategories(ctx: StoreContext, categories: SaveCategoryInput[]): Promise<CatalogCategory[]> {
+  async auditEvents(ctx: StoreContext, limit = 50): Promise<{ events: CatalogAuditEvent[]; storageMode: "postgres" }> {
+    const result = await this.pool.query<CatalogAuditEventRow>(
+      `
+        SELECT id, store_id, entity_type, entity_id, action, actor_id, summary, old_value, new_value, correlation_id, created_at
+        FROM catalog_audit_events
+        WHERE store_id = $1
+        ORDER BY created_at DESC
+        LIMIT $2
+      `,
+      [ctx.storeId, limit]
+    );
+
+    return {
+      storageMode: "postgres",
+      events: result.rows.map((row) => ({
+        id: row.id,
+        storeId: row.store_id,
+        entityType: row.entity_type,
+        entityId: row.entity_id,
+        action: row.action,
+        actorId: row.actor_id,
+        summary: row.summary,
+        oldValue: row.old_value,
+        newValue: row.new_value,
+        correlationId: row.correlation_id,
+        createdAt: row.created_at.toISOString()
+      }))
+    };
+  }
+
+  async saveCategories(ctx: StoreContext, categories: SaveCategoryInput[], actorId: string): Promise<CatalogCategory[]> {
     const client = await this.pool.connect();
 
     try {
@@ -921,6 +983,19 @@ class CatalogRepository implements OnApplicationShutdown {
 
       for (const category of categories) {
         const slug = normalizeSlug(category.slug, "category.slug");
+        const oldValue = await this.categoryAuditSnapshot(client, ctx.storeId, slug);
+        const nameZh = normalizeText(category.nameZh, "category.nameZh");
+        const nameEn = normalizeText(category.nameEn, "category.nameEn");
+        const newValue = {
+          slug,
+          imageUrl: normalizeImageUrl(category.imageUrl, "/assets/porcelain-tea-set-photo.jpg"),
+          isVisible: category.status !== "inactive",
+          sortOrder: normalizeSortOrder(category.sortOrder),
+          copy: {
+            zh: { name: nameZh },
+            en: { name: nameEn }
+          }
+        };
         const idResult = await client.query<{ id: string }>(
           `
             INSERT INTO categories (id, store_id, slug, image_url, is_visible, sort_order)
@@ -936,9 +1011,9 @@ class CatalogRepository implements OnApplicationShutdown {
             randomUUID(),
             ctx.storeId,
             slug,
-            normalizeImageUrl(category.imageUrl, "/assets/porcelain-tea-set-photo.jpg"),
-            category.status !== "inactive",
-            normalizeSortOrder(category.sortOrder)
+            newValue.imageUrl,
+            newValue.isVisible,
+            newValue.sortOrder
           ]
         );
         const categoryId = idResult.rows[0].id;
@@ -952,10 +1027,23 @@ class CatalogRepository implements OnApplicationShutdown {
           `,
           [
             categoryId,
-            normalizeText(category.nameZh, "category.nameZh"),
-            normalizeText(category.nameEn, "category.nameEn")
+            nameZh,
+            nameEn
           ]
         );
+        await this.recordAudit(client, {
+          id: randomUUID(),
+          storeId: ctx.storeId,
+          entityType: "category",
+          entityId: categoryId,
+          action: oldValue ? "catalog.category.update" : "catalog.category.create",
+          actorId,
+          summary: `${oldValue ? "更新" : "新增"}商品分类：${nameZh} / ${nameEn}`,
+          oldValue,
+          newValue,
+          correlationId: ctx.correlationId,
+          createdAt: new Date().toISOString()
+        });
       }
 
       await client.query("COMMIT");
@@ -969,7 +1057,7 @@ class CatalogRepository implements OnApplicationShutdown {
     }
   }
 
-  async saveRegions(ctx: StoreContext, regions: SaveRegionInput[]): Promise<CatalogRegion[]> {
+  async saveRegions(ctx: StoreContext, regions: SaveRegionInput[], actorId: string): Promise<CatalogRegion[]> {
     const client = await this.pool.connect();
 
     try {
@@ -977,10 +1065,35 @@ class CatalogRepository implements OnApplicationShutdown {
 
       for (const region of regions) {
         const slug = normalizeSlug(region.slug, "region.slug");
+        const oldValue = await this.regionAuditSnapshot(client, ctx.storeId, slug);
         const nameEn = normalizeText(region.nameEn, "region.nameEn");
         const nameZh = normalizeText(region.nameZh, "region.nameZh");
         const landmarkEn = normalizeText(region.landmarkEn, "region.landmarkEn");
         const landmarkZh = normalizeText(region.landmarkZh, "region.landmarkZh");
+        const newValue = {
+          slug,
+          imageUrl: normalizeImageUrl(region.imageUrl, "/assets/region-jiangxi-tengwang.jpg"),
+          icon: assertRegionIcon(region.icon),
+          isVisible: region.status !== "inactive",
+          showOnHomepage: region.showOnHomepage === true,
+          sortOrder: normalizeSortOrder(region.sortOrder),
+          copy: {
+            zh: {
+              name: nameZh,
+              landmark: landmarkZh,
+              title: `${nameZh}地域定制瓷器`,
+              description: `以${landmarkZh}为视觉线索，面向地域礼品、城市故事和定制茶具系列。`,
+              more: "更多"
+            },
+            en: {
+              name: nameEn,
+              landmark: landmarkEn,
+              title: `${nameEn} Custom Porcelain`,
+              description: `${landmarkEn}-inspired teaware for regional gifts, cultural storytelling, and custom porcelain collections.`,
+              more: "More"
+            }
+          }
+        };
         const idResult = await client.query<{ id: string }>(
           `
             INSERT INTO regions (id, store_id, slug, image_url, icon, is_visible, show_on_homepage, sort_order)
@@ -998,11 +1111,11 @@ class CatalogRepository implements OnApplicationShutdown {
             randomUUID(),
             ctx.storeId,
             slug,
-            normalizeImageUrl(region.imageUrl, "/assets/region-jiangxi-tengwang.jpg"),
-            assertRegionIcon(region.icon),
-            region.status !== "inactive",
-            region.showOnHomepage === true,
-            normalizeSortOrder(region.sortOrder)
+            newValue.imageUrl,
+            newValue.icon,
+            newValue.isVisible,
+            newValue.showOnHomepage,
+            newValue.sortOrder
           ]
         );
         const regionId = idResult.rows[0].id;
@@ -1024,14 +1137,27 @@ class CatalogRepository implements OnApplicationShutdown {
             regionId,
             nameZh,
             landmarkZh,
-            `${nameZh}地域定制瓷器`,
-            `以${landmarkZh}为视觉线索，面向地域礼品、城市故事和定制茶具系列。`,
+            newValue.copy.zh.title,
+            newValue.copy.zh.description,
             nameEn,
             landmarkEn,
-            `${nameEn} Custom Porcelain`,
-            `${landmarkEn}-inspired teaware for regional gifts, cultural storytelling, and custom porcelain collections.`
+            newValue.copy.en.title,
+            newValue.copy.en.description
           ]
         );
+        await this.recordAudit(client, {
+          id: randomUUID(),
+          storeId: ctx.storeId,
+          entityType: "region",
+          entityId: regionId,
+          action: oldValue ? "catalog.region.update" : "catalog.region.create",
+          actorId,
+          summary: `${oldValue ? "更新" : "新增"}地域分类：${nameZh} / ${nameEn}`,
+          oldValue,
+          newValue,
+          correlationId: ctx.correlationId,
+          createdAt: new Date().toISOString()
+        });
       }
 
       await client.query("COMMIT");
@@ -1045,7 +1171,7 @@ class CatalogRepository implements OnApplicationShutdown {
     }
   }
 
-  async saveProducts(ctx: StoreContext, products: SaveProductInput[]): Promise<CatalogStorefrontProduct[]> {
+  async saveProducts(ctx: StoreContext, products: SaveProductInput[], actorId: string): Promise<CatalogStorefrontProduct[]> {
     const client = await this.pool.connect();
 
     try {
@@ -1053,6 +1179,7 @@ class CatalogRepository implements OnApplicationShutdown {
 
       for (const product of products) {
         const sku = normalizeSku(product.sku);
+        const oldValue = await this.productAuditSnapshot(client, ctx.storeId, sku);
         const nameEn = normalizeText(product.nameEn, "product.nameEn");
         const nameZh = normalizeText(product.nameZh, "product.nameZh");
         const categorySlug = normalizeSlug(product.category, "product.category");
@@ -1095,6 +1222,32 @@ class CatalogRepository implements OnApplicationShutdown {
         const weightGrams = normalizeInteger(product.weightGrams, "product.weightGrams");
         const customsDeclarationZh = normalizeText(product.customsDeclarationZh, "product.customsDeclarationZh", 500);
         const customsDeclarationEn = normalizeText(product.customsDeclarationEn, "product.customsDeclarationEn", 500);
+        const newValue = {
+          sku,
+          slug,
+          nameZh,
+          nameEn,
+          category: categorySlug,
+          region: regionSlug,
+          status: product.status === "active" ? "active" : "draft",
+          imageUrl: normalizeImageUrl(product.imageUrl, "/assets/porcelain-tea-set-photo.jpg"),
+          priceMinor,
+          originalPriceMinor: Math.round(priceMinor * 1.2),
+          materialZh,
+          materialEn,
+          originZh,
+          originEn,
+          originCountry,
+          capacityZh,
+          capacityEn,
+          hsCode,
+          packageLengthMm,
+          packageWidthMm,
+          packageHeightMm,
+          weightGrams,
+          customsDeclarationZh,
+          customsDeclarationEn
+        };
 
         await client.query(
           `
@@ -1126,11 +1279,11 @@ class CatalogRepository implements OnApplicationShutdown {
             ctx.storeId,
             nameEn,
             slug,
-            product.status === "active" ? "active" : "draft",
+            newValue.status,
             categoryResult.rows[0].id,
             regionResult.rows[0].id,
-            normalizeImageUrl(product.imageUrl, "/assets/porcelain-tea-set-photo.jpg"),
-            Math.round(priceMinor * 1.2)
+            newValue.imageUrl,
+            newValue.originalPriceMinor
           ]
         );
 
@@ -1234,6 +1387,19 @@ class CatalogRepository implements OnApplicationShutdown {
             customsDeclarationEn
           ]
         );
+        await this.recordAudit(client, {
+          id: randomUUID(),
+          storeId: ctx.storeId,
+          entityType: "product",
+          entityId: productId,
+          action: oldValue ? "catalog.product.update" : "catalog.product.create",
+          actorId,
+          summary: `${oldValue ? "更新" : "新增"}商品：${nameZh} / ${nameEn}`,
+          oldValue,
+          newValue,
+          correlationId: ctx.correlationId,
+          createdAt: new Date().toISOString()
+        });
       }
 
       await client.query("COMMIT");
@@ -1253,6 +1419,139 @@ class CatalogRepository implements OnApplicationShutdown {
 
   async onApplicationShutdown() {
     await this.pool.end();
+  }
+
+  private async recordAudit(client: PoolClient, event: CatalogAuditEvent) {
+    await client.query(
+      `
+        INSERT INTO catalog_audit_events (
+          id, store_id, entity_type, entity_id, action, actor_id, summary, old_value, new_value, correlation_id, created_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10, $11)
+      `,
+      [
+        event.id,
+        event.storeId,
+        event.entityType,
+        event.entityId,
+        event.action,
+        event.actorId,
+        event.summary,
+        JSON.stringify(event.oldValue),
+        JSON.stringify(event.newValue),
+        event.correlationId,
+        event.createdAt
+      ]
+    );
+  }
+
+  private async categoryAuditSnapshot(client: PoolClient, storeId: string, slug: string): Promise<unknown | null> {
+    const result = await client.query<{ value: unknown }>(
+      `
+        SELECT jsonb_build_object(
+          'id', c.id,
+          'slug', c.slug,
+          'imageUrl', c.image_url,
+          'isVisible', c.is_visible,
+          'sortOrder', c.sort_order,
+          'copy', jsonb_object_agg(ct.locale, jsonb_build_object('name', ct.name) ORDER BY ct.locale)
+        ) AS value
+        FROM categories c
+        LEFT JOIN category_translations ct ON ct.category_id = c.id
+        WHERE c.store_id = $1 AND c.slug = $2
+        GROUP BY c.id
+        LIMIT 1
+      `,
+      [storeId, slug]
+    );
+    return result.rows[0]?.value ?? null;
+  }
+
+  private async regionAuditSnapshot(client: PoolClient, storeId: string, slug: string): Promise<unknown | null> {
+    const result = await client.query<{ value: unknown }>(
+      `
+        SELECT jsonb_build_object(
+          'id', r.id,
+          'slug', r.slug,
+          'imageUrl', r.image_url,
+          'icon', r.icon,
+          'isVisible', r.is_visible,
+          'showOnHomepage', r.show_on_homepage,
+          'sortOrder', r.sort_order,
+          'copy', jsonb_object_agg(
+            rt.locale,
+            jsonb_build_object(
+              'name', rt.name,
+              'landmark', rt.landmark,
+              'title', rt.title,
+              'description', rt.description,
+              'more', rt.more_label
+            )
+            ORDER BY rt.locale
+          )
+        ) AS value
+        FROM regions r
+        LEFT JOIN region_translations rt ON rt.region_id = r.id
+        WHERE r.store_id = $1 AND r.slug = $2
+        GROUP BY r.id
+        LIMIT 1
+      `,
+      [storeId, slug]
+    );
+    return result.rows[0]?.value ?? null;
+  }
+
+  private async productAuditSnapshot(client: PoolClient, storeId: string, sku: string): Promise<unknown | null> {
+    const result = await client.query<{ value: unknown }>(
+      `
+        SELECT jsonb_build_object(
+          'productId', p.id,
+          'sku', s.sku_code,
+          'slug', p.slug,
+          'status', p.status,
+          'imageUrl', p.image_url,
+          'category', c.slug,
+          'region', r.slug,
+          'priceMinor', s.price_minor,
+          'originalPriceMinor', p.original_price_minor,
+          'materialComposition', s.material_composition,
+          'hsCode', s.hs_code,
+          'originCountry', s.origin_country,
+          'capacity', s.capacity,
+          'packageLengthMm', s.package_length_mm,
+          'packageWidthMm', s.package_width_mm,
+          'packageHeightMm', s.package_height_mm,
+          'weightGrams', s.weight_grams,
+          'customsDeclaration', s.customs_declaration,
+          'copy', COALESCE((
+            SELECT jsonb_object_agg(
+              pt.locale,
+              jsonb_build_object(
+                'name', pt.name,
+                'shortDescription', pt.short_description,
+                'longDescription', pt.long_description,
+                'material', pt.material,
+                'capacity', pt.capacity,
+                'origin', pt.origin,
+                'hsCode', pt.hs_code,
+                'customsDeclaration', pt.customs_declaration
+              )
+              ORDER BY pt.locale
+            )
+            FROM product_translations pt
+            WHERE pt.product_id = p.id
+          ), '{}'::jsonb)
+        ) AS value
+        FROM skus s
+        JOIN products p ON p.id = s.product_id AND p.store_id = s.store_id
+        JOIN categories c ON c.id = p.category_id
+        JOIN regions r ON r.id = p.region_id
+        WHERE s.store_id = $1 AND s.sku_code = $2
+        LIMIT 1
+      `,
+      [storeId, sku]
+    );
+    return result.rows[0]?.value ?? null;
   }
 }
 
@@ -1327,28 +1626,37 @@ class CatalogController {
   @Put("/categories")
   async saveCategories(
     @Headers("x-correlation-id") correlationId: string | undefined,
+    @Headers("x-admin-actor") actorId: string | undefined,
     @Body() body: { categories?: SaveCategoryInput[] }
   ): Promise<CatalogCategory[]> {
     const ctx = createStoreContext(correlationId);
-    return this.catalogRepository.saveCategories(ctx, body.categories ?? []);
+    return this.catalogRepository.saveCategories(ctx, body.categories ?? [], actorFromHeader(actorId));
   }
 
   @Put("/regions")
   async saveRegions(
     @Headers("x-correlation-id") correlationId: string | undefined,
+    @Headers("x-admin-actor") actorId: string | undefined,
     @Body() body: { regions?: SaveRegionInput[] }
   ): Promise<CatalogRegion[]> {
     const ctx = createStoreContext(correlationId);
-    return this.catalogRepository.saveRegions(ctx, body.regions ?? []);
+    return this.catalogRepository.saveRegions(ctx, body.regions ?? [], actorFromHeader(actorId));
   }
 
   @Put("/products")
   async saveProducts(
     @Headers("x-correlation-id") correlationId: string | undefined,
+    @Headers("x-admin-actor") actorId: string | undefined,
     @Body() body: { products?: SaveProductInput[] }
   ): Promise<CatalogStorefrontProduct[]> {
     const ctx = createStoreContext(correlationId);
-    return this.catalogRepository.saveProducts(ctx, body.products ?? []);
+    return this.catalogRepository.saveProducts(ctx, body.products ?? [], actorFromHeader(actorId));
+  }
+
+  @Get("/audit-events")
+  auditEvents(@Headers("x-correlation-id") correlationId: string | undefined) {
+    const ctx = createStoreContext(correlationId);
+    return this.catalogRepository.auditEvents(ctx);
   }
 
   @Get("/storefront")

@@ -11,7 +11,7 @@ import {
 
 const adminGatewayUrl = process.env.NEXT_PUBLIC_ADMIN_GATEWAY_URL ?? "http://localhost:4001";
 
-type AuditSource = "all" | "inventory" | "media" | "ops" | "product_import";
+type AuditSource = "all" | "inventory" | "catalog" | "media" | "ops" | "product_import";
 
 type UnifiedAuditEvent = {
   id: string;
@@ -51,6 +51,15 @@ type MediaAuditEvent = {
 };
 
 type ProductImportAuditEvent = {
+  id: string;
+  action: string;
+  actorId: string;
+  summary: string;
+  correlationId: string;
+  createdAt: string;
+};
+
+type CatalogAuditEvent = {
   id: string;
   action: string;
   actorId: string;
@@ -107,9 +116,22 @@ function normalizeProductImport(event: ProductImportAuditEvent): UnifiedAuditEve
   };
 }
 
+function normalizeCatalog(event: CatalogAuditEvent): UnifiedAuditEvent {
+  return {
+    id: event.id,
+    source: "catalog",
+    action: event.action,
+    actor: event.actorId,
+    summary: event.summary,
+    correlationId: event.correlationId,
+    createdAt: event.createdAt
+  };
+}
+
 function sourceLabel(source: UnifiedAuditEvent["source"]) {
   const labels: Record<UnifiedAuditEvent["source"], string> = {
     inventory: "库存",
+    catalog: "商品资料",
     media: "媒体",
     ops: "运维",
     product_import: "商品导入"
@@ -135,6 +157,15 @@ export function AuditLogPanel() {
       nextEvents.push(...payload.map(normalizeInventory));
     } catch {
       failures.push("库存");
+    }
+
+    try {
+      const response = await fetch(`${adminGatewayUrl}/catalog/audit-events`, { headers });
+      const payload = (await response.json().catch(() => ({}))) as { events?: CatalogAuditEvent[] };
+      if (!response.ok || !Array.isArray(payload.events)) throw new Error("catalog audit unavailable");
+      nextEvents.push(...payload.events.map(normalizeCatalog));
+    } catch {
+      failures.push("商品资料");
     }
 
     try {
@@ -189,6 +220,7 @@ export function AuditLogPanel() {
           <AdminSelect value={source} onChange={(event) => setSource(event.target.value as AuditSource)}>
             <option value="all">全部</option>
             <option value="inventory">库存</option>
+            <option value="catalog">商品资料</option>
             <option value="media">媒体</option>
             <option value="ops">运维</option>
             <option value="product_import">商品导入</option>
