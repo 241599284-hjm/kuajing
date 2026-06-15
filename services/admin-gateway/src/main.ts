@@ -15,6 +15,7 @@ const mediaServiceUrl = process.env.MEDIA_SERVICE_URL ?? "http://localhost:4108"
 const logisticsServiceUrl = process.env.LOGISTICS_SERVICE_URL ?? "http://localhost:4110";
 const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL ?? "http://localhost:4111";
 const reviewServiceUrl = process.env.REVIEW_SERVICE_URL ?? "http://localhost:4112";
+const opsServiceUrl = process.env.OPS_SERVICE_URL ?? "http://localhost:4113";
 const maxUploadBytes = Number(process.env.MEDIA_MAX_UPLOAD_BYTES ?? 8 * 1024 * 1024);
 const forwardedHeaderNames = [
   "x-correlation-id",
@@ -264,6 +265,34 @@ async function forwardReviewJsonWithBody<T>(path: string, headers: HeaderBag, bo
   return payload as T;
 }
 
+async function forwardOpsJson<T>(path: string, headers: HeaderBag): Promise<T> {
+  const response = await fetch(`${opsServiceUrl}${path}`, {
+    headers: buildForwardHeaders(headers)
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throwForwardedError(payload, response.status, headers);
+  }
+
+  return payload as T;
+}
+
+async function forwardOpsJsonWithBody<T>(path: string, headers: HeaderBag, body: unknown, method = "POST"): Promise<T> {
+  const response = await fetch(`${opsServiceUrl}${path}`, {
+    method,
+    headers: buildForwardHeaders(headers, { "Content-Type": "application/json" }),
+    body: JSON.stringify(body)
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throwForwardedError(payload, response.status, headers);
+  }
+
+  return payload as T;
+}
+
 async function forwardMediaUpload<T>(path: string, headers: HeaderBag, file: UploadedMediaFile): Promise<T> {
   const formData = new FormData();
   const bytes = file.buffer.buffer.slice(file.buffer.byteOffset, file.buffer.byteOffset + file.buffer.byteLength) as ArrayBuffer;
@@ -460,6 +489,26 @@ class HealthController {
   @Put("/reviews/:id")
   updateReview(@Headers() headers: HeaderBag, @Param("id") id: string, @Body() body: unknown) {
     return forwardReviewJsonWithBody(`/admin/reviews/${encodeURIComponent(id)}`, headers, body);
+  }
+
+  @Get("/ops/settings")
+  opsSettings(@Headers() headers: HeaderBag) {
+    return forwardOpsJson("/settings", headers);
+  }
+
+  @Put("/ops/settings")
+  saveOpsSettings(@Headers() headers: HeaderBag, @Body() body: unknown) {
+    return forwardOpsJsonWithBody("/settings", headers, body, "PUT");
+  }
+
+  @Post("/ops/actions/:action")
+  runOpsAction(@Headers() headers: HeaderBag, @Param("action") action: string, @Body() body: unknown) {
+    return forwardOpsJsonWithBody(`/actions/${encodeURIComponent(action)}`, headers, body);
+  }
+
+  @Get("/ops/audit-events")
+  opsAuditEvents(@Headers() headers: HeaderBag) {
+    return forwardOpsJson("/audit-events", headers);
   }
 
   @Put("/catalog/categories")

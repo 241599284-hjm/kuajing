@@ -56,6 +56,7 @@ services:
       LOGISTICS_SERVICE_URL: http://logistics-service:4110
       NOTIFICATION_SERVICE_URL: http://notification-service:4111
       REVIEW_SERVICE_URL: http://review-service:4112
+      OPS_SERVICE_URL: http://ops-service:4113
       DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
       DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
       DEFAULT_STORE_TIMEZONE: ${DEFAULT_STORE_TIMEZONE:-Asia/Hong_Kong}
@@ -69,6 +70,8 @@ services:
       logistics-service:
         condition: service_started
       review-service:
+        condition: service_started
+      ops-service:
         condition: service_started
 
   admin-gateway:
@@ -162,6 +165,27 @@ services:
         condition: service_healthy
       notification-service:
         condition: service_started
+
+  ops-service:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: infra/docker/node-app.Dockerfile
+      args:
+        APP_FILTER: "@commerce/ops-service"
+    container_name: cbck-ops-service
+    environment:
+      NODE_ENV: development
+      PORT: 4113
+      OPS_DATABASE_URL: postgresql://${POSTGRES_USER:-commerce}:${POSTGRES_PASSWORD:-commerce}@postgres:5432/ops_db
+      DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
+      DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
+      DEFAULT_STORE_TIMEZONE: ${DEFAULT_STORE_TIMEZONE:-Asia/Hong_Kong}
+    ports:
+      - "4113:4113"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   auth-service:
     profiles: ["app"]

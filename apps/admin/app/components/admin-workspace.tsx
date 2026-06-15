@@ -9,6 +9,7 @@ import { EmailSettingsPanel } from "./email-settings-panel.js";
 import { InventoryManagementPanel } from "./inventory-management-panel.js";
 import { LogisticsManagementPanel } from "./logistics-management-panel.js";
 import { OrderManagementPanel } from "./order-management-panel.js";
+import { OpsManagementPanel } from "./ops-management-panel.js";
 import { ProductManagementPanel } from "./product-management-panel.js";
 import { RegionManagementPanel } from "./region-management-panel.js";
 import { ReviewManagementPanel } from "./review-management-panel.js";
@@ -27,6 +28,7 @@ type AdminSection =
   | "logistics"
   | "trade"
   | "email"
+  | "ops"
   | "support"
   | "dlq"
   | "audit";
@@ -67,6 +69,7 @@ const navigationGroups: Array<{
     title: "系统",
     items: [
       { id: "dlq", label: "死信队列", description: "失败异步任务", icon: FileClock },
+      { id: "ops", label: "运维配置", description: "SSL、CDN、统计", icon: Settings },
       { id: "audit", label: "审计日志", description: "操作记录", icon: Settings }
     ]
   }
@@ -133,6 +136,11 @@ const sectionMeta: Record<AdminSection, { title: string; eyebrow: string; body: 
     eyebrow: "店铺邮件",
     body: "配置注册邮件和 SMTP 发送设置。"
   },
+  ops: {
+    title: "运维配置",
+    eyebrow: "免费服务",
+    body: "配置 Let's Encrypt、Cloudflare 免费 CDN、GA4/GSC 统计和运维动作审计。"
+  },
   support: {
     title: "客服售后",
     eyebrow: "客户运营",
@@ -159,6 +167,7 @@ const dashboardCards = [
   { title: "支付管理", section: "payments" },
   { title: "邮箱设置", section: "email" },
   { title: "客服售后", section: "support" },
+  { title: "运维配置", section: "ops" },
   { title: "死信队列", section: "dlq" },
   { title: "审计日志", section: "audit" }
 ];
@@ -255,6 +264,7 @@ function AdminContent({ activeSection, onNavigate }: { activeSection: AdminSecti
   if (activeSection === "logistics") return <LogisticsManagementPanel />;
   if (activeSection === "email") return <EmailSettingsPanel />;
   if (activeSection === "dlq") return <DeadLetterManagementPanel />;
+  if (activeSection === "ops") return <OpsManagementPanel />;
   return <PlaceholderPanel section={activeSection} />;
 }
 
