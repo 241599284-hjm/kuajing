@@ -42,6 +42,18 @@ type NotificationEmailTemplate = {
   storageMode?: "postgres" | "memory";
 };
 
+type NotificationEmailLog = {
+  id: string;
+  recipientEmail: string;
+  subject: string;
+  templateKey?: string;
+  provider: string;
+  status: "sent" | "failed" | "rate_limited" | "duplicate";
+  errorSummary?: string;
+  correlationId: string;
+  createdAt: string;
+};
+
 const authServiceUrl = process.env.NEXT_PUBLIC_AUTH_SERVICE_URL ?? "http://localhost:4102";
 const adminGatewayUrl = process.env.NEXT_PUBLIC_ADMIN_GATEWAY_URL ?? "http://localhost:4001";
 
@@ -69,6 +81,7 @@ export function EmailSettingsPanel() {
   const [templateDraft, setTemplateDraft] = useState<NotificationEmailTemplate | null>(null);
   const [templateStatus, setTemplateStatus] = useState("加载中");
   const [isSavingTemplate, setIsSavingTemplate] = useState(false);
+  const [emailLogs, setEmailLogs] = useState<NotificationEmailLog[]>([]);
 
   useEffect(() => {
     let isMounted = true;
@@ -112,8 +125,24 @@ export function EmailSettingsPanel() {
       }
     }
 
+    async function loadEmailLogs() {
+      try {
+        const response = await fetch(`${adminGatewayUrl}/notification/email-logs`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = (await response.json()) as NotificationEmailLog[];
+        if (isMounted) {
+          setEmailLogs(data);
+        }
+      } catch {
+        if (isMounted) {
+          setEmailLogs([]);
+        }
+      }
+    }
+
     void loadSettings();
     void loadTemplates();
+    void loadEmailLogs();
 
     return () => {
       isMounted = false;
@@ -376,6 +405,15 @@ export function EmailSettingsPanel() {
                 </AdminField>
               </div>
 
+              <AdminListCard eyebrow="Preview" title="英文邮件预览" description={templateDraft.subjectEn}>
+                <iframe
+                  className="mt-3 h-48 w-full border border-[var(--line)] bg-white"
+                  sandbox=""
+                  srcDoc={templateDraft.htmlEn}
+                  title="英文邮件 HTML 预览"
+                />
+              </AdminListCard>
+
               <div className="grid gap-4 lg:grid-cols-2">
                 <AdminField label="中文纯文本">
                   <AdminTextarea rows={5} value={templateDraft.textZh} onChange={(event) => setTemplateDraft({ ...templateDraft, textZh: event.target.value })} />
@@ -406,6 +444,36 @@ export function EmailSettingsPanel() {
             </div>
           </div>
         )}
+      </AdminPanel>
+
+      <AdminPanel
+        eyebrow="Notification Logs"
+        id="transactional-email-logs-title"
+        status={`${emailLogs.length} 条`}
+        title="邮件发送日志"
+      >
+        <div className="mt-5 grid gap-3">
+          {emailLogs.length === 0 ? (
+            <AdminListCard eyebrow="日志" title="暂无发送记录" description="没有读取到真实邮件发送日志；不会生成示例日志。">
+              <p className="mt-3 text-xs text-[var(--ink-soft)]">触发注册、订单、物流或评价邮件后，这里会显示真实发送结果。</p>
+            </AdminListCard>
+          ) : null}
+          {emailLogs.map((log) => (
+            <AdminListCard
+              key={log.id}
+              eyebrow={log.status === "sent" ? "已发送" : log.status === "duplicate" ? "重复请求" : log.status === "rate_limited" ? "限流" : "失败"}
+              title={log.subject}
+              description={`${log.templateKey ?? "自定义邮件"} · ${log.recipientEmail}`}
+            >
+              <div className="mt-3 grid gap-2 text-xs text-[var(--ink-soft)] md:grid-cols-2">
+                <p>服务商：{log.provider}</p>
+                <p>时间：{new Date(log.createdAt).toLocaleString()}</p>
+                <p className="break-all">Trace：{log.correlationId}</p>
+                <p>{log.errorSummary ? `失败原因：${log.errorSummary}` : "失败原因：无"}</p>
+              </div>
+            </AdminListCard>
+          ))}
+        </div>
       </AdminPanel>
     </>
   );

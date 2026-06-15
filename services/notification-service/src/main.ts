@@ -109,6 +109,20 @@ const defaultTemplates: EmailTemplateRecord[] = [
     storageMode: "memory"
   },
   {
+    key: "order_confirmation",
+    nameZh: "订单确认邮件",
+    nameEn: "Order confirmation",
+    subjectZh: "我们已收到您的订单 {{orderNumber}}",
+    subjectEn: "We received your order {{orderNumber}}",
+    htmlZh: "<p>您好 {{name}}，</p><p>我们已收到您的订单 {{orderNumber}}。</p><p>订单金额：{{currency}} {{total}}</p><p><a href=\"{{orderUrl}}\">查看订单</a></p>",
+    htmlEn: "<p>Hello {{name}},</p><p>We have received your order {{orderNumber}}.</p><p>Order total: {{currency}} {{total}}</p><p><a href=\"{{orderUrl}}\">View order</a></p>",
+    textZh: "您好 {{name}}，我们已收到您的订单 {{orderNumber}}。订单金额：{{currency}} {{total}}。查看订单：{{orderUrl}}",
+    textEn: "Hello {{name}}, we have received your order {{orderNumber}}. Order total: {{currency}} {{total}}. View order: {{orderUrl}}",
+    enabled: true,
+    updatedAt: new Date(0).toISOString(),
+    storageMode: "memory"
+  },
+  {
     key: "payment_success",
     nameZh: "付款成功通知",
     nameEn: "Payment success",
@@ -118,6 +132,48 @@ const defaultTemplates: EmailTemplateRecord[] = [
     htmlEn: "<p>Payment has been received for order {{orderNumber}}.</p><p>Total: {{currency}} {{total}}</p><p><a href=\"{{orderUrl}}\">View order</a></p>",
     textZh: "订单 {{orderNumber}} 已付款成功。金额：{{currency}} {{total}}。查看订单：{{orderUrl}}",
     textEn: "Payment received for order {{orderNumber}}. Total: {{currency}} {{total}}. View order: {{orderUrl}}",
+    enabled: true,
+    updatedAt: new Date(0).toISOString(),
+    storageMode: "memory"
+  },
+  {
+    key: "shipping_notice",
+    nameZh: "发货通知邮件",
+    nameEn: "Shipping notice",
+    subjectZh: "您的订单 {{orderNumber}} 已发货",
+    subjectEn: "Your order {{orderNumber}} has shipped",
+    htmlZh: "<p>您的订单 {{orderNumber}} 已发货。</p><p>物流单号：{{trackingNumber}}</p><p>当前状态：{{status}}</p><p><a href=\"{{trackingUrl}}\">查看物流</a></p>",
+    htmlEn: "<p>Your order {{orderNumber}} has shipped.</p><p>Tracking number: {{trackingNumber}}</p><p>Current status: {{status}}</p><p><a href=\"{{trackingUrl}}\">Track shipment</a></p>",
+    textZh: "订单 {{orderNumber}} 已发货。物流单号：{{trackingNumber}}。状态：{{status}}。查看物流：{{trackingUrl}}",
+    textEn: "Your order {{orderNumber}} has shipped. Tracking number: {{trackingNumber}}. Status: {{status}}. Track shipment: {{trackingUrl}}",
+    enabled: true,
+    updatedAt: new Date(0).toISOString(),
+    storageMode: "memory"
+  },
+  {
+    key: "refund_notice",
+    nameZh: "退款通知邮件",
+    nameEn: "Refund notice",
+    subjectZh: "您的订单 {{orderNumber}} 退款已处理",
+    subjectEn: "Refund processed for order {{orderNumber}}",
+    htmlZh: "<p>您的订单 {{orderNumber}} 退款已处理。</p><p>退款金额：{{currency}} {{refundAmount}}</p><p>到账时间通常为 3-7 个工作日。</p>",
+    htmlEn: "<p>Your refund for order {{orderNumber}} has been processed.</p><p>Refund amount: {{currency}} {{refundAmount}}</p><p>Refunds usually arrive within 3-7 business days.</p>",
+    textZh: "订单 {{orderNumber}} 退款已处理。金额：{{currency}} {{refundAmount}}。到账时间通常为 3-7 个工作日。",
+    textEn: "Your refund for order {{orderNumber}} has been processed. Amount: {{currency}} {{refundAmount}}. Refunds usually arrive within 3-7 business days.",
+    enabled: true,
+    updatedAt: new Date(0).toISOString(),
+    storageMode: "memory"
+  },
+  {
+    key: "order_cancelled",
+    nameZh: "订单取消邮件",
+    nameEn: "Order cancellation",
+    subjectZh: "您的订单 {{orderNumber}} 已取消",
+    subjectEn: "Your order {{orderNumber}} was cancelled",
+    htmlZh: "<p>您的订单 {{orderNumber}} 已取消。</p><p>原因：{{reason}}</p><p>如有疑问，请联系我们的客服团队。</p>",
+    htmlEn: "<p>Your order {{orderNumber}} was cancelled.</p><p>Reason: {{reason}}</p><p>Please contact our support team if you have any questions.</p>",
+    textZh: "您的订单 {{orderNumber}} 已取消。原因：{{reason}}。如有疑问，请联系我们的客服团队。",
+    textEn: "Your order {{orderNumber}} was cancelled. Reason: {{reason}}. Please contact our support team if you have any questions.",
     enabled: true,
     updatedAt: new Date(0).toISOString(),
     storageMode: "memory"
@@ -518,12 +574,34 @@ class NotificationService {
     const sinceOneMinute = new Date(Date.now() - 60_000);
     const sinceCooldown = new Date(Date.now() - recipientCooldownMinutes * 60_000);
     if ((await this.store.countSentSince(store, { since: sinceOneMinute })) >= globalPerMinuteLimit) {
+      await this.store.log(store, {
+        idempotencyKey: email.idempotencyKey,
+        recipientEmail: email.to,
+        subject: email.subject,
+        templateKey: email.templateKey,
+        provider: "mock",
+        status: "rate_limited",
+        errorSummary: "global per-minute limit reached",
+        consumedQuota: false,
+        durationMs: 0
+      });
       return { status: "rate_limited", message: "全局邮件发送频率已达到限制，请稍后再试。" };
     }
     if (
       email.templateKey &&
       (await this.store.countSentSince(store, { recipientEmail: email.to, templateKey: email.templateKey, since: sinceCooldown })) >= 1
     ) {
+      await this.store.log(store, {
+        idempotencyKey: email.idempotencyKey,
+        recipientEmail: email.to,
+        subject: email.subject,
+        templateKey: email.templateKey,
+        provider: "mock",
+        status: "rate_limited",
+        errorSummary: "recipient template cooldown reached",
+        consumedQuota: false,
+        durationMs: 0
+      });
       return { status: "rate_limited", message: "同一收件邮箱短时间内已发送过同类事务邮件。" };
     }
 

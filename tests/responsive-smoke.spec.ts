@@ -621,7 +621,8 @@ test("admin restored logistics, review, ops, product import, email template, and
   await openAdminSection(/邮箱设置/);
   await expect(page.locator("section[aria-labelledby='email-settings-title']").getByRole("heading", { name: "邮箱设置" })).toBeVisible();
   await expect(page.locator("section[aria-labelledby='transactional-email-templates-title']").getByRole("heading", { name: "事务邮件模板" })).toBeVisible();
-  await expect(page.locator("body")).toContainText(/(注册|付款成功|物流|评价|暂无模板|HTTP|API 未连接)/);
+  await expect(page.locator("body")).toContainText(/(订单确认邮件|发货通知邮件|注册|付款成功|物流|评价|暂无模板|HTTP|API 未连接)/);
+  await expect(page.locator("section[aria-labelledby='transactional-email-logs-title']").getByRole("heading", { name: "邮件发送日志" })).toBeVisible();
 
   await openAdminSection(/审计日志/);
   const auditPanel = page.locator("section[aria-labelledby='audit-log']");

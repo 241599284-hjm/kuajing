@@ -1475,10 +1475,12 @@ class OrderController {
           reservations,
           inventoryVersionSnapshots
         );
+        await this.notifyOrderCreatedIfNeeded(ctx, order.orderId);
         return this.attachMockPayment(ctx, checkout, order);
       } catch (error) {
         if (inventoryMode === "memory") {
           const order = mockMemoryOrder(checkout, idempotencyKey, inventoryMode, reservations, orderId);
+          await this.notifyOrderCreatedIfNeeded(ctx, order.orderId);
           return this.attachMockPayment(ctx, checkout, order);
         }
 
@@ -1609,6 +1611,39 @@ class OrderController {
     );
     await this.notifyOrderPaidIfNeeded(ctx, orderId, action, transition);
     return transition;
+  }
+
+  private async notifyOrderCreatedIfNeeded(ctx: StoreContext, orderId: string) {
+    try {
+      const detail = await this.orderDetailForNotification(ctx, orderId);
+      const orderUrl = `${storefrontBaseUrl()}/account?orderId=${encodeURIComponent(orderId)}`;
+
+      await sendTransactionalEmail(ctx, {
+        to: detail.customerEmail,
+        templateKey: "order_confirmation",
+        idempotencyKey: `order-confirmation:${orderId}`,
+        variables: {
+          brandName: process.env.STOREFRONT_BRAND_NAME ?? "Demo Teaware",
+          name: detail.customerEmail,
+          orderId,
+          orderNumber: detail.orderNumber,
+          currency: detail.currency,
+          total: formatMinorAmount(detail.totalMinor),
+          orderUrl,
+          locale: process.env.DEFAULT_BUYER_LOCALE ?? "en"
+        }
+      });
+    } catch (error) {
+      console.warn(
+        JSON.stringify({
+          event: "order_confirmation_notification_failed",
+          service: "order-service",
+          orderId,
+          message: error instanceof Error ? error.message : "unknown notification error",
+          correlationId: ctx.correlationId
+        })
+      );
+    }
   }
 
   private async notifyOrderPaidIfNeeded(

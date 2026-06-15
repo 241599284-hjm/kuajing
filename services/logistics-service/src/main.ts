@@ -589,7 +589,7 @@ class LogisticsService {
       },
       body: JSON.stringify({
         to,
-        templateKey: "logistics_update",
+        templateKey: "shipping_notice",
         idempotencyKey: `logistics-update-${trackingNumber}-${to}`,
         variables: {
           brandName: process.env.STOREFRONT_BRAND_NAME ?? "Demo Teaware",
