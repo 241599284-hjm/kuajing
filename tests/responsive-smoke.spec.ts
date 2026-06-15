@@ -612,6 +612,7 @@ test("admin restored logistics, review, ops, product import, email template, and
   await expect(page.getByRole("heading", { name: "HTTPS 证书" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Cloudflare 免费 CDN" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "GA4 + GSC 免费统计" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "企业资质资料" })).toBeVisible();
 
   await openAdminSection(/商品导入/);
   await expect(page.getByRole("heading", { name: "商品批量导入与 AI 工作流" })).toBeVisible();

@@ -6,6 +6,7 @@ import {
   AdminHelpText,
   AdminInlineStatus,
   AdminListCard,
+  AdminNumberInput,
   AdminPanel,
   AdminPrimaryButton,
   AdminSecondaryButton,
@@ -40,6 +41,22 @@ type OpsSettings = {
     anonymizeIp: boolean;
     ecommerceEventsEnabled: boolean;
   };
+  companyCredentials: {
+    alertEmail: string;
+    reminderDays: number;
+    documents: CompanyCredentialDocument[];
+  };
+};
+
+type CompanyCredentialDocument = {
+  key: "business_license" | "import_export_right" | "customs_registration" | "corporate_bank_account";
+  nameZh: string;
+  referenceNumber: string;
+  issuer: string;
+  holderName: string;
+  expiresAt: string | null;
+  attachmentUrls: string[];
+  notes: string;
 };
 
 type AuditEvent = {
@@ -74,6 +91,16 @@ const defaultSettings: OpsSettings = {
     enabled: false,
     anonymizeIp: true,
     ecommerceEventsEnabled: true
+  },
+  companyCredentials: {
+    alertEmail: "",
+    reminderDays: 30,
+    documents: [
+      { key: "business_license", nameZh: "营业执照", referenceNumber: "", issuer: "", holderName: "", expiresAt: "", attachmentUrls: [], notes: "" },
+      { key: "import_export_right", nameZh: "进出口权", referenceNumber: "", issuer: "", holderName: "", expiresAt: "", attachmentUrls: [], notes: "" },
+      { key: "customs_registration", nameZh: "海关备案", referenceNumber: "", issuer: "", holderName: "", expiresAt: "", attachmentUrls: [], notes: "" },
+      { key: "corporate_bank_account", nameZh: "企业对公账户", referenceNumber: "", issuer: "", holderName: "", expiresAt: "", attachmentUrls: [], notes: "" }
+    ]
   }
 };
 
@@ -109,6 +136,18 @@ export function OpsManagementPanel() {
   useEffect(() => {
     void load();
   }, []);
+
+  function updateCompanyCredential(index: number, patch: Partial<CompanyCredentialDocument>) {
+    setSettings((current) => ({
+      ...current,
+      companyCredentials: {
+        ...current.companyCredentials,
+        documents: current.companyCredentials.documents.map((document, documentIndex) => (
+          documentIndex === index ? { ...document, ...patch } : document
+        ))
+      }
+    }));
+  }
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -219,6 +258,75 @@ export function OpsManagementPanel() {
           </div>
           <div className="mt-4">
             <AdminSecondaryButton type="button" onClick={() => runAction("analytics-test")}>记录统计检测</AdminSecondaryButton>
+          </div>
+        </AdminListCard>
+
+        <AdminListCard eyebrow="Credentials" title="企业资质资料" description="维护营业执照、进出口权、海关备案、对公账户和到期提醒。">
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <AdminField label="提醒接收邮箱">
+              <AdminTextInput
+                value={settings.companyCredentials.alertEmail}
+                onChange={(event) => setSettings({
+                  ...settings,
+                  companyCredentials: { ...settings.companyCredentials, alertEmail: event.target.value }
+                })}
+                placeholder="owner@example.com"
+              />
+            </AdminField>
+            <AdminField label="提前提醒天数">
+              <AdminNumberInput
+                min={1}
+                max={365}
+                value={settings.companyCredentials.reminderDays}
+                onChange={(event) => setSettings({
+                  ...settings,
+                  companyCredentials: { ...settings.companyCredentials, reminderDays: Number(event.target.value) }
+                })}
+              />
+            </AdminField>
+          </div>
+
+          <div className="mt-5 grid gap-4">
+            {settings.companyCredentials.documents.map((document, index) => (
+              <div key={document.key} className="rounded-md border border-[var(--line)] p-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <AdminField label="资料名称">
+                    <AdminTextInput value={document.nameZh} onChange={(event) => updateCompanyCredential(index, { nameZh: event.target.value })} />
+                  </AdminField>
+                  <AdminField label="编号 / 账户号">
+                    <AdminTextInput value={document.referenceNumber} onChange={(event) => updateCompanyCredential(index, { referenceNumber: event.target.value })} />
+                  </AdminField>
+                  <AdminField label="签发 / 开户机构">
+                    <AdminTextInput value={document.issuer} onChange={(event) => updateCompanyCredential(index, { issuer: event.target.value })} />
+                  </AdminField>
+                  <AdminField label="主体 / 户名">
+                    <AdminTextInput value={document.holderName} onChange={(event) => updateCompanyCredential(index, { holderName: event.target.value })} />
+                  </AdminField>
+                  <AdminField label="截止日期">
+                    <AdminTextInput
+                      value={document.expiresAt ?? ""}
+                      onChange={(event) => updateCompanyCredential(index, { expiresAt: event.target.value })}
+                      placeholder="2026-12-31T00:00:00Z"
+                    />
+                  </AdminField>
+                  <AdminField label="附件 URL（一行一个）">
+                    <AdminTextarea
+                      value={document.attachmentUrls.join("\n")}
+                      onChange={(event) => updateCompanyCredential(index, {
+                        attachmentUrls: event.target.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)
+                      })}
+                    />
+                  </AdminField>
+                  <AdminField label="备注" className="md:col-span-2">
+                    <AdminTextarea value={document.notes} onChange={(event) => updateCompanyCredential(index, { notes: event.target.value })} />
+                  </AdminField>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-3">
+            <AdminSecondaryButton type="button" onClick={() => runAction("credential-expiry-scan")}>检查资质到期</AdminSecondaryButton>
           </div>
         </AdminListCard>
 

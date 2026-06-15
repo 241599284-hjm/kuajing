@@ -219,6 +219,20 @@ const defaultTemplates: EmailTemplateRecord[] = [
     enabled: true,
     updatedAt: new Date(0).toISOString(),
     storageMode: "memory"
+  },
+  {
+    key: "company_credential_expiry",
+    nameZh: "企业资质到期提醒",
+    nameEn: "Company credential expiry reminder",
+    subjectZh: "{{brandName}} 企业资质即将到期",
+    subjectEn: "{{brandName}} company credentials expiring soon",
+    htmlZh: "<p>以下企业资质将在 {{reminderDays}} 天内到期：</p><ul>{{{credentialSummaryHtml}}}</ul><p>请登录后台更新附件和截止日期。</p>",
+    htmlEn: "<p>The following company credentials will expire within {{reminderDays}} days:</p><ul>{{{credentialSummaryHtml}}}</ul><p>Please update attachments and expiry dates in the admin portal.</p>",
+    textZh: "以下企业资质将在 {{reminderDays}} 天内到期：{{credentialSummaryText}}。请登录后台更新附件和截止日期。",
+    textEn: "The following company credentials will expire within {{reminderDays}} days: {{credentialSummaryText}}. Please update attachments and expiry dates in the admin portal.",
+    enabled: true,
+    updatedAt: new Date(0).toISOString(),
+    storageMode: "memory"
   }
 ];
 const memoryTemplates = new Map(defaultTemplates.map((template) => [template.key, template]));
