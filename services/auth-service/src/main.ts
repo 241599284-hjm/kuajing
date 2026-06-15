@@ -59,6 +59,7 @@ type EmailSettingsRequest = {
   fromName?: string;
   replyToEmail?: string | null;
   enabled?: boolean;
+  verificationTokenTtlMinutes?: number;
 };
 
 type EmailSettings = {
@@ -72,6 +73,7 @@ type EmailSettings = {
   fromName: string;
   replyToEmail: string | null;
   enabled: boolean;
+  verificationTokenTtlMinutes: number;
 };
 
 type EmailSettingsResponse = Omit<EmailSettings, "smtpPassword"> & {
@@ -274,6 +276,11 @@ function normalizeEmailSettingsRequest(body: EmailSettingsRequest): EmailSetting
 
   const smtpUsername = normalizeOptionalText(body.smtpUsername, "smtpUsername", 200);
   const smtpPassword = normalizeOptionalText(body.smtpPassword, "smtpPassword", 500);
+  const verificationTokenTtlMinutes = Number(body.verificationTokenTtlMinutes ?? 30);
+
+  if (!Number.isInteger(verificationTokenTtlMinutes) || verificationTokenTtlMinutes < 5 || verificationTokenTtlMinutes > 1440) {
+    throw new BadRequestException("verificationTokenTtlMinutes must be an integer from 5 to 1440");
+  }
 
   return {
     provider,
@@ -286,7 +293,8 @@ function normalizeEmailSettingsRequest(body: EmailSettingsRequest): EmailSetting
     fromEmail,
     fromName: normalizeText(body.fromName, "fromName", 1, 120),
     replyToEmail,
-    enabled: body.enabled !== false
+    enabled: body.enabled !== false,
+    verificationTokenTtlMinutes
   };
 }
 
@@ -301,6 +309,7 @@ function serializeEmailSettings(settings: EmailSettings): EmailSettingsResponse 
     fromName: settings.fromName,
     replyToEmail: settings.replyToEmail,
     enabled: settings.enabled,
+    verificationTokenTtlMinutes: settings.verificationTokenTtlMinutes,
     smtpPasswordConfigured: Boolean(settings.smtpPassword)
   };
 }
@@ -331,12 +340,16 @@ class AuthRepository implements OnApplicationShutdown {
       process.env.APP_DATABASE_URL ?? "postgres://commerce:commerce@localhost:5432/app_db"
   });
 
-  async createPendingCustomer(ctx: StoreContext, input: ReturnType<typeof normalizeRegisterRequest>): Promise<CustomerRegistration> {
+  async createPendingCustomer(
+    ctx: StoreContext,
+    input: ReturnType<typeof normalizeRegisterRequest>,
+    verificationTokenTtlMinutes: number
+  ): Promise<CustomerRegistration> {
     const client = await this.pool.connect();
 
     try {
       await client.query("BEGIN");
-      const registration = await this.insertCustomerAndToken(client, ctx, input);
+      const registration = await this.insertCustomerAndToken(client, ctx, input, verificationTokenTtlMinutes);
       await client.query("COMMIT");
       return registration;
     } catch (error) {
@@ -364,6 +377,7 @@ class AuthRepository implements OnApplicationShutdown {
       from_name: string;
       reply_to_email: string | null;
       enabled: boolean;
+      verification_token_ttl_minutes: number;
     }>(
       `
         SELECT
@@ -376,7 +390,8 @@ class AuthRepository implements OnApplicationShutdown {
           from_email,
           from_name,
           reply_to_email,
-          enabled
+          enabled,
+          verification_token_ttl_minutes
         FROM email_settings
         WHERE store_id = $1
       `,
@@ -396,7 +411,8 @@ class AuthRepository implements OnApplicationShutdown {
         fromEmail: process.env.AUTH_EMAIL_FROM_ADDRESS ?? "no-reply@demo-teaware.local",
         fromName: process.env.AUTH_EMAIL_FROM_NAME ?? "Demo Teaware",
         replyToEmail: null,
-        enabled: true
+        enabled: true,
+        verificationTokenTtlMinutes: 30
       };
     }
 
@@ -414,7 +430,8 @@ class AuthRepository implements OnApplicationShutdown {
       fromEmail: row.from_email,
       fromName: row.from_name,
       replyToEmail: row.reply_to_email,
-      enabled: row.enabled
+      enabled: row.enabled,
+      verificationTokenTtlMinutes: row.verification_token_ttl_minutes
     };
   }
 
@@ -440,6 +457,7 @@ class AuthRepository implements OnApplicationShutdown {
       from_name: string;
       reply_to_email: string | null;
       enabled: boolean;
+      verification_token_ttl_minutes: number;
     }>(
       `
         INSERT INTO email_settings (
@@ -453,9 +471,10 @@ class AuthRepository implements OnApplicationShutdown {
           from_email,
           from_name,
           reply_to_email,
-          enabled
+          enabled,
+          verification_token_ttl_minutes
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         ON CONFLICT (store_id) DO UPDATE
         SET
           provider = EXCLUDED.provider,
@@ -468,6 +487,7 @@ class AuthRepository implements OnApplicationShutdown {
           from_name = EXCLUDED.from_name,
           reply_to_email = EXCLUDED.reply_to_email,
           enabled = EXCLUDED.enabled,
+          verification_token_ttl_minutes = EXCLUDED.verification_token_ttl_minutes,
           updated_at = now()
         RETURNING
           provider,
@@ -479,7 +499,8 @@ class AuthRepository implements OnApplicationShutdown {
           from_email,
           from_name,
           reply_to_email,
-          enabled
+          enabled,
+          verification_token_ttl_minutes
       `,
       [
         ctx.storeId,
@@ -492,7 +513,8 @@ class AuthRepository implements OnApplicationShutdown {
         input.fromEmail,
         input.fromName,
         input.replyToEmail,
-        input.enabled
+        input.enabled,
+        input.verificationTokenTtlMinutes
       ]
     );
 
@@ -508,7 +530,8 @@ class AuthRepository implements OnApplicationShutdown {
       fromEmail: row.from_email,
       fromName: row.from_name,
       replyToEmail: row.reply_to_email,
-      enabled: row.enabled
+      enabled: row.enabled,
+      verificationTokenTtlMinutes: row.verification_token_ttl_minutes
     };
   }
 
@@ -695,7 +718,8 @@ class AuthRepository implements OnApplicationShutdown {
   private async insertCustomerAndToken(
     client: PoolClient,
     ctx: StoreContext,
-    input: ReturnType<typeof normalizeRegisterRequest>
+    input: ReturnType<typeof normalizeRegisterRequest>,
+    verificationTokenTtlMinutes: number
   ): Promise<CustomerRegistration> {
     const customerId = randomUUID();
     const tokenId = randomUUID();
@@ -714,9 +738,9 @@ class AuthRepository implements OnApplicationShutdown {
     await client.query(
       `
         INSERT INTO email_verification_tokens (id, store_id, customer_id, token, code, expires_at)
-        VALUES ($1, $2, $3, $4, $5, now() + interval '30 minutes')
+        VALUES ($1, $2, $3, $4, $5, now() + ($6::integer * interval '1 minute'))
       `,
-      [tokenId, ctx.storeId, customerId, token, verificationCode]
+      [tokenId, ctx.storeId, customerId, token, verificationCode, verificationTokenTtlMinutes]
     );
 
     return {
@@ -751,6 +775,7 @@ class VerificationEmailSender {
           email: registration.email,
           verificationUrl: registration.verificationLink,
           verificationCode: registration.verificationCode,
+          expiresInMinutes: settings.verificationTokenTtlMinutes,
           locale: process.env.DEFAULT_BUYER_LOCALE ?? "en"
         }
       });
@@ -781,13 +806,13 @@ class VerificationEmailSender {
         `Your verification code is ${registration.verificationCode}.`,
         `Click this link to complete registration: ${registration.verificationLink}`,
         "",
-        "This local development link expires in 30 minutes."
+        `This local development link expires in ${settings.verificationTokenTtlMinutes} minutes.`
       ].join("\n"),
       html: `
         <p>Hello ${registration.username},</p>
         <p>Your verification code is <strong>${registration.verificationCode}</strong>.</p>
         <p><a href="${registration.verificationLink}">Complete registration</a></p>
-        <p>This local development link expires in 30 minutes.</p>
+        <p>This local development link expires in ${settings.verificationTokenTtlMinutes} minutes.</p>
       `
     });
   }
@@ -861,7 +886,7 @@ class AuthService {
   async register(ctx: StoreContext, body: RegisterRequest) {
     const input = normalizeRegisterRequest(body);
     const emailSettings = await this.authRepository.getEmailSettings(ctx);
-    const registration = await this.authRepository.createPendingCustomer(ctx, input);
+    const registration = await this.authRepository.createPendingCustomer(ctx, input, emailSettings.verificationTokenTtlMinutes);
     await this.verificationEmailSender.send(ctx, registration, emailSettings);
 
     return {

@@ -26,6 +26,7 @@ type EmailSettings = {
   fromName: string;
   replyToEmail: string | null;
   enabled: boolean;
+  verificationTokenTtlMinutes: number;
 };
 
 type NotificationEmailTemplate = {
@@ -67,7 +68,8 @@ const initialSettings: EmailSettings = {
   fromEmail: "no-reply@demo-teaware.local",
   fromName: "Demo Teaware",
   replyToEmail: null,
-  enabled: true
+  enabled: true,
+  verificationTokenTtlMinutes: 30
 };
 
 export function EmailSettingsPanel() {
@@ -171,7 +173,8 @@ export function EmailSettingsPanel() {
           fromEmail: settings.fromEmail,
           fromName: settings.fromName,
           replyToEmail: settings.replyToEmail,
-          enabled: settings.enabled
+          enabled: settings.enabled,
+          verificationTokenTtlMinutes: settings.verificationTokenTtlMinutes
         })
       });
 
@@ -332,6 +335,17 @@ export function EmailSettingsPanel() {
             />
           </AdminField>
 
+          <AdminField label="注册验证链接有效期（分钟）">
+            <AdminNumberInput
+              name="verificationTokenTtlMinutes"
+              min={5}
+              max={1440}
+              value={settings.verificationTokenTtlMinutes}
+              onChange={(event) => setSettings({ ...settings, verificationTokenTtlMinutes: Number(event.target.value) })}
+              required
+            />
+          </AdminField>
+
           <AdminCheckbox
             checked={settings.enabled}
             label="启用注册邮件"
@@ -429,7 +443,7 @@ export function EmailSettingsPanel() {
                 onChange={(event) => setTemplateDraft({ ...templateDraft, enabled: event.target.checked })}
               />
               <p className="text-xs text-[var(--ink-soft)]">
-                可用变量示例：{"{{brandName}}"}、{"{{orderNumber}}"}、{"{{trackingNumber}}"}、{"{{reviewLinksText}}"}。HTML 内部链接使用 {"{{{reviewLinksHtml}}}"}，其他变量由服务端自动转义。
+                可用变量示例：{"{{brandName}}"}、{"{{orderNumber}}"}、{"{{trackingNumber}}"}、{"{{expiresInMinutes}}"}、{"{{reviewLinksText}}"}。HTML 内部链接使用 {"{{{reviewLinksHtml}}}"}，其他变量由服务端自动转义。
               </p>
 
               <AdminActionRow>
