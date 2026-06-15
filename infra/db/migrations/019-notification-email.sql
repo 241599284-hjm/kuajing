@@ -1,3 +1,5 @@
+\connect notification_db
+
 CREATE TABLE IF NOT EXISTS notification_email_logs (
   id uuid PRIMARY KEY,
   store_id uuid NOT NULL,

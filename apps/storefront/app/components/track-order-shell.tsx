@@ -50,6 +50,10 @@ function initialTrackingNumber() {
   return new URLSearchParams(window.location.search).get("trackingNumber") ?? "";
 }
 
+function trackingUnavailableMessage(locale: "en" | "zh") {
+  return locale === "zh" ? "暂时无法查询物流轨迹" : "Tracking is temporarily unavailable";
+}
+
 export function TrackOrderShell() {
   return (
     <StorefrontCatalogProvider>
@@ -89,7 +93,8 @@ function TrackOrderContent() {
       const payload = (await response.json().catch(() => ({}))) as TrackingRecord | { message?: string };
 
       if (!response.ok || !("trackingNumber" in payload)) {
-        throw new Error("message" in payload ? payload.message ?? `HTTP ${response.status}` : `HTTP ${response.status}`);
+        const message = "message" in payload ? payload.message : "";
+        throw new Error(message && message !== "Internal server error" ? message : trackingUnavailableMessage(locale));
       }
 
       setTracking(payload);
@@ -98,7 +103,7 @@ function TrackOrderContent() {
         : locale === "zh" ? "已读取物流轨迹" : "Tracking details loaded");
     } catch (error) {
       setTracking(null);
-      setStatus(error instanceof Error ? error.message : locale === "zh" ? "暂时无法查询物流轨迹" : "Tracking is temporarily unavailable");
+      setStatus(error instanceof Error && error.message !== "Internal server error" ? error.message : trackingUnavailableMessage(locale));
     } finally {
       setIsLoading(false);
     }

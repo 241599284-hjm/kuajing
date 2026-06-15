@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { Body, Controller, Get, Headers, HttpException, Module, Param, Post, Put, Query, UploadedFile, UseInterceptors } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Headers, HttpException, Module, Param, Post, Put, Query, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { NestFactory } from "@nestjs/core";
 import { assertStoreContext } from "@commerce/store-context";
@@ -342,6 +342,34 @@ async function forwardMediaUpload<T>(path: string, headers: HeaderBag, file: Upl
   return payload as T;
 }
 
+async function forwardMediaJson<T>(path: string, headers: HeaderBag): Promise<T> {
+  const response = await fetch(`${mediaServiceUrl}${path}`, {
+    headers: buildForwardHeaders(headers)
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throwForwardedError(payload, response.status, headers);
+  }
+
+  return payload as T;
+}
+
+async function forwardMediaJsonWithBody<T>(path: string, headers: HeaderBag, body: unknown, method = "POST"): Promise<T> {
+  const response = await fetch(`${mediaServiceUrl}${path}`, {
+    method,
+    headers: buildForwardHeaders(headers, { "Content-Type": "application/json" }),
+    body: JSON.stringify(body)
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throwForwardedError(payload, response.status, headers);
+  }
+
+  return payload as T;
+}
+
 @Controller()
 class HealthController {
   @Get("/health")
@@ -458,6 +486,16 @@ class HealthController {
   @UseInterceptors(FileInterceptor("file", { limits: { fileSize: maxUploadBytes } }))
   uploadProductAsset(@Headers() headers: HeaderBag, @UploadedFile() file: UploadedMediaFile) {
     return forwardMediaUpload("/media/product-assets", headers, file);
+  }
+
+  @Delete("/media/product-assets")
+  deleteProductAsset(@Headers() headers: HeaderBag, @Body() body: unknown) {
+    return forwardMediaJsonWithBody("/media/product-assets", headers, body, "DELETE");
+  }
+
+  @Get("/media/audit-events")
+  mediaAuditEvents(@Headers() headers: HeaderBag) {
+    return forwardMediaJson("/media/audit-events", headers);
   }
 
   @Get("/notification/email-accounts")

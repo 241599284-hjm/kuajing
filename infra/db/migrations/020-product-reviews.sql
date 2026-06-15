@@ -1,3 +1,5 @@
+\connect review_db
+
 CREATE TABLE IF NOT EXISTS product_reviews (
   id uuid PRIMARY KEY,
   product_slug text NOT NULL,

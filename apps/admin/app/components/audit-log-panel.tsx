@@ -11,7 +11,7 @@ import {
 
 const adminGatewayUrl = process.env.NEXT_PUBLIC_ADMIN_GATEWAY_URL ?? "http://localhost:4001";
 
-type AuditSource = "all" | "inventory" | "ops" | "product_import";
+type AuditSource = "all" | "inventory" | "media" | "ops" | "product_import";
 
 type UnifiedAuditEvent = {
   id: string;
@@ -36,6 +36,15 @@ type OpsAuditEvent = {
   id: string;
   action: string;
   actor: string;
+  summary: string;
+  correlationId: string;
+  createdAt: string;
+};
+
+type MediaAuditEvent = {
+  id: string;
+  action: string;
+  actorId: string;
   summary: string;
   correlationId: string;
   createdAt: string;
@@ -74,6 +83,18 @@ function normalizeOps(event: OpsAuditEvent): UnifiedAuditEvent {
   };
 }
 
+function normalizeMedia(event: MediaAuditEvent): UnifiedAuditEvent {
+  return {
+    id: event.id,
+    source: "media",
+    action: event.action,
+    actor: event.actorId,
+    summary: event.summary,
+    correlationId: event.correlationId,
+    createdAt: event.createdAt
+  };
+}
+
 function normalizeProductImport(event: ProductImportAuditEvent): UnifiedAuditEvent {
   return {
     id: event.id,
@@ -89,6 +110,7 @@ function normalizeProductImport(event: ProductImportAuditEvent): UnifiedAuditEve
 function sourceLabel(source: UnifiedAuditEvent["source"]) {
   const labels: Record<UnifiedAuditEvent["source"], string> = {
     inventory: "库存",
+    media: "媒体",
     ops: "运维",
     product_import: "商品导入"
   };
@@ -125,6 +147,15 @@ export function AuditLogPanel() {
     }
 
     try {
+      const response = await fetch(`${adminGatewayUrl}/media/audit-events`, { headers });
+      const payload = (await response.json().catch(() => ({}))) as { events?: MediaAuditEvent[] };
+      if (!response.ok || !Array.isArray(payload.events)) throw new Error("media audit unavailable");
+      nextEvents.push(...payload.events.map(normalizeMedia));
+    } catch {
+      failures.push("媒体");
+    }
+
+    try {
       const response = await fetch(`${adminGatewayUrl}/product-import/audit-events`, { headers });
       const payload = (await response.json().catch(() => ({}))) as { events?: ProductImportAuditEvent[] };
       if (!response.ok || !Array.isArray(payload.events)) throw new Error("product import audit unavailable");
@@ -158,6 +189,7 @@ export function AuditLogPanel() {
           <AdminSelect value={source} onChange={(event) => setSource(event.target.value as AuditSource)}>
             <option value="all">全部</option>
             <option value="inventory">库存</option>
+            <option value="media">媒体</option>
             <option value="ops">运维</option>
             <option value="product_import">商品导入</option>
           </AdminSelect>

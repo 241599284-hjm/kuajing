@@ -1,3 +1,5 @@
+\connect logistics_db
+
 CREATE TABLE IF NOT EXISTS logistics_api_accounts (
   id uuid PRIMARY KEY,
   provider text NOT NULL,

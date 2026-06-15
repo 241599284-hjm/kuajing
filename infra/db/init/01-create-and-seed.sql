@@ -7,6 +7,7 @@ CREATE DATABASE notification_db;
 CREATE DATABASE review_db;
 CREATE DATABASE ops_db;
 CREATE DATABASE product_import_db;
+CREATE DATABASE media_db;
 
 \connect app_db
 

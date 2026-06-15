@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import type { Route } from "next";
-import { MessageCircle } from "lucide-react";
 import { storefrontCopy } from "../lib/storefront-content.js";
+import { CustomerServiceMenu } from "./customer-service-menu.js";
 import { ProductCollection } from "./product-collection.js";
 import { RegionCollection } from "./region-collection.js";
 import { StorefrontFooter } from "./storefront-footer.js";
@@ -83,24 +83,7 @@ function StorefrontShellContent() {
         </div>
       </section>
 
-      <details id="support" className="fixed bottom-4 right-4 z-20 max-w-[calc(100vw-2rem)] md:bottom-8 md:right-8">
-        <summary
-          aria-label={copy.support.title}
-          className="flex size-12 list-none items-center justify-center rounded-full bg-black text-white shadow-lg"
-        >
-          <MessageCircle size={20} />
-        </summary>
-        <div className="mt-3 w-[min(22rem,calc(100vw-2rem))] rounded-lg border border-[var(--line)] bg-white p-4 text-black shadow-xl">
-          <p className="text-sm font-semibold">{copy.support.title}</p>
-          <p className="mt-2 text-sm leading-6 text-[var(--ink-soft)]">
-            {copy.support.body}
-          </p>
-          <div className="mt-4 grid gap-2">
-            <button className="rounded-full bg-[var(--accent)] px-4 py-2 text-sm text-white">{copy.support.startChat}</button>
-            <button className="rounded-full border border-[var(--line)] px-4 py-2 text-sm">{copy.support.createTicket}</button>
-          </div>
-        </div>
-      </details>
+      <CustomerServiceMenu copy={copy.support} locale={locale} />
 
       <StorefrontFooter locale={locale} />
     </main>

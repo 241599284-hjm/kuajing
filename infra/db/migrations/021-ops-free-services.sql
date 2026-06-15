@@ -1,3 +1,5 @@
+\connect ops_db
+
 create table if not exists ops_settings (
   id text primary key,
   settings jsonb not null,

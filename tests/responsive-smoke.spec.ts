@@ -530,3 +530,103 @@ test("product detail mobile menu fills the viewport", async ({ page }) => {
 
   expect(horizontalOverflow).toBeLessThanOrEqual(1);
 });
+
+test("storefront legal pages use the shared premium shell", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  const legalPages = [
+    { url: "/privacy-policy", heading: "Privacy Policy", marker: "Payments" },
+    { url: "/refund-return-policy", heading: "Refund and Return Policy", marker: "30-Day Return Window" },
+    { url: "/terms-of-service", heading: "Terms of Service", marker: "Orders and Payment" },
+    { url: "/contact-us", heading: "Contact Us", marker: "Business Hours" }
+  ];
+
+  for (const legalPage of legalPages) {
+    await page.goto(`http://localhost:3000${legalPage.url}`, { waitUntil: "networkidle" });
+    await expect(page.getByRole("heading", { name: legalPage.heading })).toBeVisible();
+    await expect(page.getByRole("heading", { name: legalPage.marker })).toBeVisible();
+    const legalNav = page.locator("main > section nav");
+    await expect(legalNav.getByRole("link", { name: "Privacy Policy", exact: true })).toBeVisible();
+    await expect(legalNav.getByRole("link", { name: "Refund and Return Policy", exact: true })).toBeVisible();
+    await expect(legalNav.getByRole("link", { name: "Terms of Service", exact: true })).toBeVisible();
+    await expect(legalNav.getByRole("link", { name: "Contact Us", exact: true })).toBeVisible();
+
+    const horizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(horizontalOverflow).toBeLessThanOrEqual(1);
+  }
+});
+
+test("storefront payment result page covers success and language switch", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("http://localhost:3000/payment-result?status=success&order=TEST-1001", { waitUntil: "networkidle" });
+
+  await expect(page.getByRole("heading", { name: "Payment received" })).toBeVisible();
+  await expect(page.getByText("Order TEST-1001")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Continue shopping" })).toBeVisible();
+  await page.getByRole("button", { name: "Switch language to Chinese" }).click();
+  await expect(page.getByRole("heading", { name: "付款成功" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "进入个人中心" })).toBeVisible();
+});
+
+test("storefront tracking page is self-hosted and does not fake provider success", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("http://localhost:3000/track-order", { waitUntil: "networkidle" });
+
+  await expect(page.getByRole("heading", { name: "Track your parcel" })).toBeVisible();
+  await page.getByLabel("Tracking number").fill("YT202606150001");
+  await page.getByRole("button", { name: "Track" }).click();
+  await expect(page.getByRole("status")).toHaveText(/(Local mock tracking|Tracking is temporarily unavailable|fetch failed|Failed to fetch|HTTP \d+)/);
+});
+
+test("storefront product reviews section exposes moderated review flow", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("http://localhost:3000/products/porcelain-tea-set?orderId=ORDER-1001&email=buyer@example.com", { waitUntil: "networkidle" });
+
+  await expect(page.getByRole("heading", { name: "Customer reviews" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Write a review" })).toBeVisible();
+  await expect(page.getByLabel("Order ID")).toHaveValue("ORDER-1001");
+  await expect(page.getByLabel("Email")).toHaveValue("buyer@example.com");
+  await expect(page.getByRole("button", { name: "Submit review" })).toBeVisible();
+});
+
+test("admin restored logistics, review, ops, product import, email template, and audit panels", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("http://localhost:3001", { waitUntil: "networkidle" });
+
+  async function openAdminSection(label: RegExp) {
+    await page.getByRole("button", { name: "菜单" }).click();
+    await page.getByRole("navigation", { name: "Admin sections" }).getByRole("button", { name: label }).click();
+  }
+
+  await openAdminSection(/物流管理/);
+  await expect(page.getByRole("heading", { name: "物流轨迹查询" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "物流 API 账号池" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "物流 API 调用日志" })).toBeVisible();
+
+  await openAdminSection(/评论管理/);
+  await expect(page.getByRole("heading", { name: "商品评论" })).toBeVisible();
+  await expect(page.getByText("新评论默认待审核")).toBeVisible();
+
+  await openAdminSection(/运维配置/);
+  await expect(page.getByRole("heading", { name: "SSL / CDN / 统计配置" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "HTTPS 证书" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Cloudflare 免费 CDN" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "GA4 + GSC 免费统计" })).toBeVisible();
+
+  await openAdminSection(/商品导入/);
+  await expect(page.getByRole("heading", { name: "商品批量导入与 AI 工作流" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "文案与图片生成配置" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "链接批量导入" })).toBeVisible();
+
+  await openAdminSection(/邮箱设置/);
+  await expect(page.locator("section[aria-labelledby='email-settings-title']").getByRole("heading", { name: "邮箱设置" })).toBeVisible();
+  await expect(page.locator("section[aria-labelledby='transactional-email-templates-title']").getByRole("heading", { name: "事务邮件模板" })).toBeVisible();
+  await expect(page.locator("body")).toContainText(/(注册|付款成功|物流|评价|暂无模板|HTTP|API 未连接)/);
+
+  await openAdminSection(/审计日志/);
+  await expect(page.locator("section[aria-labelledby='audit-log']").getByRole("heading", { name: "审计日志" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "刷新审计" })).toBeVisible();
+
+  const horizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(horizontalOverflow).toBeLessThanOrEqual(1);
+});

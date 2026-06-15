@@ -1,7 +1,9 @@
 import "reflect-metadata";
 import {
   BadRequestException,
+  Body,
   Controller,
+  Delete,
   Get,
   Headers,
   Inject,
@@ -20,12 +22,15 @@ import { NestFactory } from "@nestjs/core";
 import { assertStoreContext, type StoreContext } from "@commerce/store-context";
 import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Client as MinioClient } from "minio";
+import { Pool } from "pg";
 
 type MediaKind = "image" | "gif" | "video";
 type StorageProvider = "local" | "minio";
+type StorageMode = "postgres" | "memory";
+type MediaAuditAction = "upload_accepted" | "upload_rejected" | "object_deleted" | "object_delete_missing" | "object_delete_failed";
 
 type UploadedMediaFile = {
   originalname: string;
@@ -52,10 +57,38 @@ type HeaderResponse = {
   setHeader: (name: string, value: string) => void;
 };
 
+type HeaderBag = Record<string, string | string[] | undefined>;
+type MediaAuditEvent = {
+  id: string;
+  storeId: string;
+  action: MediaAuditAction;
+  actorId: string;
+  objectKey: string | null;
+  assetId: string | null;
+  summary: string;
+  oldValue: unknown;
+  newValue: unknown;
+  correlationId: string;
+  createdAt: string;
+};
+type DeleteMediaRequest = {
+  objectKey?: string;
+  assetId?: string;
+  reason?: string;
+};
+
 const allowedMimeTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4"]);
 const maxUploadBytes = Number(process.env.MEDIA_MAX_UPLOAD_BYTES ?? 8 * 1024 * 1024);
 const localStorageRoot = process.env.MEDIA_LOCAL_STORAGE_ROOT ?? path.resolve("storage", "media");
 const objectStorageProvider = (process.env.OBJECT_STORAGE_PROVIDER ?? "local").toLowerCase() as StorageProvider;
+const mediaDatabaseUrl = process.env.MEDIA_DATABASE_URL;
+const memoryAuditEvents: MediaAuditEvent[] = [];
+
+function headerValue(headers: HeaderBag, name: string): string | undefined {
+  const value = headers[name] ?? headers[name.toLowerCase()];
+  if (Array.isArray(value)) return value[0];
+  return value;
+}
 
 function createStoreContext(correlationId: string | undefined): StoreContext {
   return assertStoreContext({
@@ -212,6 +245,127 @@ function objectKey(ctx: StoreContext, kind: MediaKind, file: UploadedMediaFile, 
   ].join("/");
 }
 
+function assertOwnedObjectKey(ctx: StoreContext, key: string) {
+  const normalized = key.trim();
+
+  if (!normalized || path.isAbsolute(normalized) || normalized.includes("..") || normalized.includes("\\")) {
+    throw new BadRequestException("MEDIA_OBJECT_KEY_INVALID");
+  }
+
+  if (!normalized.startsWith(`${ctx.storeId}/product-media/`)) {
+    throw new BadRequestException("MEDIA_OBJECT_KEY_STORE_MISMATCH");
+  }
+
+  return normalized;
+}
+
+@Injectable()
+class MediaAuditRepository {
+  private readonly pool = mediaDatabaseUrl ? new Pool({ connectionString: mediaDatabaseUrl }) : null;
+
+  async record(event: Omit<MediaAuditEvent, "id" | "createdAt">): Promise<StorageMode> {
+    const nextEvent: MediaAuditEvent = {
+      ...event,
+      id: randomUUID(),
+      createdAt: new Date().toISOString()
+    };
+
+    if (!this.pool) {
+      memoryAuditEvents.unshift(nextEvent);
+      return "memory";
+    }
+
+    try {
+      await this.pool.query(
+        `INSERT INTO media_audit_events (
+          id, store_id, action, actor_id, object_key, asset_id, summary,
+          old_value, new_value, correlation_id, created_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10, $11)`,
+        [
+          nextEvent.id,
+          nextEvent.storeId,
+          nextEvent.action,
+          nextEvent.actorId,
+          nextEvent.objectKey,
+          nextEvent.assetId,
+          nextEvent.summary,
+          JSON.stringify(nextEvent.oldValue ?? null),
+          JSON.stringify(nextEvent.newValue ?? null),
+          nextEvent.correlationId,
+          nextEvent.createdAt
+        ]
+      );
+      return "postgres";
+    } catch {
+      memoryAuditEvents.unshift(nextEvent);
+      return "memory";
+    }
+  }
+
+  async list(ctx: StoreContext): Promise<{ events: MediaAuditEvent[]; storageMode: StorageMode }> {
+    if (!this.pool) {
+      return { events: memoryAuditEvents.filter((event) => event.storeId === ctx.storeId).slice(0, 100), storageMode: "memory" };
+    }
+
+    try {
+      const result = await this.pool.query<{
+        id: string;
+        store_id: string;
+        action: MediaAuditAction;
+        actor_id: string;
+        object_key: string | null;
+        asset_id: string | null;
+        summary: string;
+        old_value: unknown;
+        new_value: unknown;
+        correlation_id: string;
+        created_at: Date;
+      }>(
+        `SELECT id, store_id, action, actor_id, object_key, asset_id, summary,
+                old_value, new_value, correlation_id, created_at
+         FROM media_audit_events
+         WHERE store_id = $1
+         ORDER BY created_at DESC
+         LIMIT 100`,
+        [ctx.storeId]
+      );
+
+      return {
+        storageMode: "postgres",
+        events: result.rows.map((row) => ({
+          id: row.id,
+          storeId: row.store_id,
+          action: row.action,
+          actorId: row.actor_id,
+          objectKey: row.object_key,
+          assetId: row.asset_id,
+          summary: row.summary,
+          oldValue: row.old_value,
+          newValue: row.new_value,
+          correlationId: row.correlation_id,
+          createdAt: row.created_at.toISOString()
+        }))
+      };
+    } catch {
+      return { events: memoryAuditEvents.filter((event) => event.storeId === ctx.storeId).slice(0, 100), storageMode: "memory" };
+    }
+  }
+
+  async ready(): Promise<{ databaseConfigured: boolean; storageMode: StorageMode }> {
+    if (!this.pool) {
+      return { databaseConfigured: false, storageMode: "memory" };
+    }
+
+    try {
+      await this.pool.query("SELECT 1");
+      return { databaseConfigured: true, storageMode: "postgres" };
+    } catch {
+      return { databaseConfigured: true, storageMode: "memory" };
+    }
+  }
+}
+
 @Injectable()
 class MediaStorage {
   private readonly provider = objectStorageProvider === "minio" ? "minio" : "local";
@@ -240,6 +394,32 @@ class MediaStorage {
       width: validation.width,
       height: validation.height
     };
+  }
+
+  async delete(ctx: StoreContext, key: string): Promise<{ objectKey: string; deleted: boolean; provider: StorageProvider }> {
+    const normalizedKey = assertOwnedObjectKey(ctx, key);
+
+    if (this.provider === "minio") {
+      await this.getMinioClient().removeObject(this.bucket, normalizedKey);
+      return { objectKey: normalizedKey, deleted: true, provider: this.provider };
+    }
+
+    const targetPath = path.resolve(localStorageRoot, normalizedKey);
+
+    if (!targetPath.startsWith(path.resolve(localStorageRoot))) {
+      throw new BadRequestException("MEDIA_PATH_INVALID");
+    }
+
+    try {
+      await unlink(targetPath);
+      return { objectKey: normalizedKey, deleted: true, provider: this.provider };
+    } catch (error) {
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+        return { objectKey: normalizedKey, deleted: false, provider: this.provider };
+      }
+
+      throw error;
+    }
   }
 
   private async saveToLocal(key: string, buffer: Buffer): Promise<string> {
@@ -296,7 +476,10 @@ class MediaStorage {
 
 @Controller()
 class MediaController {
-  constructor(@Inject(MediaStorage) private readonly storage: MediaStorage) {}
+  constructor(
+    @Inject(MediaStorage) private readonly storage: MediaStorage,
+    @Inject(MediaAuditRepository) private readonly audit: MediaAuditRepository
+  ) {}
 
   @Get("/health")
   health(@Headers("x-correlation-id") correlationId?: string) {
@@ -319,19 +502,121 @@ class MediaController {
     };
   }
 
+  @Get("/ready")
+  async ready(@Headers("x-correlation-id") correlationId?: string) {
+    const ctx = createStoreContext(correlationId);
+    const audit = await this.audit.ready();
+
+    return {
+      service: "media-service",
+      status: audit.storageMode === "postgres" || !mediaDatabaseUrl ? "ready" : "degraded",
+      storeId: ctx.storeId,
+      storage: {
+        provider: objectStorageProvider,
+        bucketConfigured: Boolean(process.env.OBJECT_STORAGE_BUCKET),
+        cdnConfigured: objectStorageProvider === "local" || Boolean(process.env.OBJECT_STORAGE_CDN_URL)
+      },
+      audit
+    };
+  }
+
   @Post("/media/product-assets")
   @UseInterceptors(FileInterceptor("file", { limits: { fileSize: maxUploadBytes } }))
-  uploadProductAsset(
-    @Headers("x-correlation-id") correlationId: string | undefined,
+  async uploadProductAsset(
+    @Headers() headers: HeaderBag,
     @UploadedFile() file: UploadedMediaFile | undefined
   ) {
-    const ctx = createStoreContext(correlationId);
+    const ctx = createStoreContext(headerValue(headers, "x-correlation-id"));
+    const actorId = headerValue(headers, "x-admin-actor") ?? "storefront";
 
     if (!file) {
+      await this.audit.record({
+        storeId: ctx.storeId,
+        action: "upload_rejected",
+        actorId,
+        objectKey: null,
+        assetId: null,
+        summary: "Upload rejected: file is required",
+        oldValue: null,
+        newValue: null,
+        correlationId: ctx.correlationId
+      });
       throw new BadRequestException("MEDIA_FILE_REQUIRED");
     }
 
-    return this.storage.save(ctx, file);
+    try {
+      const result = await this.storage.save(ctx, file);
+      await this.audit.record({
+        storeId: ctx.storeId,
+        action: "upload_accepted",
+        actorId,
+        objectKey: result.objectKey,
+        assetId: result.assetId,
+        summary: `Uploaded ${result.originalName}`,
+        oldValue: null,
+        newValue: result,
+        correlationId: ctx.correlationId
+      });
+      return result;
+    } catch (error) {
+      await this.audit.record({
+        storeId: ctx.storeId,
+        action: "upload_rejected",
+        actorId,
+        objectKey: null,
+        assetId: null,
+        summary: error instanceof Error ? error.message : "Upload rejected",
+        oldValue: null,
+        newValue: { originalName: file.originalname, mimeType: file.mimetype, byteSize: file.size },
+        correlationId: ctx.correlationId
+      });
+      throw error;
+    }
+  }
+
+  @Delete("/media/product-assets")
+  async deleteProductAsset(
+    @Headers() headers: HeaderBag,
+    @Body() body: DeleteMediaRequest
+  ) {
+    const ctx = createStoreContext(headerValue(headers, "x-correlation-id"));
+    const actorId = headerValue(headers, "x-admin-actor") ?? "system";
+    const key = typeof body?.objectKey === "string" ? body.objectKey : "";
+
+    try {
+      const result = await this.storage.delete(ctx, key);
+      await this.audit.record({
+        storeId: ctx.storeId,
+        action: result.deleted ? "object_deleted" : "object_delete_missing",
+        actorId,
+        objectKey: result.objectKey,
+        assetId: body?.assetId ?? null,
+        summary: result.deleted ? (body?.reason ?? "Media object deleted") : "Media object was already missing",
+        oldValue: { objectKey: result.objectKey },
+        newValue: result,
+        correlationId: ctx.correlationId
+      });
+      return result;
+    } catch (error) {
+      await this.audit.record({
+        storeId: ctx.storeId,
+        action: "object_delete_failed",
+        actorId,
+        objectKey: key || null,
+        assetId: body?.assetId ?? null,
+        summary: error instanceof Error ? error.message : "Media object delete failed",
+        oldValue: { objectKey: key || null },
+        newValue: null,
+        correlationId: ctx.correlationId
+      });
+      throw error;
+    }
+  }
+
+  @Get("/media/audit-events")
+  auditEvents(@Headers("x-correlation-id") correlationId?: string) {
+    const ctx = createStoreContext(correlationId);
+    return this.audit.list(ctx);
   }
 
   @Get("/files/:storeId/:scope/:kind/:yyyyMm/:fileName")
@@ -360,7 +645,7 @@ class MediaController {
   }
 }
 
-@Module({ controllers: [MediaController], providers: [MediaStorage] })
+@Module({ controllers: [MediaController], providers: [MediaStorage, MediaAuditRepository] })
 class AppModule {}
 
 async function bootstrap() {

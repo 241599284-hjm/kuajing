@@ -158,7 +158,11 @@ export function EmailSettingsPanel() {
       setStatus("已保存");
     } catch (error) {
       const message = error instanceof Error ? error.message : "保存失败";
-      setStatus(message === "Internal server error" || message.startsWith("HTTP 5") ? "API 未连接，本地已保留修改" : message);
+      setStatus(
+        message === "Failed to fetch" || message === "Internal server error" || message.startsWith("HTTP 5")
+          ? "API 未连接，本地已保留修改"
+          : message
+      );
     } finally {
       setIsSaving(false);
     }

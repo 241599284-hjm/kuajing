@@ -1,3 +1,5 @@
+\connect product_import_db
+
 CREATE TABLE IF NOT EXISTS product_import_config (
   id text PRIMARY KEY,
   settings jsonb NOT NULL,

@@ -393,6 +393,7 @@ services:
     environment:
       NODE_ENV: development
       PORT: 4108
+      MEDIA_DATABASE_URL: postgresql://${POSTGRES_USER:-commerce}:${POSTGRES_PASSWORD:-commerce}@postgres:5432/media_db
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
@@ -407,6 +408,8 @@ services:
     ports:
       - "4108:4108"
     depends_on:
+      postgres:
+        condition: service_healthy
       minio:
         condition: service_healthy
 
@@ -454,6 +457,17 @@ services:
       - ./infra/db/migrations/011-dead-letter-audit-events.sql:/docker-entrypoint-initdb.d/08-dead-letter-audit-events.sql:ro
       - ./infra/db/migrations/012-inventory-audit-events.sql:/docker-entrypoint-initdb.d/09-inventory-audit-events.sql:ro
       - ./infra/db/migrations/013-order-audit-events.sql:/docker-entrypoint-initdb.d/10-order-audit-events.sql:ro
+      - ./infra/db/migrations/014-media-audit-events.sql:/docker-entrypoint-initdb.d/11-media-audit-events.sql:ro
+      - ./infra/db/migrations/015-product-assets-alt-and-storage.sql:/docker-entrypoint-initdb.d/12-product-assets-alt-and-storage.sql:ro
+      - ./infra/db/migrations/016-product-scheduled-status.sql:/docker-entrypoint-initdb.d/13-product-scheduled-status.sql:ro
+      - ./infra/db/migrations/017-catalog-audit-events.sql:/docker-entrypoint-initdb.d/14-catalog-audit-events.sql:ro
+      - ./infra/db/migrations/018-logistics-tracking.sql:/docker-entrypoint-initdb.d/15-logistics-tracking.sql:ro
+      - ./infra/db/migrations/019-notification-email.sql:/docker-entrypoint-initdb.d/16-notification-email.sql:ro
+      - ./infra/db/migrations/020-product-reviews.sql:/docker-entrypoint-initdb.d/17-product-reviews.sql:ro
+      - ./infra/db/migrations/021-ops-free-services.sql:/docker-entrypoint-initdb.d/18-ops-free-services.sql:ro
+      - ./infra/db/migrations/022-product-import-ai-workflow.sql:/docker-entrypoint-initdb.d/19-product-import-ai-workflow.sql:ro
+      - ./infra/db/migrations/023-notification-email-templates.sql:/docker-entrypoint-initdb.d/20-notification-email-templates.sql:ro
+      - ./infra/db/migrations/024-order-line-product-slug.sql:/docker-entrypoint-initdb.d/21-order-line-product-slug.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U commerce -d postgres"]
       interval: 5s

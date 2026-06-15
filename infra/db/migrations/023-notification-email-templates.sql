@@ -1,3 +1,5 @@
+\connect notification_db
+
 CREATE TABLE IF NOT EXISTS notification_email_templates (
   store_id uuid NOT NULL,
   template_key text NOT NULL,

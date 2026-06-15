@@ -1,3 +1,5 @@
+\connect order_db
+
 ALTER TABLE order_lines
   ADD COLUMN IF NOT EXISTS product_slug_snapshot text;
 
