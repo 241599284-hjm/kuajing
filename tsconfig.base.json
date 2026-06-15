@@ -21,6 +21,7 @@
       "@commerce/money": ["packages/money/src/index.ts"],
       "@commerce/pii-policy": ["packages/pii-policy/src/index.ts"],
       "@commerce/audit-log": ["packages/audit-log/src/index.ts"],
+      "@commerce/error-codes": ["packages/error-codes/src/index.ts"],
       "@commerce/theme-system": ["packages/theme-system/src/index.ts"]
     }
   }

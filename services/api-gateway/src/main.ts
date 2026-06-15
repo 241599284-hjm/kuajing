@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { Body, Controller, Get, Headers, HttpException, Module, Param, Post } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { assertStoreContext } from "@commerce/store-context";
+import { normalizeErrorPayload } from "@commerce/error-codes";
 import { randomUUID } from "node:crypto";
 
 const serviceName = "api-gateway";
@@ -43,6 +44,10 @@ function buildForwardHeaders(headers: HeaderBag): Record<string, string> {
   return nextHeaders;
 }
 
+function throwForwardedError(payload: unknown, status: number, headers: HeaderBag): never {
+  throw new HttpException(normalizeErrorPayload(payload, status, headerValue(headers, "x-correlation-id")), status);
+}
+
 async function forwardJson<T>(path: string, headers: HeaderBag): Promise<T> {
   const response = await fetch(`${catalogServiceUrl}${path}`, {
     headers: buildForwardHeaders(headers)
@@ -51,7 +56,7 @@ async function forwardJson<T>(path: string, headers: HeaderBag): Promise<T> {
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new HttpException(payload, response.status);
+    throwForwardedError(payload, response.status, headers);
   }
 
   return payload as T;
@@ -70,7 +75,7 @@ async function forwardOrderJson<T>(path: string, headers: HeaderBag, body?: unkn
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new HttpException(payload, response.status);
+    throwForwardedError(payload, response.status, headers);
   }
 
   return payload as T;
@@ -88,7 +93,7 @@ async function forwardServiceJson<T>(baseUrl: string, path: string, headers: Hea
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new HttpException(payload, response.status);
+    throwForwardedError(payload, response.status, headers);
   }
 
   return payload as T;

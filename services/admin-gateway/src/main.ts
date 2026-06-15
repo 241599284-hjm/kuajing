@@ -3,6 +3,7 @@ import { Body, Controller, Get, Headers, HttpException, Module, Param, Post, Put
 import { FileInterceptor } from "@nestjs/platform-express";
 import { NestFactory } from "@nestjs/core";
 import { assertStoreContext } from "@commerce/store-context";
+import { normalizeErrorPayload } from "@commerce/error-codes";
 import { randomUUID } from "node:crypto";
 
 const serviceName = "admin-gateway";
@@ -55,6 +56,10 @@ function buildForwardHeaders(headers: HeaderBag, extraHeaders: Record<string, st
   return nextHeaders;
 }
 
+function throwForwardedError(payload: unknown, status: number, headers: HeaderBag): never {
+  throw new HttpException(normalizeErrorPayload(payload, status, headerValue(headers, "x-correlation-id")), status);
+}
+
 async function forwardJson<T>(path: string, headers: HeaderBag): Promise<T> {
   const response = await fetch(`${catalogServiceUrl}${path}`, {
     headers: buildForwardHeaders(headers)
@@ -63,7 +68,7 @@ async function forwardJson<T>(path: string, headers: HeaderBag): Promise<T> {
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new HttpException(payload, response.status);
+    throwForwardedError(payload, response.status, headers);
   }
 
   return payload as T;
@@ -79,7 +84,7 @@ async function forwardJsonWithBody<T>(path: string, headers: HeaderBag, body: un
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new HttpException(payload, response.status);
+    throwForwardedError(payload, response.status, headers);
   }
 
   return payload as T;
@@ -93,7 +98,7 @@ async function forwardOrderJson<T>(path: string, headers: HeaderBag): Promise<T>
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new HttpException(payload, response.status);
+    throwForwardedError(payload, response.status, headers);
   }
 
   return payload as T;
@@ -109,7 +114,7 @@ async function forwardOrderJsonWithBody<T>(path: string, headers: HeaderBag, bod
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new HttpException(payload, response.status);
+    throwForwardedError(payload, response.status, headers);
   }
 
   return payload as T;
@@ -123,7 +128,7 @@ async function forwardInventoryJson<T>(path: string, headers: HeaderBag): Promis
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new HttpException(payload, response.status);
+    throwForwardedError(payload, response.status, headers);
   }
 
   return payload as T;
@@ -139,7 +144,7 @@ async function forwardInventoryJsonWithBody<T>(path: string, headers: HeaderBag,
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new HttpException(payload, response.status);
+    throwForwardedError(payload, response.status, headers);
   }
 
   return payload as T;
@@ -153,7 +158,7 @@ async function forwardWorkerJson<T>(path: string, headers: HeaderBag): Promise<T
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new HttpException(payload, response.status);
+    throwForwardedError(payload, response.status, headers);
   }
 
   return payload as T;
@@ -169,7 +174,7 @@ async function forwardWorkerJsonWithBody<T>(path: string, headers: HeaderBag, bo
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new HttpException(payload, response.status);
+    throwForwardedError(payload, response.status, headers);
   }
 
   return payload as T;
@@ -182,7 +187,7 @@ async function forwardNotificationJson<T>(path: string, headers: HeaderBag): Pro
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new HttpException(payload, response.status);
+    throwForwardedError(payload, response.status, headers);
   }
 
   return payload as T;
@@ -197,7 +202,7 @@ async function forwardNotificationPutJson<T>(path: string, headers: HeaderBag, b
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new HttpException(payload, response.status);
+    throwForwardedError(payload, response.status, headers);
   }
 
   return payload as T;
@@ -210,7 +215,7 @@ async function forwardLogisticsJson<T>(path: string, headers: HeaderBag): Promis
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new HttpException(payload, response.status);
+    throwForwardedError(payload, response.status, headers);
   }
 
   return payload as T;
@@ -225,7 +230,7 @@ async function forwardLogisticsJsonWithBody<T>(path: string, headers: HeaderBag,
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new HttpException(payload, response.status);
+    throwForwardedError(payload, response.status, headers);
   }
 
   return payload as T;
@@ -238,7 +243,7 @@ async function forwardReviewJson<T>(path: string, headers: HeaderBag): Promise<T
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new HttpException(payload, response.status);
+    throwForwardedError(payload, response.status, headers);
   }
 
   return payload as T;
@@ -253,7 +258,7 @@ async function forwardReviewJsonWithBody<T>(path: string, headers: HeaderBag, bo
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new HttpException(payload, response.status);
+    throwForwardedError(payload, response.status, headers);
   }
 
   return payload as T;
@@ -273,7 +278,7 @@ async function forwardMediaUpload<T>(path: string, headers: HeaderBag, file: Upl
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new HttpException(payload, response.status);
+    throwForwardedError(payload, response.status, headers);
   }
 
   return payload as T;
