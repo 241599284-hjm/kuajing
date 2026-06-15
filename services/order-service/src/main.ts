@@ -13,6 +13,7 @@ import {
   OnApplicationShutdown,
   Param,
   Post,
+  Query,
   ServiceUnavailableException
 } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
@@ -489,6 +490,11 @@ function listMemoryOrders(): AdminOrderSummary[] {
     }));
 }
 
+function listMemoryOrdersByEmail(email: string): AdminOrderSummary[] {
+  const normalizedEmail = email.toLowerCase();
+  return listMemoryOrders().filter((order) => order.customerEmail.toLowerCase() === normalizedEmail);
+}
+
 function findMemoryOrder(orderId: string): MockCheckoutOrder | undefined {
   return [...mockOrdersByIdempotencyKey.values()].find((order) => order.orderId === orderId);
 }
@@ -720,6 +726,55 @@ class OrderRepository implements OnApplicationShutdown {
       isException: row.is_exception,
       failureCount: row.failure_count,
       lastFailureReason: row.last_failure_reason ?? "",
+      totalMinor: row.total_minor,
+      currency: row.currency,
+      storageMode: "postgres",
+      createdAt: row.created_at.toISOString()
+    }));
+  }
+
+  async listCustomerOrders(ctx: StoreContext, email: string): Promise<AdminOrderSummary[]> {
+    const result = await this.pool.query<{
+      id: string;
+      order_number: string;
+      customer_email: string;
+      status: string;
+      payment_status: string;
+      inventory_status: string;
+      total_minor: number;
+      currency: string;
+      created_at: Date;
+    }>(
+      `
+        SELECT
+          id,
+          order_number,
+          customer_email,
+          status,
+          payment_status,
+          inventory_status,
+          total_minor,
+          currency,
+          created_at
+        FROM orders
+        WHERE store_id = $1
+          AND lower(customer_email) = lower($2)
+        ORDER BY created_at DESC
+        LIMIT 20
+      `,
+      [ctx.storeId, email]
+    );
+
+    return result.rows.map((row) => ({
+      orderId: row.id,
+      orderNumber: row.order_number,
+      customerEmail: row.customer_email,
+      status: row.status,
+      paymentStatus: row.payment_status,
+      inventoryStatus: row.inventory_status,
+      isException: isExceptionState(row.status, row.inventory_status),
+      failureCount: 0,
+      lastFailureReason: "",
       totalMinor: row.total_minor,
       currency: row.currency,
       storageMode: "postgres",
@@ -1361,6 +1416,21 @@ class OrderController {
       return await this.orderRepository.listOrders(ctx);
     } catch {
       return listMemoryOrders();
+    }
+  }
+
+  @Get("/orders/customer-history")
+  async customerOrders(
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Query("email") email: string | undefined
+  ) {
+    const ctx = createStoreContext(correlationId);
+    const normalizedEmail = normalizeEmail(email);
+
+    try {
+      return await this.orderRepository.listCustomerOrders(ctx, normalizedEmail);
+    } catch {
+      return listMemoryOrdersByEmail(normalizedEmail);
     }
   }
 

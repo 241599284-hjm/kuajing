@@ -14,6 +14,7 @@ import { TeawareLoadingOverlay } from "./teaware-loading-overlay.js";
 import { useStorefrontLocale } from "./use-storefront-locale.js";
 
 const apiGatewayUrl = process.env.NEXT_PUBLIC_API_GATEWAY_URL ?? "http://localhost:4000";
+const authServiceUrl = process.env.NEXT_PUBLIC_AUTH_SERVICE_URL ?? "http://localhost:4102";
 
 function formatMoney(value: number) {
   return `$${value.toFixed(0)}`;
@@ -30,6 +31,11 @@ export function CheckoutShell() {
   const [message, setMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRegistrationOpen, setIsRegistrationOpen] = useState(false);
+  const [guestOrder, setGuestOrder] = useState<{ orderNumber: string; email: string } | null>(null);
+  const [guestUsername, setGuestUsername] = useState("");
+  const [guestPassword, setGuestPassword] = useState("");
+  const [guestRegistrationMessage, setGuestRegistrationMessage] = useState("");
+  const [isGuestRegistering, setIsGuestRegistering] = useState(false);
 
   const checkoutItems = useMemo(() => {
     if (!buyNowSlug) return cart.items;
@@ -48,6 +54,7 @@ export function CheckoutShell() {
     setMessage(isZh ? "正在创建模拟订单..." : "Creating mock order...");
 
     const form = new FormData(event.currentTarget);
+    const customerEmail = String(form.get("email") ?? "").trim().toLowerCase();
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), 2500);
 
@@ -59,7 +66,7 @@ export function CheckoutShell() {
           "x-idempotency-key": crypto.randomUUID()
         },
         body: JSON.stringify({
-          customerEmail: String(form.get("email") ?? ""),
+          customerEmail,
           customerPhone: `${String(form.get("phoneDialCode") ?? "")} ${String(form.get("phoneNumber") ?? "")}`.trim(),
           paymentMethod,
           shippingAddress: {
@@ -96,6 +103,10 @@ export function CheckoutShell() {
       }
 
       if (!buyNowSlug) clearCart();
+      setGuestOrder({ orderNumber: payload.orderNumber ?? "", email: customerEmail });
+      setGuestUsername(customerEmail.split("@")[0] ?? "");
+      setGuestPassword("");
+      setGuestRegistrationMessage("");
       setMessage(
         isZh
           ? `模拟订单 ${payload.orderNumber ?? ""} 已创建，库存模式：${payload.inventoryMode ?? "unknown"}，存储模式：${payload.storageMode ?? "unknown"}，支付模式：${payload.paymentMode ?? "unknown"}。`
@@ -107,9 +118,45 @@ export function CheckoutShell() {
           ? "订单 API 未连接，购物车已保留，未假装下单成功。"
           : "Order API is unavailable. Cart is kept, and no fake success was shown."
       );
+      setGuestOrder(null);
     } finally {
       window.clearTimeout(timeoutId);
       setIsSubmitting(false);
+    }
+  }
+
+  async function handleGuestRegistration(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!guestOrder) return;
+
+    setIsGuestRegistering(true);
+    setGuestRegistrationMessage(isZh ? "正在发送验证邮件..." : "Sending verification email...");
+
+    try {
+      const response = await fetch(`${authServiceUrl}/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: guestUsername,
+          email: guestOrder.email,
+          password: guestPassword
+        })
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(payload.message ?? (isZh ? "补注册失败" : "Registration failed"));
+      }
+
+      setGuestRegistrationMessage(
+        isZh
+          ? "验证邮件已发送。请打开邮箱完成激活，激活后可在个人主页查看该邮箱下的订单。"
+          : "Verification email sent. Activate your account, then sign in to see orders placed with this email."
+      );
+    } catch (error) {
+      setGuestRegistrationMessage(error instanceof Error ? error.message : (isZh ? "补注册失败" : "Registration failed"));
+    } finally {
+      setIsGuestRegistering(false);
     }
   }
 
@@ -270,6 +317,49 @@ export function CheckoutShell() {
             </aside>
           </form>
         )}
+
+        {guestOrder ? (
+          <section className="mt-6 border border-[var(--line)] bg-white/70 p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--ink-soft)]">
+              {isZh ? "未注册下单补注册" : "Guest checkout registration"}
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold">
+              {isZh ? "为此订单创建账户" : "Create an account for this order"}
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-[var(--ink-soft)]">
+              {isZh
+                ? `订单 ${guestOrder.orderNumber} 已使用 ${guestOrder.email} 下单。补注册会发送邮箱验证邮件，激活后按邮箱关联历史订单。`
+                : `Order ${guestOrder.orderNumber} was placed with ${guestOrder.email}. We will send a verification email and link past orders by email after activation.`}
+            </p>
+            <form className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]" onSubmit={handleGuestRegistration}>
+              <label className="grid gap-2 text-sm font-medium">
+                {isZh ? "用户名" : "Username"}
+                <input
+                  className="h-11 border border-[var(--line)] bg-white px-3"
+                  minLength={3}
+                  onChange={(event) => setGuestUsername(event.target.value)}
+                  required
+                  value={guestUsername}
+                />
+              </label>
+              <label className="grid gap-2 text-sm font-medium">
+                {isZh ? "设置密码" : "Create password"}
+                <input
+                  className="h-11 border border-[var(--line)] bg-white px-3"
+                  minLength={8}
+                  onChange={(event) => setGuestPassword(event.target.value)}
+                  required
+                  type="password"
+                  value={guestPassword}
+                />
+              </label>
+              <button className="premium-btn self-end disabled:cursor-not-allowed disabled:opacity-50" disabled={isGuestRegistering} type="submit">
+                {isGuestRegistering ? (isZh ? "发送中" : "Sending") : (isZh ? "发送验证邮件" : "Send verification")}
+              </button>
+            </form>
+            {guestRegistrationMessage ? <p className="mt-3 text-sm text-[var(--ink-soft)]" role="status">{guestRegistrationMessage}</p> : null}
+          </section>
+        ) : null}
       </section>
       <RegistrationDialog copy={copy.registration} isOpen={isRegistrationOpen} onClose={() => setIsRegistrationOpen(false)} />
       <TeawareLoadingOverlay isOpen={isSubmitting} locale={locale} />

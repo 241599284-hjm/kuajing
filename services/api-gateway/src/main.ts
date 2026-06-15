@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { Body, Controller, Get, Headers, HttpException, Module, Param, Post } from "@nestjs/common";
+import { Body, Controller, Get, Headers, HttpException, Module, Param, Post, Query } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { assertStoreContext } from "@commerce/store-context";
 import { normalizeErrorPayload } from "@commerce/error-codes";
@@ -144,6 +144,11 @@ class HealthController {
   @Post("/checkout/mock-order")
   createMockOrder(@Headers() headers: HeaderBag, @Body() body: unknown) {
     return forwardOrderJson("/checkout/mock-order", headers, body);
+  }
+
+  @Get("/orders/customer-history")
+  customerOrders(@Headers() headers: HeaderBag, @Query("email") email: string) {
+    return forwardOrderJson(`/orders/customer-history?email=${encodeURIComponent(email ?? "")}`, headers);
   }
 
   @Post("/payments/mock-confirm")

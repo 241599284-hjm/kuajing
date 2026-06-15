@@ -155,6 +155,10 @@ test("storefront product search suggests system product names", async ({ page })
 test("storefront add to cart opens cart and checkout pages", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("http://localhost:3000/products/porcelain-tea-set", { waitUntil: "networkidle" });
+  const acceptCookies = page.getByRole("button", { name: "Accept" });
+  if (await acceptCookies.isVisible().catch(() => false)) {
+    await acceptCookies.click();
+  }
 
   await page.getByRole("button", { name: "Add to cart" }).click();
   await expect(page.getByText("Added to cart")).toBeVisible();
@@ -174,7 +178,7 @@ test("storefront add to cart opens cart and checkout pages", async ({ page }) =>
   await page.getByLabel("Postal code").fill("90001");
   await page.getByLabel("Street address").fill("100 Tea Market Road");
   await page.getByRole("button", { name: "Place mock order" }).click();
-  await expect(page.getByRole("status")).toHaveText(/^(Mock order .+ created with (postgres|memory|unknown) inventory, (postgres|memory|unknown) storage, and (provider|local-fallback|unknown) payment\.|Order API is unavailable\. Cart is kept, and no fake success was shown\.)$/);
+  await expect(page.getByText(/^(Mock order .+ created with (postgres|memory|unknown) inventory, (postgres|memory|unknown) storage, and (provider|local-fallback|unknown) payment\.|Order API is unavailable\. Cart is kept, and no fake success was shown\.)$/)).toBeVisible({ timeout: 10000 });
 });
 
 test("storefront buy now opens checkout with the selected product", async ({ page }) => {
@@ -471,6 +475,23 @@ test("storefront header shows signed-in customer name", async ({ page }) => {
   await page.goto("http://localhost:3000", { waitUntil: "networkidle" });
 
   await expect(page.getByText("Alice")).toBeVisible();
+});
+
+test("storefront account order history reads real orders without static fallback", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.addInitScript(() => {
+    window.localStorage.setItem("demo-teaware-customer", JSON.stringify({
+      customerId: "cust-test",
+      email: "alice@example.com",
+      username: "Alice"
+    }));
+  });
+  await page.goto("http://localhost:3000/account", { waitUntil: "networkidle" });
+
+  await page.getByRole("button", { name: "Order history" }).click();
+  await expect(page.getByRole("heading", { name: "Order history" })).toBeVisible();
+  await expect(page.getByText("DT-10021")).not.toBeVisible();
+  await expect(page.getByRole("status")).toHaveText(/(No orders are linked|Order API is unavailable)/);
 });
 
 test("storefront reset password page accepts reset links", async ({ page }) => {

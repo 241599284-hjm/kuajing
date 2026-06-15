@@ -10,8 +10,20 @@ import { RegistrationDialog } from "./registration-dialog.js";
 import { useStorefrontLocale } from "./use-storefront-locale.js";
 
 const authServiceUrl = process.env.NEXT_PUBLIC_AUTH_SERVICE_URL ?? "http://localhost:4102";
+const apiGatewayUrl = process.env.NEXT_PUBLIC_API_GATEWAY_URL ?? "http://localhost:4000";
 
 type AccountSection = "profile" | "addresses" | "payments" | "orders" | "security";
+type CustomerOrderSummary = {
+  orderId: string;
+  orderNumber: string;
+  status: string;
+  paymentStatus: string;
+  inventoryStatus: string;
+  totalMinor: number;
+  currency: string;
+  storageMode: "postgres" | "memory";
+  createdAt: string;
+};
 
 const countries = ["United States", "United Kingdom", "Germany", "France", "Canada", "Australia", "China", "Japan", "Singapore"];
 const provinces = ["California", "New York", "Texas", "Ontario", "British Columbia", "England", "Bavaria", "Ile-de-France", "Beijing", "Shanghai", "Jiangxi"];
@@ -36,6 +48,8 @@ export function AccountShell() {
   const [cardLast4, setCardLast4] = useState("");
   const [message, setMessage] = useState("");
   const [isRegistrationOpen, setIsRegistrationOpen] = useState(false);
+  const [orders, setOrders] = useState<CustomerOrderSummary[]>([]);
+  const [ordersStatus, setOrdersStatus] = useState("");
 
   const sections: Array<{ key: AccountSection; label: string }> = [
     { key: "profile", label: isZh ? "账户资料" : "Profile" },
@@ -48,6 +62,42 @@ export function AccountShell() {
   useEffect(() => {
     setCustomer(readCustomerSession());
   }, []);
+
+  useEffect(() => {
+    if (!customer) {
+      setOrders([]);
+      setOrdersStatus("");
+      return;
+    }
+
+    const controller = new AbortController();
+    setOrdersStatus(isZh ? "正在读取历史订单..." : "Loading order history...");
+
+    fetch(`${apiGatewayUrl}/orders/customer-history?email=${encodeURIComponent(customer.email)}`, {
+      headers: { "x-correlation-id": crypto.randomUUID() },
+      signal: controller.signal
+    })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => []);
+        if (!response.ok) throw new Error(payload.message ?? "order history unavailable");
+        return Array.isArray(payload) ? payload as CustomerOrderSummary[] : [];
+      })
+      .then((nextOrders) => {
+        setOrders(nextOrders);
+        setOrdersStatus(nextOrders.length === 0
+          ? (isZh ? "暂无该邮箱关联的订单。" : "No orders are linked to this email yet.")
+          : "");
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setOrders([]);
+        setOrdersStatus(isZh
+          ? "订单 API 未连接，未展示假订单。"
+          : "Order API is unavailable. No fake orders are shown.");
+      });
+
+    return () => controller.abort();
+  }, [customer, isZh]);
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -216,6 +266,7 @@ export function AccountShell() {
       return (
         <section className="rounded-md border border-[var(--line)] p-5">
           <h2 className="text-xl font-semibold">{isZh ? "历史订单" : "Order history"}</h2>
+          {ordersStatus ? <p className="mt-3 text-sm text-[var(--ink-soft)]" role="status">{ordersStatus}</p> : null}
           <div className="mt-4 overflow-x-auto">
             <table className="w-full min-w-[34rem] text-left text-sm">
               <thead className="border-b border-[var(--line)] text-[var(--ink-soft)]">
@@ -223,16 +274,18 @@ export function AccountShell() {
                   <th className="py-3 font-medium">{isZh ? "订单号" : "Order"}</th>
                   <th className="py-3 font-medium">{isZh ? "状态" : "Status"}</th>
                   <th className="py-3 font-medium">{isZh ? "金额" : "Amount"}</th>
-                  <th className="py-3 font-medium">{isZh ? "物流" : "Tracking"}</th>
+                  <th className="py-3 font-medium">{isZh ? "库存" : "Inventory"}</th>
                 </tr>
               </thead>
               <tbody>
-                <tr className="border-b border-[var(--line)]">
-                  <td className="py-3">DT-10021</td>
-                  <td className="py-3">{isZh ? "待支付" : "Pending payment"}</td>
-                  <td className="py-3">$98</td>
-                  <td className="py-3">{isZh ? "待生成" : "Not available"}</td>
-                </tr>
+                {orders.map((order) => (
+                  <tr className="border-b border-[var(--line)]" key={order.orderId}>
+                    <td className="py-3">{order.orderNumber}</td>
+                    <td className="py-3">{order.status} / {order.paymentStatus}</td>
+                    <td className="py-3">{order.currency} {(order.totalMinor / 100).toFixed(2)}</td>
+                    <td className="py-3">{order.inventoryStatus}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
