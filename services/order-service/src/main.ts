@@ -42,6 +42,14 @@ type NormalizedCheckoutLine = {
   currency: string;
 };
 
+type ShippingAddressSnapshot = {
+  country: string;
+  province: string;
+  city: string;
+  postalCode: string;
+  street: string;
+};
+
 type MockCheckoutRequest = {
   customerEmail?: string;
   paymentMethod?: string;
@@ -67,6 +75,7 @@ type MockCheckoutOrder = {
   paymentMode: "provider" | "local-fallback";
   totalMinor: number;
   currency: string;
+  shippingAddress: ShippingAddressSnapshot;
   paymentRedirectUrl: string;
   idempotencyKey: string;
   createdAt: string;
@@ -107,6 +116,7 @@ type AdminOrderLine = {
 
 type AdminOrderDetail = AdminOrderSummary & {
   idempotencyKey: string;
+  shippingAddress: ShippingAddressSnapshot;
   lines: AdminOrderLine[];
   auditTrail: AdminOrderAuditEvent[];
 };
@@ -308,6 +318,30 @@ function normalizeEmail(value: string | undefined): string {
   return email;
 }
 
+function normalizeAddressField(value: string | undefined, fieldName: string, maxLength: number): string {
+  const normalized = value?.trim().replace(/\s+/g, " ");
+
+  if (!normalized) {
+    throw new BadRequestException(`shippingAddress.${fieldName} is required`);
+  }
+
+  if (normalized.length > maxLength) {
+    throw new BadRequestException(`shippingAddress.${fieldName} must be ${maxLength} characters or less`);
+  }
+
+  return normalized;
+}
+
+function normalizeShippingAddress(value: MockCheckoutRequest["shippingAddress"]): ShippingAddressSnapshot {
+  return {
+    country: normalizeAddressField(value?.country, "country", 120),
+    province: normalizeAddressField(value?.province, "province", 120),
+    city: normalizeAddressField(value?.city, "city", 120),
+    postalCode: normalizeAddressField(value?.postalCode, "postalCode", 40),
+    street: normalizeAddressField(value?.street, "street", 240)
+  };
+}
+
 function normalizeSkuId(value: string | undefined): string {
   const skuId = value?.trim() || defaultSkuId;
 
@@ -412,6 +446,7 @@ function normalizeCheckout(body: MockCheckoutRequest) {
   return {
     customerEmail: normalizeEmail(body.customerEmail),
     paymentMethod: body.paymentMethod?.trim() || "mock",
+    shippingAddress: normalizeShippingAddress(body.shippingAddress),
     lines,
     currency
   };
@@ -443,6 +478,7 @@ function buildMockOrder(
     paymentMode: "local-fallback",
     totalMinor: checkout.lines.reduce((total, line) => total + line.unitPriceMinor * line.quantity, 0),
     currency: checkout.currency,
+    shippingAddress: checkout.shippingAddress,
     paymentRedirectUrl: paymentRedirectUrl(orderId),
     idempotencyKey,
     createdAt,
@@ -617,6 +653,11 @@ class OrderRepository implements OnApplicationShutdown {
         id: string;
         order_number: string;
         customer_email: string;
+        shipping_country_snapshot: string;
+        shipping_province_snapshot: string;
+        shipping_city_snapshot: string;
+        shipping_postal_code_snapshot: string;
+        shipping_street_snapshot: string;
         status: "pending_payment";
         payment_status: "mock_created";
         inventory_status: MockCheckoutOrder["inventoryStatus"];
@@ -626,7 +667,22 @@ class OrderRepository implements OnApplicationShutdown {
         created_at: Date;
       }>(
         `
-          SELECT id, order_number, customer_email, status, payment_status, inventory_status, total_minor, currency, idempotency_key, created_at
+          SELECT
+            id,
+            order_number,
+            customer_email,
+            shipping_country_snapshot,
+            shipping_province_snapshot,
+            shipping_city_snapshot,
+            shipping_postal_code_snapshot,
+            shipping_street_snapshot,
+            status,
+            payment_status,
+            inventory_status,
+            total_minor,
+            currency,
+            idempotency_key,
+            created_at
           FROM orders
           WHERE store_id = $1 AND idempotency_key = $2
         `,
@@ -649,6 +705,13 @@ class OrderRepository implements OnApplicationShutdown {
           paymentMode: "local-fallback",
           totalMinor: existingRow.total_minor,
           currency: existingRow.currency,
+          shippingAddress: {
+            country: existingRow.shipping_country_snapshot,
+            province: existingRow.shipping_province_snapshot,
+            city: existingRow.shipping_city_snapshot,
+            postalCode: existingRow.shipping_postal_code_snapshot,
+            street: existingRow.shipping_street_snapshot
+          },
           paymentRedirectUrl: paymentRedirectUrl(existingRow.id),
           idempotencyKey: existingRow.idempotency_key,
           createdAt: existingRow.created_at.toISOString(),
@@ -788,6 +851,11 @@ class OrderRepository implements OnApplicationShutdown {
         id: string;
         order_number: string;
         customer_email: string;
+        shipping_country_snapshot: string;
+        shipping_province_snapshot: string;
+        shipping_city_snapshot: string;
+        shipping_postal_code_snapshot: string;
+        shipping_street_snapshot: string;
         status: string;
         payment_status: string;
         inventory_status: string;
@@ -804,6 +872,11 @@ class OrderRepository implements OnApplicationShutdown {
             o.id,
             o.order_number,
             o.customer_email,
+            o.shipping_country_snapshot,
+            o.shipping_province_snapshot,
+            o.shipping_city_snapshot,
+            o.shipping_postal_code_snapshot,
+            o.shipping_street_snapshot,
             o.status,
             o.payment_status,
             o.inventory_status,
@@ -885,6 +958,13 @@ class OrderRepository implements OnApplicationShutdown {
       orderId: order.id,
       orderNumber: order.order_number,
       customerEmail: order.customer_email,
+      shippingAddress: {
+        country: order.shipping_country_snapshot,
+        province: order.shipping_province_snapshot,
+        city: order.shipping_city_snapshot,
+        postalCode: order.shipping_postal_code_snapshot,
+        street: order.shipping_street_snapshot
+      },
       status: order.status,
       paymentStatus: order.payment_status,
       inventoryStatus: order.inventory_status,
@@ -1310,6 +1390,11 @@ class OrderRepository implements OnApplicationShutdown {
           store_id,
           order_number,
           customer_email,
+          shipping_country_snapshot,
+          shipping_province_snapshot,
+          shipping_city_snapshot,
+          shipping_postal_code_snapshot,
+          shipping_street_snapshot,
           status,
           payment_status,
           inventory_status,
@@ -1317,13 +1402,18 @@ class OrderRepository implements OnApplicationShutdown {
           total_minor,
           idempotency_key
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
       `,
       [
         order.orderId,
         ctx.storeId,
         order.orderNumber,
         checkout.customerEmail,
+        checkout.shippingAddress.country,
+        checkout.shippingAddress.province,
+        checkout.shippingAddress.city,
+        checkout.shippingAddress.postalCode,
+        checkout.shippingAddress.street,
         order.status,
         order.paymentStatus,
         order.inventoryStatus,
@@ -1470,6 +1560,7 @@ class OrderController {
         storageMode: "memory",
         createdAt: memoryOrder.createdAt,
         idempotencyKey: memoryOrder.idempotencyKey,
+        shippingAddress: memoryOrder.shippingAddress,
         lines: memoryOrder.lines.map((line, index) => ({
           productSlug: line.slug,
           skuId: line.skuId,
@@ -1798,6 +1889,7 @@ class OrderController {
         storageMode: "memory",
         createdAt: memoryOrder.createdAt,
         idempotencyKey: memoryOrder.idempotencyKey,
+        shippingAddress: memoryOrder.shippingAddress,
         lines: memoryOrder.lines.map((line, index) => ({
           productSlug: line.slug,
           skuId: line.skuId,

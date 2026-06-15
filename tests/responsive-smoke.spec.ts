@@ -400,6 +400,56 @@ test("admin order management reads orders or shows explicit API fallback", async
   await expect(orderPanel).toContainText(/(暂无订单|订单服务或管理网关未连接|订单状态|API 未连接)/);
 });
 
+test("admin order detail shows the checkout shipping address snapshot", async ({ page, request }) => {
+  const createResponse = await request.post("http://localhost:4105/checkout/mock-order", {
+    headers: {
+      "content-type": "application/json",
+      "idempotency-key": crypto.randomUUID(),
+      "x-correlation-id": crypto.randomUUID()
+    },
+    data: {
+      customerEmail: "snapshot-buyer@example.com",
+      paymentMethod: "mock",
+      shippingAddress: {
+        country: "United States",
+        province: "California",
+        city: "Los Angeles",
+        postalCode: "90001",
+        street: "100 Tea Market Road"
+      },
+      lines: [
+        {
+          slug: "porcelain-tea-set",
+          skuCode: "PORCELAIN-SET",
+          title: "Porcelain Tea Set",
+          quantity: 1,
+          unitPriceMinor: 9600,
+          currency: "USD"
+        }
+      ]
+    }
+  });
+  expect(createResponse.ok()).toBeTruthy();
+  const created = (await createResponse.json()) as { orderNumber: string };
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("http://localhost:3001", { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "菜单" }).click();
+  await page.getByRole("navigation", { name: "Admin sections" }).getByRole("button", { name: /订单管理/ }).click();
+
+  const orderPanel = page.locator("section[aria-labelledby='orders-title']");
+  const orderCard = orderPanel.locator("article").filter({ hasText: created.orderNumber });
+  await expect(orderCard).toBeVisible();
+  await orderCard.getByRole("button", { name: "查看详情" }).click();
+
+  await expect(orderPanel.getByRole("heading", { name: "收货地址快照" })).toBeVisible();
+  await expect(orderPanel).toContainText("United States");
+  await expect(orderPanel).toContainText("California");
+  await expect(orderPanel).toContainText("Los Angeles");
+  await expect(orderPanel).toContainText("90001");
+  await expect(orderPanel).toContainText("100 Tea Market Road");
+});
+
 test("admin inventory management reads inventory or shows explicit API fallback", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("http://localhost:3001", { waitUntil: "networkidle" });

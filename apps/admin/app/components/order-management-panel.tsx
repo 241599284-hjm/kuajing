@@ -45,8 +45,17 @@ type AdminOrderLine = {
   currency: string;
 };
 
+type ShippingAddressSnapshot = {
+  country: string;
+  province: string;
+  city: string;
+  postalCode: string;
+  street: string;
+};
+
 type AdminOrderDetail = AdminOrderSummary & {
   idempotencyKey: string;
+  shippingAddress?: ShippingAddressSnapshot;
   lines: AdminOrderLine[];
   auditTrail: AdminOrderAuditEvent[];
 };
@@ -424,6 +433,37 @@ export function OrderManagementPanel() {
                 <dd className="mt-1 font-semibold">{formatMoney(orderDetail.totalMinor, orderDetail.currency)}</dd>
               </div>
             </dl>
+
+            <div className="rounded-md border border-[var(--line)] p-4 text-sm">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--ink-soft)]">Shipping Snapshot</p>
+              <h4 className="mt-1 text-base font-semibold">收货地址快照</h4>
+              {orderDetail.shippingAddress ? (
+                <dl className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                  <div>
+                    <dt className="text-[var(--ink-soft)]">国家</dt>
+                    <dd className="mt-1 font-semibold">{orderDetail.shippingAddress.country}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-[var(--ink-soft)]">省 / 州</dt>
+                    <dd className="mt-1 font-semibold">{orderDetail.shippingAddress.province}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-[var(--ink-soft)]">城市</dt>
+                    <dd className="mt-1 font-semibold">{orderDetail.shippingAddress.city}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-[var(--ink-soft)]">邮编</dt>
+                    <dd className="mt-1 font-semibold">{orderDetail.shippingAddress.postalCode}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-[var(--ink-soft)]">详细地址</dt>
+                    <dd className="mt-1 font-semibold">{orderDetail.shippingAddress.street}</dd>
+                  </div>
+                </dl>
+              ) : (
+                <p className="mt-3 text-[var(--ink-soft)]">旧订单暂无收货地址快照。</p>
+              )}
+            </div>
 
             <div className="overflow-x-auto">
               <table className="w-full min-w-[760px] border-collapse text-left text-sm">
