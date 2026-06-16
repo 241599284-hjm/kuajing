@@ -1,3 +1,5 @@
+\connect order_db
+
 CREATE TABLE IF NOT EXISTS order_audit_events (
   id uuid PRIMARY KEY,
   store_id uuid NOT NULL,

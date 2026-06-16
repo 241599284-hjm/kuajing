@@ -1,3 +1,5 @@
+\connect order_db
+
 ALTER TABLE orders
   ADD COLUMN IF NOT EXISTS shipping_country_snapshot text NOT NULL DEFAULT '',
   ADD COLUMN IF NOT EXISTS shipping_province_snapshot text NOT NULL DEFAULT '',

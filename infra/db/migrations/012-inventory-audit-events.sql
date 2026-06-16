@@ -1,3 +1,5 @@
+\connect inventory_db
+
 CREATE TABLE IF NOT EXISTS inventory_audit_events (
   id uuid PRIMARY KEY,
   store_id uuid NOT NULL,
