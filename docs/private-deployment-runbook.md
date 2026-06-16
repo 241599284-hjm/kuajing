@@ -38,6 +38,47 @@ docker compose --profile observability up -d
 docker compose --profile app --profile observability up -d --build
 ```
 
+第一台 Ubuntu 24.04 LTS 测试服务器部署：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/deploy-to-server.ps1 -HostName 170.106.67.141 -User ubuntu
+```
+
+部署脚本会做：
+
+1. 校验本地 Compose 配置。
+2. 验证 SSH 能连接服务器。
+3. 上传并执行 `infra/deploy/ubuntu-bootstrap.sh`，安装 Docker、Git、UFW 并放通 22/80/443/3000/3001/4000/4001。
+4. 用 `git archive` 打包当前提交，不上传 `.env`、日志、node_modules 或本地密钥。
+5. 在服务器 `/opt/crossborder-commerce-kit` 解包代码，首次部署从 `.env.example` 生成 `.env`。
+6. 执行 `docker compose --profile app up -d --build`。
+7. 输出 Compose 服务状态，并做 localhost HTTP smoke check。
+
+如果服务器已经装好 Docker，可加 `-SkipBootstrap`：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/deploy-to-server.ps1 -HostName 170.106.67.141 -User ubuntu -SkipBootstrap
+```
+
+临时密码登录也支持，但只用于首次部署或修复密钥，部署后必须改密码并切回 SSH 密钥：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/deploy-to-server.ps1 -HostName 170.106.67.141 -User ubuntu -Password "临时服务器密码"
+```
+
+如果要同时启动 Loki/Grafana：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/deploy-to-server.ps1 -HostName 170.106.67.141 -User ubuntu -WithObservability
+```
+
+SSH 前置条件：
+
+- 腾讯云安全组/防火墙必须放通 22。
+- 实例系统用户默认是 `ubuntu`。
+- 本机私钥默认路径：`C:\Users\xx\.ssh\hlandteaware_tencent_rsa`。
+- 腾讯云必须绑定该私钥对应的公钥；如果控制台不能直接绑定，使用 OrcaTerm/VNC 登录服务器，把公钥追加到 `/home/ubuntu/.ssh/authorized_keys`。
+
 访问地址：
 
 - Storefront: `http://localhost:3000`
