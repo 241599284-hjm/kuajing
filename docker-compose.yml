@@ -450,7 +450,7 @@ services:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./infra/db/init:/docker-entrypoint-initdb.d:ro
+      - ./infra/db/init/01-create-and-seed.sql:/docker-entrypoint-initdb.d/01-create-and-seed.sql:ro
       - ./infra/db/migrations/005-catalog-storefront-content.sql:/docker-entrypoint-initdb.d/02-catalog-storefront-content.sql:ro
       - ./infra/db/migrations/006-product-detail-media-performance.sql:/docker-entrypoint-initdb.d/03-product-detail-media-performance.sql:ro
       - ./infra/db/migrations/007-compensation-tasks-dlq.sql:/docker-entrypoint-initdb.d/04-compensation-tasks-dlq.sql:ro

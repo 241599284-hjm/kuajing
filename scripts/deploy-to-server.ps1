@@ -7,7 +7,8 @@ param(
   [string]$Password,
   [string]$RemoteDir = "/opt/crossborder-commerce-kit",
   [switch]$SkipBootstrap,
-  [switch]$WithObservability
+  [switch]$WithObservability,
+  [switch]$ResetVolumes
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,6 +24,20 @@ function Invoke-LocalStep {
   Write-Host ""
   Write-Host "==> $Name"
   & $Command
+}
+
+function Invoke-Native {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$FilePath,
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$Arguments
+  )
+
+  & $FilePath @Arguments
+  if ($LASTEXITCODE -ne 0) {
+    throw "Command failed with exit code $LASTEXITCODE`: $FilePath $($Arguments -join ' ')"
+  }
 }
 
 if ([string]::IsNullOrWhiteSpace($Password) -and -not (Test-Path -LiteralPath $KeyPath)) {
@@ -52,11 +67,11 @@ function Invoke-Remote {
   param([string]$Command)
 
   if ([string]::IsNullOrWhiteSpace($Password)) {
-    ssh @sshBase $sshTarget $Command
+    Invoke-Native ssh @sshBase $sshTarget $Command
     return
   }
 
-  & $sshCommand @sshBase $sshTarget $Command
+  Invoke-Native $sshCommand @sshBase $sshTarget $Command
 }
 
 function Copy-ToRemote {
@@ -66,11 +81,11 @@ function Copy-ToRemote {
   )
 
   if ([string]::IsNullOrWhiteSpace($Password)) {
-    scp @sshBase $Source "${sshTarget}:$Target"
+    Invoke-Native scp @sshBase $Source "${sshTarget}:$Target"
     return
   }
 
-  & $copyCommand @sshBase $Source "${sshTarget}:$Target"
+  Invoke-Native $copyCommand @sshBase $Source "${sshTarget}:$Target"
 }
 
 Invoke-LocalStep "Verify local deployment config" {
@@ -118,6 +133,12 @@ fi
 $profiles = "--profile app"
 if ($WithObservability) {
   $profiles = "$profiles --profile observability"
+}
+
+if ($ResetVolumes) {
+  Invoke-LocalStep "Reset remote Docker Compose volumes" {
+    Invoke-Remote "cd '$RemoteDir' && docker compose $profiles down -v --remove-orphans || true"
+  }
 }
 
 Invoke-LocalStep "Build and start Docker Compose stack" {

@@ -41,7 +41,7 @@ docker compose --profile app --profile observability up -d --build
 第一台 Ubuntu 24.04 LTS 测试服务器部署：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/deploy-to-server.ps1 -HostName 170.106.67.141 -User ubuntu
+powershell -ExecutionPolicy Bypass -File scripts/deploy-to-server.ps1 -HostName 170.106.136.169 -User ubuntu
 ```
 
 部署脚本会做：
@@ -57,19 +57,25 @@ powershell -ExecutionPolicy Bypass -File scripts/deploy-to-server.ps1 -HostName 
 如果服务器已经装好 Docker，可加 `-SkipBootstrap`：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/deploy-to-server.ps1 -HostName 170.106.67.141 -User ubuntu -SkipBootstrap
+powershell -ExecutionPolicy Bypass -File scripts/deploy-to-server.ps1 -HostName 170.106.136.169 -User ubuntu -SkipBootstrap
+```
+
+如果首次启动失败并留下半初始化容器/volume，测试服务器可清空重建：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/deploy-to-server.ps1 -HostName 170.106.136.169 -User ubuntu -SkipBootstrap -ResetVolumes
 ```
 
 临时密码登录也支持，但只用于首次部署或修复密钥，部署后必须改密码并切回 SSH 密钥：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/deploy-to-server.ps1 -HostName 170.106.67.141 -User ubuntu -Password "临时服务器密码"
+powershell -ExecutionPolicy Bypass -File scripts/deploy-to-server.ps1 -HostName 170.106.136.169 -User ubuntu -Password "临时服务器密码"
 ```
 
 如果要同时启动 Loki/Grafana：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/deploy-to-server.ps1 -HostName 170.106.67.141 -User ubuntu -WithObservability
+powershell -ExecutionPolicy Bypass -File scripts/deploy-to-server.ps1 -HostName 170.106.136.169 -User ubuntu -WithObservability
 ```
 
 如果本机 SSH 到服务器一直超时，可走腾讯云控制台“文件管理 / OrcaTerm / VNC”的离线包部署：
