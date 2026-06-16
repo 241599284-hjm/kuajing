@@ -4,6 +4,7 @@ import { NestFactory } from "@nestjs/core";
 import { assertStoreContext, type StoreContext } from "@commerce/store-context";
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
+import { sendTencentSesEmail, type TencentSesConfig } from "./tencent-ses.js";
 
 type SendEmailBody = {
   to?: string;
@@ -69,6 +70,10 @@ type NormalizedEmail = {
   idempotencyKey: string;
   templateKey?: string;
   variables?: Record<string, string | number | boolean | null>;
+};
+
+type ProviderSendResult = {
+  providerMessageId: string;
 };
 
 const selfHostedStore = {
@@ -371,6 +376,29 @@ function normalizeAccount(input: Partial<EmailAccountRecord>): EmailAccountRecor
     secretKeyRef: normalizeText(input.secretKeyRef, "secretKeyRef", 3, 240),
     usageDate: input.usageDate && /^\d{4}-\d{2}-\d{2}$/.test(input.usageDate) ? input.usageDate : new Date().toISOString().slice(0, 10),
     storageMode: input.storageMode
+  };
+}
+
+function resolveSecretRef(ref: string) {
+  if (!ref.startsWith("env:")) {
+    throw new Error("secret references must use env:NAME and cannot contain raw secrets");
+  }
+  const key = ref.slice(4).trim();
+  if (!key || !/^[A-Z0-9_]+$/.test(key)) throw new Error("secret env reference is invalid");
+  const value = process.env[key];
+  if (!value) throw new Error(`${key} is not configured`);
+  return value;
+}
+
+function tencentSesConfig(account: EmailAccountRecord): TencentSesConfig {
+  return {
+    secretId: resolveSecretRef(account.secretIdRef),
+    secretKey: resolveSecretRef(account.secretKeyRef),
+    host: process.env.TENCENT_SES_HOST ?? "ses.tencentcloudapi.com",
+    region: process.env.TENCENT_SES_REGION ?? "ap-hongkong",
+    replyTo: process.env.TENCENT_SES_REPLY_TO,
+    triggerType: Number(process.env.TENCENT_SES_TRIGGER_TYPE ?? 1),
+    unsubscribe: process.env.TENCENT_SES_UNSUBSCRIBE
   };
 }
 
@@ -750,9 +778,32 @@ class NotificationService {
     return this.store.saveAccounts(store, body);
   }
 
-  private async chooseAccount(store: StoreContext) {
+  private async availableAccounts(store: StoreContext) {
     const accounts = await this.store.listAccounts(store);
-    return accounts.find((account) => account.status === "active" && account.usedCount < account.dailyLimit);
+    return accounts.filter((account) => account.status === "active" && account.usedCount < account.dailyLimit);
+  }
+
+  private async sendWithProvider(account: EmailAccountRecord, email: NormalizedEmail): Promise<ProviderSendResult> {
+    if (account.provider === "mock") {
+      return { providerMessageId: `${account.provider}_${account.id}_${email.idempotencyKey}` };
+    }
+
+    if (account.provider === "tencent_ses") {
+      const result = await sendTencentSesEmail(
+        {
+          fromEmailAddress: account.fromEmailAddress,
+          to: email.to,
+          subject: email.subject,
+          html: email.html,
+          text: email.text,
+          idempotencyKey: email.idempotencyKey
+        },
+        tencentSesConfig(account)
+      );
+      return { providerMessageId: result.messageId };
+    }
+
+    throw new Error(`unsupported email provider: ${account.provider}`);
   }
 
   async prepare(store: StoreContext, body: SendEmailBody): Promise<NormalizedEmail> {
@@ -809,8 +860,8 @@ class NotificationService {
       return { status: "rate_limited", message: "同一收件邮箱短时间内已发送过同类事务邮件。" };
     }
 
-    const account = await this.chooseAccount(store);
-    if (!account) {
+    const accounts = await this.availableAccounts(store);
+    if (accounts.length === 0) {
       await this.store.log(store, {
         idempotencyKey: email.idempotencyKey,
         recipientEmail: email.to,
@@ -826,20 +877,40 @@ class NotificationService {
     }
 
     const startedAt = Date.now();
-    const providerMessageId = `${account.provider}_${account.id}_${email.idempotencyKey}`;
-    await this.store.consumeAccountQuota(store, account);
+    const errors: string[] = [];
+    for (const account of accounts) {
+      try {
+        const result = await this.sendWithProvider(account, email);
+        await this.store.consumeAccountQuota(store, account);
+        await this.store.log(store, {
+          idempotencyKey: email.idempotencyKey,
+          recipientEmail: email.to,
+          subject: email.subject,
+          templateKey: email.templateKey,
+          provider: `${account.provider}:${account.label}`,
+          status: "sent",
+          providerMessageId: result.providerMessageId,
+          consumedQuota: true,
+          durationMs: Date.now() - startedAt
+        });
+        return { status: "sent", message: "邮件已进入事务发送通道", provider: `${account.provider}:${account.label}`, providerMessageId: result.providerMessageId };
+      } catch (error) {
+        errors.push(`${account.provider}:${account.label} ${error instanceof Error ? error.message : "send failed"}`);
+      }
+    }
+
     await this.store.log(store, {
       idempotencyKey: email.idempotencyKey,
       recipientEmail: email.to,
       subject: email.subject,
       templateKey: email.templateKey,
-      provider: `${account.provider}:${account.label}`,
-      status: "sent",
-      providerMessageId,
-      consumedQuota: true,
+      provider: "none",
+      status: "failed",
+      errorSummary: errors.join(" | ").slice(0, 1000),
+      consumedQuota: false,
       durationMs: Date.now() - startedAt
     });
-    return { status: "sent", message: "邮件已进入事务发送通道", provider: `${account.provider}:${account.label}`, providerMessageId };
+    return { status: "failed", message: "邮件发送失败，已写入发送日志。", errorSummary: errors.join(" | ").slice(0, 1000) };
   }
 }
 
@@ -849,7 +920,7 @@ class NotificationController {
 
   @Get("/health")
   health() {
-    return { service: "notification-service", status: "ok", provider: "mock", templates: defaultTemplates.length };
+    return { service: "notification-service", status: "ok", providers: ["mock", "tencent_ses"], templates: defaultTemplates.length };
   }
 
   @Post("/emails/transactional")
