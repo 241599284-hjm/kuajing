@@ -80,7 +80,7 @@ export function PremiumStorefrontHeader({
           className="premium-focus shrink-0 text-black"
           href="/"
         >
-          <HLArtisanLogo className="h-11 w-[9.75rem] md:h-14 md:w-[12rem]" decorative showSeal={false} variant="wordmark" />
+          <HLArtisanLogo className="h-9 w-[8.25rem] md:h-11 md:w-[9.75rem]" decorative showSeal={false} variant="wordmark" />
           <span className="sr-only">{locale === "zh" ? "H & L Artisan 北京" : "H & L Artisan Beijing"}</span>
         </Link>
 

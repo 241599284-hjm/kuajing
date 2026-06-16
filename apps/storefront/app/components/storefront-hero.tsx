@@ -5,7 +5,6 @@ import type { Route } from "next";
 import { ChevronDown, ChevronUp, Gem, PackageCheck, ShieldCheck, Truck } from "lucide-react";
 import { useState } from "react";
 import type { Locale, storefrontCopy } from "../lib/storefront-content.js";
-import { HLArtisanDivider, HLArtisanLogo } from "./hl-artisan-logo.js";
 import { PremiumStorefrontHeader } from "./premium-storefront-header.js";
 import { RegistrationDialog } from "./registration-dialog.js";
 
@@ -62,9 +61,7 @@ export function StorefrontHero({ locale, onLocaleChange, copy }: StorefrontHeroP
           isCollapsed ? "hidden min-h-0 opacity-0 md:grid md:min-h-[58svh] md:opacity-100" : "min-h-[62svh] opacity-100 md:min-h-[58svh]"
         ].join(" ")}
       >
-        <div className="max-w-xl">
-          <HLArtisanLogo className="mb-10 h-auto w-full max-w-[23rem]" variant="full" />
-          <HLArtisanDivider className="mb-8 justify-start" />
+        <div className="max-w-xl pt-6 md:pt-0">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--ink-soft)]">{copy.heroEyebrow}</p>
           <h1 className="premium-display mt-6 text-5xl leading-[0.95] sm:text-7xl lg:text-8xl">
             {copy.heroTitle}
