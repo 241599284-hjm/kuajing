@@ -72,6 +72,30 @@ powershell -ExecutionPolicy Bypass -File scripts/deploy-to-server.ps1 -HostName 
 powershell -ExecutionPolicy Bypass -File scripts/deploy-to-server.ps1 -HostName 170.106.67.141 -User ubuntu -WithObservability
 ```
 
+如果本机 SSH 到服务器一直超时，可走腾讯云控制台“文件管理 / OrcaTerm / VNC”的离线包部署：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build-server-package.ps1
+```
+
+然后把下面三个文件上传到服务器 `/tmp`：
+
+- `artifacts/deploy/crossborder-commerce-kit-deploy.tar.gz`
+- `artifacts/deploy/ubuntu-bootstrap.sh`
+- `artifacts/deploy/server-install-from-package.sh`
+
+在腾讯云网页终端执行：
+
+```bash
+sudo bash /tmp/server-install-from-package.sh /tmp/crossborder-commerce-kit-deploy.tar.gz
+```
+
+如果要同时启动 Loki/Grafana：
+
+```bash
+sudo START_OBSERVABILITY=1 bash /tmp/server-install-from-package.sh /tmp/crossborder-commerce-kit-deploy.tar.gz
+```
+
 SSH 前置条件：
 
 - 腾讯云安全组/防火墙必须放通 22。
