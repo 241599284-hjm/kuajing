@@ -60,6 +60,50 @@ powershell -ExecutionPolicy Bypass -File scripts/deploy-to-server.ps1 -HostName 
 powershell -ExecutionPolicy Bypass -File scripts/deploy-to-server.ps1 -HostName 170.106.136.169 -User ubuntu -SkipBootstrap
 ```
 
+每次部署都会创建一个版本目录：
+
+```text
+/opt/crossborder-commerce-kit/releases/<UTC时间>-<git短hash>
+```
+
+并维护两个指针：
+
+- `/opt/crossborder-commerce-kit/current`：当前运行版本。
+- `/opt/crossborder-commerce-kit/previous`：上一次运行版本。
+
+共享配置固定放在 `/opt/crossborder-commerce-kit/shared/.env`，不会随版本切换被覆盖。这样代码可以回滚，客户配置和密钥仍保持独立。
+
+公网测试服务器必须把浏览器可见地址写入 shared `.env`，不能让前台继续使用容器内默认的 `localhost`：
+
+```bash
+STOREFRONT_PUBLIC_URL=http://170.106.136.169:3000
+NEXT_PUBLIC_API_GATEWAY_URL=http://170.106.136.169:4000
+NEXT_PUBLIC_ADMIN_GATEWAY_URL=http://170.106.136.169:4001
+NEXT_PUBLIC_AUTH_SERVICE_URL=http://170.106.136.169:4102
+```
+
+这些 `NEXT_PUBLIC_*` 会被 Next.js 写入浏览器端 JS。生产接入域名和 HTTPS 后，必须改成正式 `https://...` 域名。
+
+查看服务器已有版本：
+
+```powershell
+ssh -i $env:USERPROFILE\.ssh\hlandteaware_tencent_rsa ubuntu@170.106.136.169 "find /opt/crossborder-commerce-kit/releases -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort"
+```
+
+回滚到上一版：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/rollback-server.ps1 -HostName 170.106.136.169 -User ubuntu
+```
+
+回滚到指定版本：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/rollback-server.ps1 -HostName 170.106.136.169 -User ubuntu -Version "20260616123000-abcdef123456"
+```
+
+回滚脚本会切换 `current` 指针、重新执行 `docker compose --profile app up -d --build`，并等待前台、后台和网关健康检查通过。
+
 如果首次启动失败并留下半初始化容器/volume，测试服务器可清空重建：
 
 ```powershell

@@ -14,6 +14,9 @@ param(
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
+$gitSha = (git rev-parse --short=12 HEAD).Trim()
+$releaseStamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddHHmmss")
+$releaseName = "$releaseStamp-$gitSha"
 
 function Invoke-LocalStep {
   param(
@@ -109,24 +112,43 @@ if (-not $SkipBootstrap) {
 }
 
 Invoke-LocalStep "Create deployment archive" {
-  $archive = Join-Path $env:TEMP "crossborder-commerce-kit-deploy.tar"
+  $archive = Join-Path $env:TEMP "crossborder-commerce-kit-deploy-$releaseName.tar"
   if (Test-Path -LiteralPath $archive) {
     Remove-Item -LiteralPath $archive -Force
   }
 
   git archive --format=tar --output=$archive HEAD
-  Copy-ToRemote $archive "/tmp/crossborder-commerce-kit-deploy.tar"
+  Copy-ToRemote $archive "/tmp/crossborder-commerce-kit-deploy-$releaseName.tar"
 }
 
-Invoke-LocalStep "Unpack source and prepare env" {
+Invoke-LocalStep "Unpack versioned release and prepare env" {
   Invoke-Remote @"
 set -e
 sudo install -d -o $User -g $User $RemoteDir
-tar -xf /tmp/crossborder-commerce-kit-deploy.tar -C $RemoteDir
-cd $RemoteDir
-if [ ! -f .env ]; then
-  cp .env.example .env
+install -d -o $User -g $User '$RemoteDir/releases' '$RemoteDir/shared'
+release_dir='$RemoteDir/releases/$releaseName'
+rm -rf "`$release_dir"
+install -d -o $User -g $User "`$release_dir"
+tar -xf '/tmp/crossborder-commerce-kit-deploy-$releaseName.tar' -C "`$release_dir"
+if [ ! -f '$RemoteDir/shared/.env' ]; then
+  if [ -f '$RemoteDir/current/.env' ]; then
+    cp '$RemoteDir/current/.env' '$RemoteDir/shared/.env'
+  elif [ -f '$RemoteDir/.env' ]; then
+    cp '$RemoteDir/.env' '$RemoteDir/shared/.env'
+  else
+    cp "`$release_dir/.env.example" '$RemoteDir/shared/.env'
+  fi
 fi
+rm -f "`$release_dir/.env"
+ln -s '$RemoteDir/shared/.env' "`$release_dir/.env"
+if [ -L '$RemoteDir/current' ] || [ -e '$RemoteDir/current' ]; then
+  previous_target=`$(readlink -f '$RemoteDir/current' || true)
+  if [ -n "`$previous_target" ] && [ "`$previous_target" != "`$release_dir" ]; then
+    ln -sfn "`$previous_target" '$RemoteDir/previous'
+  fi
+fi
+ln -sfn "`$release_dir" '$RemoteDir/current'
+printf '%s %s %s\n' '$releaseName' '$gitSha' "`$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> '$RemoteDir/deployments.log'
 "@
 }
 
@@ -137,16 +159,16 @@ if ($WithObservability) {
 
 if ($ResetVolumes) {
   Invoke-LocalStep "Reset remote Docker Compose volumes" {
-    Invoke-Remote "cd '$RemoteDir' && docker compose $profiles down -v --remove-orphans || true"
+    Invoke-Remote "cd '$RemoteDir/current' && docker compose $profiles down -v --remove-orphans || true"
   }
 }
 
 Invoke-LocalStep "Build and start Docker Compose stack" {
-  Invoke-Remote "cd '$RemoteDir' && docker compose $profiles up -d --build"
+  Invoke-Remote "cd '$RemoteDir/current' && docker compose $profiles up -d --build"
 }
 
 Invoke-LocalStep "Show service status" {
-  Invoke-Remote "cd '$RemoteDir' && docker compose ps"
+  Invoke-Remote "cd '$RemoteDir/current' && docker compose ps"
 }
 
 Invoke-LocalStep "HTTP smoke check" {
@@ -177,6 +199,7 @@ wait_for_http admin-gateway http://localhost:4001/health
 
 Write-Host ""
 Write-Host "Deployment completed."
+Write-Host "Release: $releaseName"
 Write-Host "Storefront: http://$HostName`:3000"
 Write-Host "Admin: http://$HostName`:3001"
 Write-Host "API Gateway: http://$HostName`:4000"

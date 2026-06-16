@@ -11,8 +11,8 @@ services:
     container_name: cbck-storefront
     environment:
       NODE_ENV: development
-      NEXT_PUBLIC_API_GATEWAY_URL: http://localhost:4000
-      NEXT_PUBLIC_AUTH_SERVICE_URL: http://localhost:4102
+      NEXT_PUBLIC_API_GATEWAY_URL: ${NEXT_PUBLIC_API_GATEWAY_URL:-http://localhost:4000}
+      NEXT_PUBLIC_AUTH_SERVICE_URL: ${NEXT_PUBLIC_AUTH_SERVICE_URL:-http://localhost:4102}
     ports:
       - "3000:3000"
     depends_on:
@@ -31,8 +31,8 @@ services:
     container_name: cbck-admin
     environment:
       NODE_ENV: development
-      NEXT_PUBLIC_ADMIN_GATEWAY_URL: http://localhost:4001
-      NEXT_PUBLIC_AUTH_SERVICE_URL: http://localhost:4102
+      NEXT_PUBLIC_ADMIN_GATEWAY_URL: ${NEXT_PUBLIC_ADMIN_GATEWAY_URL:-http://localhost:4001}
+      NEXT_PUBLIC_AUTH_SERVICE_URL: ${NEXT_PUBLIC_AUTH_SERVICE_URL:-http://localhost:4102}
     ports:
       - "3001:3001"
     depends_on:
@@ -137,7 +137,7 @@ services:
       PORT: 4110
       LOGISTICS_DATABASE_URL: postgresql://${POSTGRES_USER:-commerce}:${POSTGRES_PASSWORD:-commerce}@postgres:5432/logistics_db
       NOTIFICATION_SERVICE_URL: http://notification-service:4111
-      STOREFRONT_PUBLIC_URL: http://localhost:3000
+      STOREFRONT_PUBLIC_URL: ${STOREFRONT_PUBLIC_URL:-http://localhost:3000}
       DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
       DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
       DEFAULT_STORE_TIMEZONE: ${DEFAULT_STORE_TIMEZONE:-Asia/Hong_Kong}
@@ -163,7 +163,7 @@ services:
       REVIEW_DATABASE_URL: postgresql://${POSTGRES_USER:-commerce}:${POSTGRES_PASSWORD:-commerce}@postgres:5432/review_db
       NOTIFICATION_SERVICE_URL: http://notification-service:4111
       ORDER_SERVICE_URL: http://order-service:4105
-      STOREFRONT_PUBLIC_URL: http://localhost:3000
+      STOREFRONT_PUBLIC_URL: ${STOREFRONT_PUBLIC_URL:-http://localhost:3000}
       ADMIN_PUBLIC_URL: http://localhost:3001
       DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
       DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
@@ -234,7 +234,7 @@ services:
       APP_DATABASE_URL: postgresql://${POSTGRES_USER:-commerce}:${POSTGRES_PASSWORD:-commerce}@postgres:5432/app_db
       MAILPIT_SMTP_HOST: mailpit
       MAILPIT_SMTP_PORT: 1025
-      STOREFRONT_PUBLIC_URL: http://localhost:3000
+      STOREFRONT_PUBLIC_URL: ${STOREFRONT_PUBLIC_URL:-http://localhost:3000}
       AUTH_VERIFY_BASE_URL: http://localhost:4102
       NOTIFICATION_SERVICE_URL: http://notification-service:4111
       DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
@@ -336,7 +336,7 @@ services:
       INVENTORY_SERVICE_URL: http://inventory-service:4104
       PAYMENT_SERVICE_URL: http://payment-service:4106
       NOTIFICATION_SERVICE_URL: http://notification-service:4111
-      STOREFRONT_PUBLIC_URL: http://localhost:3000
+      STOREFRONT_PUBLIC_URL: ${STOREFRONT_PUBLIC_URL:-http://localhost:3000}
       DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
       DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
       DEFAULT_STORE_TIMEZONE: ${DEFAULT_STORE_TIMEZONE:-Asia/Hong_Kong}
