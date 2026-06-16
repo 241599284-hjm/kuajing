@@ -150,13 +150,29 @@ Invoke-LocalStep "Show service status" {
 }
 
 Invoke-LocalStep "HTTP smoke check" {
-  Invoke-Remote @"
+  Invoke-Remote @'
 set -e
-curl -fsS http://localhost:3000 >/dev/null
-curl -fsS http://localhost:3001 >/dev/null
-curl -fsS http://localhost:4000/health >/dev/null || curl -fsS http://localhost:4000 >/dev/null
-curl -fsS http://localhost:4001/health >/dev/null || curl -fsS http://localhost:4001 >/dev/null
-"@
+wait_for_http() {
+  name="$1"
+  url="$2"
+  attempts=30
+  while [ "$attempts" -gt 0 ]; do
+    if curl -fsS --max-time 10 "$url" >/dev/null; then
+      echo "$name ready"
+      return 0
+    fi
+    attempts=$((attempts - 1))
+    sleep 3
+  done
+  echo "$name did not become ready: $url" >&2
+  return 1
+}
+
+wait_for_http storefront http://localhost:3000
+wait_for_http admin http://localhost:3001
+wait_for_http api-gateway http://localhost:4000/health
+wait_for_http admin-gateway http://localhost:4001/health
+'@
 }
 
 Write-Host ""

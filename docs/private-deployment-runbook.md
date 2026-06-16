@@ -52,7 +52,7 @@ powershell -ExecutionPolicy Bypass -File scripts/deploy-to-server.ps1 -HostName 
 4. 用 `git archive` 打包当前提交，不上传 `.env`、日志、node_modules 或本地密钥。
 5. 在服务器 `/opt/crossborder-commerce-kit` 解包代码，首次部署从 `.env.example` 生成 `.env`。
 6. 执行 `docker compose --profile app up -d --build`。
-7. 输出 Compose 服务状态，并做 localhost HTTP smoke check。
+7. 输出 Compose 服务状态，并用重试式 localhost HTTP smoke check 等待前台、后台和网关就绪。
 
 如果服务器已经装好 Docker，可加 `-SkipBootstrap`：
 
@@ -111,14 +111,22 @@ SSH 前置条件：
 
 访问地址：
 
-- Storefront: `http://localhost:3000`
-- Admin: `http://localhost:3001`
-- API Gateway: `http://localhost:4000`
-- Admin Gateway: `http://localhost:4001`
+- Storefront: `http://localhost:3000`，当前测试服务器公网地址 `http://170.106.136.169:3000`
+- Admin: `http://localhost:3001`，当前测试服务器公网地址 `http://170.106.136.169:3001`
+- API Gateway: `http://localhost:4000`，当前测试服务器公网地址 `http://170.106.136.169:4000`
+- Admin Gateway: `http://localhost:4001`，当前测试服务器公网地址 `http://170.106.136.169:4001`
 - Grafana: `http://localhost:3002`
 - Loki: `http://localhost:3100`
 - Mailpit: `http://localhost:8025`
 - MinIO Console: `http://localhost:9001`
+
+当前测试部署状态：
+
+- 2026-06-16 已在腾讯云 Ubuntu Server 24.04 LTS 测试服务器 `170.106.136.169` 安装 Docker `29.5.3` 和 Docker Compose `v5.1.4`。
+- 已执行 `scripts/deploy-to-server.ps1 -HostName 170.106.136.169 -User ubuntu -SkipBootstrap`。
+- 远端 `docker compose --profile app up -d --build` 可启动 PostgreSQL、Redis、MinIO、OpenSearch、前台、后台、网关和当前全部 Node 微服务。
+- HTTP smoke check 已通过：`storefront ready`、`admin ready`、`api-gateway ready`、`admin-gateway ready`。
+- 该部署仅为测试版，生产上线前仍必须补齐域名、HTTPS、CDN、真实密钥、真实支付/物流/邮件 Provider、备份恢复和故障演练。
 
 阶段一验收：
 
