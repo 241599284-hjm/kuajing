@@ -40,6 +40,7 @@ type NotificationEmailTemplate = {
   htmlEn: string;
   textZh: string;
   textEn: string;
+  providerTemplateId?: string;
   enabled: boolean;
   storageMode?: "postgres" | "memory";
 };
@@ -273,6 +274,19 @@ export function EmailSettingsPanel() {
     } finally {
       setIsSavingTemplate(false);
     }
+  }
+
+  function downloadTemplateHtml(template: NotificationEmailTemplate) {
+    const safeName = template.key.replace(/[^a-z0-9-]+/gi, "-").toLowerCase();
+    const blob = new Blob([template.htmlEn], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `hl-artisan-${safeName}.html`;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
   }
 
   function updateAccount(index: number, patch: Partial<EmailAccountRecord>) {
@@ -581,6 +595,14 @@ export function EmailSettingsPanel() {
                 </AdminField>
               </div>
 
+              <AdminField label="腾讯云 TemplateID">
+                <AdminTextInput
+                  value={templateDraft.providerTemplateId ?? ""}
+                  onChange={(event) => setTemplateDraft({ ...templateDraft, providerTemplateId: event.target.value || undefined })}
+                  placeholder="审核通过后填写，例如 186539"
+                />
+              </AdminField>
+
               <div className="grid gap-4 lg:grid-cols-2">
                 <AdminField label="中文 HTML">
                   <AdminTextarea rows={8} value={templateDraft.htmlZh} onChange={(event) => setTemplateDraft({ ...templateDraft, htmlZh: event.target.value })} />
@@ -621,6 +643,9 @@ export function EmailSettingsPanel() {
                 <AdminPrimaryButton disabled={isSavingTemplate} type="button" onClick={saveTemplate}>
                   {isSavingTemplate ? "保存中" : "保存模板"}
                 </AdminPrimaryButton>
+                <AdminSecondaryButton type="button" onClick={() => downloadTemplateHtml(templateDraft)}>
+                  下载英文 HTML
+                </AdminSecondaryButton>
                 <AdminSecondaryButton type="button" onClick={() => selectTemplate(selectedTemplateKey)}>
                   放弃修改
                 </AdminSecondaryButton>

@@ -13,6 +13,7 @@ type SendEmailBody = {
   text?: string;
   idempotencyKey?: string;
   templateKey?: string;
+  providerTemplateId?: string;
   variables?: Record<string, string | number | boolean | null>;
 };
 
@@ -26,6 +27,7 @@ type EmailTemplateRecord = {
   htmlEn: string;
   textZh: string;
   textEn: string;
+  providerTemplateId?: string;
   enabled: boolean;
   updatedAt: string;
   storageMode?: "postgres" | "memory";
@@ -69,6 +71,7 @@ type NormalizedEmail = {
   text?: string;
   idempotencyKey: string;
   templateKey?: string;
+  providerTemplateId?: string;
   variables?: Record<string, string | number | boolean | null>;
 };
 
@@ -331,6 +334,7 @@ function normalizeEmail(body: SendEmailBody): NormalizedEmail {
     text,
     idempotencyKey: body.idempotencyKey?.trim() || randomUUID(),
     templateKey: body.templateKey?.trim(),
+    providerTemplateId: normalizeOptionalText(body.providerTemplateId, "providerTemplateId", 80),
     variables: body.variables
   };
 }
@@ -342,6 +346,14 @@ function normalizeText(value: unknown, field: string, min: number, max: number) 
     throw new BadRequestException(`${field} must be ${min}-${max} characters`);
   }
   return text;
+}
+
+function normalizeOptionalText(value: unknown, field: string, max: number) {
+  if (value === null || value === undefined || value === "") return undefined;
+  if (typeof value !== "string") throw new BadRequestException(`${field} must be text`);
+  const text = value.trim();
+  if (text.length > max || /[\r\n]/.test(text)) throw new BadRequestException(`${field} must be 1-${max} characters without new lines`);
+  return text || undefined;
 }
 
 function normalizeAccount(input: Partial<EmailAccountRecord>): EmailAccountRecord {
@@ -541,10 +553,11 @@ class EmailStore {
         html_en: string;
         text_zh: string;
         text_en: string;
+        provider_template_id: string | null;
         enabled: boolean;
         updated_at: Date;
       }>(
-        `SELECT template_key, name_zh, name_en, subject_zh, subject_en, html_zh, html_en, text_zh, text_en, enabled, updated_at
+        `SELECT template_key, name_zh, name_en, subject_zh, subject_en, html_zh, html_en, text_zh, text_en, provider_template_id, enabled, updated_at
          FROM notification_email_templates WHERE store_id = $1`,
         [store.storeId]
       );
@@ -561,6 +574,7 @@ class EmailStore {
             htmlEn: row.html_en,
             textZh: row.text_zh,
             textEn: row.text_en,
+            providerTemplateId: row.provider_template_id ?? undefined,
             enabled: row.enabled,
             updatedAt: row.updated_at.toISOString(),
             storageMode: "postgres" as const
@@ -576,13 +590,19 @@ class EmailStore {
   async saveTemplate(store: StoreContext, key: string, body: Partial<Omit<EmailTemplateRecord, "key" | "updatedAt" | "storageMode">>) {
     const current = (await this.listTemplates(store)).find((template) => template.key === key);
     if (!current) throw new BadRequestException("unknown template key");
-    const next = { ...current, ...body, key, updatedAt: new Date().toISOString() };
+    const next = {
+      ...current,
+      ...body,
+      providerTemplateId: normalizeOptionalText(body.providerTemplateId, "providerTemplateId", 80),
+      key,
+      updatedAt: new Date().toISOString()
+    };
 
     try {
       const result = await this.pool.query<{ updated_at: Date }>(
         `INSERT INTO notification_email_templates
-          (store_id, template_key, name_zh, name_en, subject_zh, subject_en, html_zh, html_en, text_zh, text_en, enabled, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now())
+          (store_id, template_key, name_zh, name_en, subject_zh, subject_en, html_zh, html_en, text_zh, text_en, provider_template_id, enabled, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now())
          ON CONFLICT (store_id, template_key) DO UPDATE SET
            name_zh = EXCLUDED.name_zh,
            name_en = EXCLUDED.name_en,
@@ -592,6 +612,7 @@ class EmailStore {
            html_en = EXCLUDED.html_en,
            text_zh = EXCLUDED.text_zh,
            text_en = EXCLUDED.text_en,
+           provider_template_id = EXCLUDED.provider_template_id,
            enabled = EXCLUDED.enabled,
            updated_at = now()
          RETURNING updated_at`,
@@ -606,6 +627,7 @@ class EmailStore {
           next.htmlEn,
           next.textZh,
           next.textEn,
+          next.providerTemplateId ?? null,
           next.enabled
         ]
       );
@@ -796,7 +818,9 @@ class NotificationService {
           subject: email.subject,
           html: email.html,
           text: email.text,
-          idempotencyKey: email.idempotencyKey
+          idempotencyKey: email.idempotencyKey,
+          providerTemplateId: email.providerTemplateId,
+          templateData: email.variables
         },
         tencentSesConfig(account)
       );
@@ -815,7 +839,8 @@ class NotificationService {
       ...body,
       subject: body.subject ?? (locale === "zh" ? template.subjectZh : template.subjectEn),
       html: body.html ?? renderTemplate(locale === "zh" ? template.htmlZh : template.htmlEn, body.variables, true),
-      text: body.text ?? renderTemplate(locale === "zh" ? template.textZh : template.textEn, body.variables, false)
+      text: body.text ?? renderTemplate(locale === "zh" ? template.textZh : template.textEn, body.variables, false),
+      providerTemplateId: template.providerTemplateId
     });
   }
 

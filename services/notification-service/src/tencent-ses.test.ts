@@ -62,4 +62,44 @@ describe("Tencent SES API provider", () => {
       )
     ).toThrow("Subject cannot contain new lines");
   });
+
+  it("uses Tencent reviewed TemplateID when providerTemplateId is present", () => {
+    const request = buildTencentSesSignedRequest(
+      {
+        fromEmailAddress: "H&L ARTISAN <noreply@mail.lpgexam.tech>",
+        to: "buyer@example.com",
+        subject: "Verify your account",
+        html: "<p>This rendered preview is not sent when TemplateID exists.</p>",
+        text: "This rendered preview is not sent when TemplateID exists.",
+        idempotencyKey: "email:test",
+        providerTemplateId: "186539",
+        templateData: {
+          name: "Mingming",
+          token: "token-123",
+          verificationCode: "907870",
+          expiresInMinutes: "30"
+        }
+      },
+      {
+        secretId: "AKIDEXAMPLE",
+        secretKey: "secret",
+        host: "ses.tencentcloudapi.com",
+        region: "ap-hongkong"
+      },
+      1_718_000_000
+    );
+
+    const payload = JSON.parse(request.payload) as {
+      Template: { TemplateID: number; TemplateData: string };
+      Simple?: unknown;
+    };
+    expect(payload.Template.TemplateID).toBe(186539);
+    expect(JSON.parse(payload.Template.TemplateData)).toEqual({
+      name: "Mingming",
+      token: "token-123",
+      verificationCode: "907870",
+      expiresInMinutes: "30"
+    });
+    expect(payload.Simple).toBeUndefined();
+  });
 });

@@ -111,6 +111,8 @@ $茶具站继续开发
 - 视觉系统：全站按 `premium-minimal` 执行，白底、细线、Serif 大标题、黑色主按钮、统一 Header、统一卡片/表单/弹窗/状态；手机触控目标不小于 44px；所有新增模块先选择 `docs/module-visual-templates.md` 中的页面模板。
 - 品牌元素库：H & L ARTISAN Logo、北京印章、品牌分隔线、等待动效统一从 `HLArtisanLogo`、`HLArtisanSeal`、`HLArtisanDivider` 调用，不允许页面里复制 SVG、使用截图或重画另一套。
 - 腾讯云邮件推送：真实 SecretId/SecretKey 只能通过环境变量或服务器 Secret 注入，后台账号池只保存 `env:` 引用；不得把 AKID、SecretKey、SMTP 密码写入源码、文档正文或 Git 历史。
+- 事务邮件模板必须按场景分层：验证码/安全类邮件使用极简结构、验证码大框、少图少按钮；订单确认/发货/退款/取消邮件可包含订单摘要和 1 个主 CTA；评价邀请可带轻量商品信息；营销邮件才允许大图 Banner 和商品推荐，禁止把注册验证邮件做成广告邮件。
+- 正式邮件统一使用静态 PNG Logo，不使用 SVG、动图、Lottie 或脚本动画；邮件 Logo URL、品牌名、品牌副标题、客服邮箱、官网 URL 必须由后台配置或环境配置提供，邮件模板通过 `{{logoUrl}}` 等变量引用 HTTPS CDN 图片。
 - 模块模板矩阵：后续所有微服务模块必须先查 `docs/module-visual-templates.md` 的“模块到模板映射表”，明确前台模板、后台模板、状态/异常模板和关键公共组件后才能开发。
 - 公共组件先行：新增页面前先抽取或复用布局、按钮、卡片、输入框、状态提示、弹窗组件，业务页只组合组件，不各写一套视觉。
 - 契约对齐：OpenAPI、数据库、service DTO、admin 表单、storefront 渲染必须字段名、类型、必填规则一致；联调前做契约自检。
@@ -199,6 +201,9 @@ $茶具站继续开发
 - 邮箱 SMTP 设置入口。
 - 商品、分类、地域、折扣、邮箱设置、外贸设置已迁入公共后台 UI primitives，后续后台模块必须继续复用同一套组件。
 - 事务邮件已新增腾讯云 SES API Provider 第一版：`notification-service` 的账号池 provider 选择 `tencent_ses` 时通过腾讯云 `SendEmail` API 发送，Host/Region/Secret 引用走环境变量；当前仍需用真实腾讯云 SecretKey 在本地/测试服务器做沙箱发送验证，并根据账号权限确认是否可使用 `Simple.Html/Text` 或必须改为腾讯云审核模板。
+- 正式线上邮件模板规则已确定：注册验证/忘记密码等验证码类邮件采用类似 ChatGPT 的极简大验证码框，保证识别、复制和送达稳定；正式模板后续需要改成腾讯云审核模板 `TemplateID + TemplateData` 发送，后台模板负责变量、预览和映射管理。
+- 正式线上邮件品牌规则已确定：邮件顶部使用统一 PNG Logo，建议透明底、源文件宽度不超过 320px、邮件显示宽度 140-180px；网站前台/后台/等待动画仍可用 SVG 矢量，邮件不使用 SVG。
+- `notification-service` 已支持腾讯云审核模板发送：事务模板可保存 `providerTemplateId`，账号池选择 `tencent_ses` 且模板填写 TemplateID 后，会用 `TemplateID + TemplateData` 发送；未填 TemplateID 时才尝试 Simple.Html/Text。后台邮箱模板页已增加“腾讯云 TemplateID”和“下载英文 HTML”按钮，运营可直接下载当前英文 HTML 去腾讯云审核。
 - 商品详情图文维护入口。
 - 商品详情图片选择后自动压缩为 WebP，并通过 `admin-gateway -> media-service` 上传到 local/MinIO/R2/S3 兼容对象存储。
 

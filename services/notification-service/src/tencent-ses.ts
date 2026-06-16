@@ -7,6 +7,8 @@ export type TencentSesEmail = {
   html?: string;
   text?: string;
   idempotencyKey: string;
+  providerTemplateId?: string;
+  templateData?: Record<string, string | number | boolean | null>;
 };
 
 export type TencentSesConfig = {
@@ -66,16 +68,30 @@ function assertCleanHeaderValue(value: string, field: string) {
 }
 
 function buildPayload(email: TencentSesEmail, config: TencentSesConfig) {
+  const templateId = email.providerTemplateId?.trim();
+  const templatePayload =
+    templateId && /^\d+$/.test(templateId)
+      ? {
+          Template: {
+            TemplateID: Number(templateId),
+            TemplateData: JSON.stringify(email.templateData ?? {})
+          }
+        }
+      : undefined;
+  if (email.providerTemplateId && !templatePayload) throw new Error("Tencent SES providerTemplateId must be numeric");
+
   const simple: { Html?: string; Text?: string } = {};
-  if (email.html) simple.Html = toBase64(email.html);
-  if (email.text) simple.Text = toBase64(email.text);
-  if (!simple.Html && !simple.Text) throw new Error("Tencent SES email requires html or text content");
+  if (!templatePayload) {
+    if (email.html) simple.Html = toBase64(email.html);
+    if (email.text) simple.Text = toBase64(email.text);
+    if (!simple.Html && !simple.Text) throw new Error("Tencent SES email requires html or text content");
+  }
 
   return {
     FromEmailAddress: assertCleanHeaderValue(email.fromEmailAddress, "FromEmailAddress"),
     Destination: [email.to],
     Subject: assertCleanHeaderValue(email.subject, "Subject"),
-    Simple: simple,
+    ...(templatePayload ?? { Simple: simple }),
     ...(config.replyTo ? { ReplyToAddresses: assertCleanHeaderValue(config.replyTo, "ReplyToAddresses") } : {}),
     ...(config.triggerType === undefined ? { TriggerType: 1 } : { TriggerType: config.triggerType }),
     ...(config.unsubscribe ? { Unsubscribe: config.unsubscribe } : {})
