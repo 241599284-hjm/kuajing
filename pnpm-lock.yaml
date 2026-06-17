@@ -396,6 +396,9 @@ importers:
       '@commerce/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@commerce/error-codes':
+        specifier: workspace:*
+        version: link:../../packages/error-codes
       '@commerce/outbox-inbox':
         specifier: workspace:*
         version: link:../../packages/outbox-inbox

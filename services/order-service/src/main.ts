@@ -17,6 +17,7 @@ import {
   ServiceUnavailableException
 } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import { ERROR_CODES } from "@commerce/error-codes";
 import { assertStoreContext, type StoreContext } from "@commerce/store-context";
 import { nextRetryAt } from "@commerce/outbox-inbox";
 import { randomUUID } from "node:crypto";
@@ -218,6 +219,46 @@ const defaultSkuId = process.env.DEFAULT_SKU_ID ?? "00000000-0000-4000-8000-0000
 const slowOrderCreateMs = Number(process.env.SLOW_ORDER_CREATE_MS ?? 2000);
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+function validationFailed(message: string, details?: unknown): BadRequestException {
+  return new BadRequestException({
+    code: ERROR_CODES.VALIDATION_FAILED,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function notFound(message: string, details?: unknown): BadRequestException {
+  return new BadRequestException({
+    code: ERROR_CODES.NOT_FOUND,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function stateConflict(message: string, details?: unknown): ConflictException {
+  return new ConflictException({
+    code: ERROR_CODES.CONFLICT,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function inventoryShortage(message: string, details?: unknown): ConflictException {
+  return new ConflictException({
+    code: ERROR_CODES.INVENTORY_SHORTAGE,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function dependencyUnavailable(message: string, details?: unknown): ServiceUnavailableException {
+  return new ServiceUnavailableException({
+    code: ERROR_CODES.DEPENDENCY_UNAVAILABLE,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
 function createStoreContext(correlationId: string | undefined): StoreContext {
   return assertStoreContext({
     storeId: selfHostedStore.storeId,
@@ -312,7 +353,7 @@ function normalizeEmail(value: string | undefined): string {
   const email = value?.trim().toLowerCase();
 
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    throw new BadRequestException("valid customerEmail is required");
+    throw validationFailed("valid customerEmail is required", { field: "customerEmail" });
   }
 
   return email;
@@ -322,11 +363,14 @@ function normalizeAddressField(value: string | undefined, fieldName: string, max
   const normalized = value?.trim().replace(/\s+/g, " ");
 
   if (!normalized) {
-    throw new BadRequestException(`shippingAddress.${fieldName} is required`);
+    throw validationFailed(`shippingAddress.${fieldName} is required`, { field: `shippingAddress.${fieldName}` });
   }
 
   if (normalized.length > maxLength) {
-    throw new BadRequestException(`shippingAddress.${fieldName} must be ${maxLength} characters or less`);
+    throw validationFailed(`shippingAddress.${fieldName} must be ${maxLength} characters or less`, {
+      field: `shippingAddress.${fieldName}`,
+      maxLength
+    });
   }
 
   return normalized;
@@ -346,7 +390,7 @@ function normalizeSkuId(value: string | undefined): string {
   const skuId = value?.trim() || defaultSkuId;
 
   if (!uuidPattern.test(skuId)) {
-    throw new BadRequestException("line skuId must be a UUID");
+    throw validationFailed("line skuId must be a UUID", { field: "lines[].skuId" });
   }
 
   return skuId;
@@ -356,7 +400,7 @@ function normalizeOrderId(value: string | undefined): string {
   const orderId = value?.trim();
 
   if (!orderId || !uuidPattern.test(orderId)) {
-    throw new BadRequestException("orderId must be a UUID");
+    throw validationFailed("orderId must be a UUID", { field: "orderId" });
   }
 
   return orderId;
@@ -366,7 +410,7 @@ function normalizeActorId(value: string | undefined): string {
   const actorId = value?.trim() || "local-admin";
 
   if (actorId.length > 120) {
-    throw new BadRequestException("actorId must be 120 characters or less");
+    throw validationFailed("actorId must be 120 characters or less", { field: "actorId", maxLength: 120 });
   }
 
   return actorId;
@@ -376,7 +420,7 @@ function normalizeReason(value: string | undefined): string {
   const reason = value?.trim();
 
   if (!reason || reason.length > 500) {
-    throw new BadRequestException("reason is required and must be 500 characters or less");
+    throw validationFailed("reason is required and must be 500 characters or less", { field: "reason", maxLength: 500 });
   }
 
   return reason;
@@ -386,7 +430,7 @@ function normalizeAdminIdempotencyKey(value: string | undefined): string {
   const key = value?.trim();
 
   if (!key || key.length > 160) {
-    throw new BadRequestException("idempotency-key is required");
+    throw validationFailed("idempotency-key is required", { field: "idempotency-key", maxLength: 160 });
   }
 
   return key;
@@ -396,7 +440,7 @@ function normalizeManualCompensation(input: ManualCompensationRequest, actorHead
   const action = input.action;
 
   if (action !== "confirm" && action !== "cancel") {
-    throw new BadRequestException("action must be confirm or cancel");
+    throw validationFailed("action must be confirm or cancel", { field: "action", allowed: ["confirm", "cancel"] });
   }
 
   return {
@@ -416,15 +460,15 @@ function normalizeLine(line: MockCheckoutLine): NormalizedCheckoutLine {
   const currency = line.currency?.trim().toUpperCase() || "USD";
 
   if (!slug || !skuCode || !title) {
-    throw new BadRequestException("line slug, skuCode, and title are required");
+    throw validationFailed("line slug, skuCode, and title are required", { fields: ["slug", "skuCode", "title"] });
   }
 
   if (!Number.isInteger(quantity) || quantity <= 0 || quantity > 99) {
-    throw new BadRequestException("line quantity must be 1-99");
+    throw validationFailed("line quantity must be 1-99", { field: "quantity", min: 1, max: 99 });
   }
 
   if (!Number.isInteger(unitPriceMinor) || unitPriceMinor < 0) {
-    throw new BadRequestException("line unitPriceMinor must be a non-negative integer");
+    throw validationFailed("line unitPriceMinor must be a non-negative integer", { field: "unitPriceMinor", min: 0 });
   }
 
   return { slug, skuId, skuCode, title, quantity, unitPriceMinor, currency };
@@ -434,13 +478,13 @@ function normalizeCheckout(body: MockCheckoutRequest) {
   const lines = body.lines?.map(normalizeLine) ?? [];
 
   if (lines.length === 0) {
-    throw new BadRequestException("at least one checkout line is required");
+    throw validationFailed("at least one checkout line is required", { field: "lines" });
   }
 
   const currency = lines[0]?.currency ?? "USD";
 
   if (lines.some((line) => line.currency !== currency)) {
-    throw new BadRequestException("mixed checkout currencies are not supported in local mock checkout");
+    throw validationFailed("mixed checkout currencies are not supported in local mock checkout", { field: "lines[].currency" });
   }
 
   return {
@@ -624,8 +668,17 @@ function assertOrderTransition(
     if (nextStatus === "compensating" && nextInventoryStatus === "compensation_pending") return;
   }
 
-  throw new ConflictException(
-    `invalid order transition from ${current.status}/${current.paymentStatus}/${current.inventoryStatus} to ${nextStatus}/${nextPaymentStatus}/${nextInventoryStatus}`
+  throw stateConflict(
+    `invalid order transition from ${current.status}/${current.paymentStatus}/${current.inventoryStatus} to ${nextStatus}/${nextPaymentStatus}/${nextInventoryStatus}`,
+    {
+      orderId: current.orderId,
+      currentStatus: current.status,
+      currentPaymentStatus: current.paymentStatus,
+      currentInventoryStatus: current.inventoryStatus,
+      nextStatus,
+      nextPaymentStatus,
+      nextInventoryStatus
+    }
   );
 }
 
@@ -951,7 +1004,7 @@ class OrderRepository implements OnApplicationShutdown {
     const order = orderResult.rows[0];
 
     if (!order) {
-      throw new BadRequestException("order does not exist");
+      throw notFound("order does not exist", { orderId });
     }
 
     return {
@@ -1011,12 +1064,12 @@ class OrderRepository implements OnApplicationShutdown {
     );
 
     if (result.rows.length === 0) {
-      throw new BadRequestException("order lines do not exist");
+      throw notFound("order lines do not exist", { orderId });
     }
 
     return result.rows.map((row) => {
       if (!row.inventory_reservation_key_snapshot) {
-        throw new BadRequestException("order line missing inventory reservation key snapshot");
+        throw validationFailed("order line missing inventory reservation key snapshot", { orderId, field: "inventoryReservationKey" });
       }
 
       return {
@@ -1045,7 +1098,7 @@ class OrderRepository implements OnApplicationShutdown {
     const row = result.rows[0];
 
     if (!row) {
-      throw new BadRequestException("order does not exist");
+      throw notFound("order does not exist", { orderId });
     }
 
     return {
@@ -1083,7 +1136,7 @@ class OrderRepository implements OnApplicationShutdown {
       const current = currentResult.rows[0];
 
       if (!current) {
-        throw new BadRequestException("order does not exist");
+        throw notFound("order does not exist", { orderId });
       }
 
       assertOrderTransition(
@@ -1154,11 +1207,15 @@ class OrderRepository implements OnApplicationShutdown {
       const current = orderResult.rows[0];
 
       if (!current) {
-        throw new BadRequestException("order does not exist");
+        throw notFound("order does not exist", { orderId });
       }
 
       if (!isExceptionState(current.status, current.inventory_status)) {
-        throw new ConflictException("only exception orders can be manually compensated");
+        throw stateConflict("only exception orders can be manually compensated", {
+          orderId,
+          status: current.status,
+          inventoryStatus: current.inventory_status
+        });
       }
 
       const reservations = await this.getOrderReservationsForUpdate(client, ctx, orderId);
@@ -1360,12 +1417,12 @@ class OrderRepository implements OnApplicationShutdown {
     );
 
     if (result.rows.length === 0) {
-      throw new BadRequestException("order lines do not exist");
+      throw notFound("order lines do not exist", { orderId });
     }
 
     return result.rows.map((row) => {
       if (!row.inventory_reservation_key_snapshot) {
-        throw new BadRequestException("order line missing inventory reservation key snapshot");
+        throw validationFailed("order line missing inventory reservation key snapshot", { orderId, field: "inventoryReservationKey" });
       }
 
       return {
@@ -1542,7 +1599,7 @@ class OrderController {
           throw error;
         }
 
-        throw new BadRequestException("order does not exist");
+        throw notFound("order does not exist", { orderId });
       }
 
       return {
@@ -1602,10 +1659,10 @@ class OrderController {
       }
 
       if (findMemoryOrder(orderId)) {
-        throw new ServiceUnavailableException("manual compensation requires PostgreSQL-backed durable tasks");
+        throw dependencyUnavailable("manual compensation requires PostgreSQL-backed durable tasks", { orderId });
       }
 
-      throw new BadRequestException("order does not exist");
+      throw notFound("order does not exist", { orderId });
     }
   }
 
@@ -1651,7 +1708,7 @@ class OrderController {
           throw error;
         }
 
-        throw new ServiceUnavailableException("order storage unavailable after inventory reservation; reservation was cancelled");
+        throw dependencyUnavailable("order storage unavailable after inventory reservation; reservation was cancelled", { orderId });
       }
     } finally {
       warnIfSlow("order.create", startedAt, slowOrderCreateMs, ctx);
@@ -1759,7 +1816,7 @@ class OrderController {
         return { ...memoryFallback, compensationQueued: true };
       }
 
-      throw new BadRequestException("order does not exist");
+      throw notFound("order does not exist", { orderId });
     }
 
     const compensationQueued = await this.applyInventoryTransition(ctx, orderId, reservations, action, true);
@@ -1871,7 +1928,7 @@ class OrderController {
     } catch {
       const memoryOrder = findMemoryOrder(orderId);
       if (!memoryOrder) {
-        throw new BadRequestException("order does not exist");
+        throw notFound("order does not exist", { orderId });
       }
 
       return {
@@ -2004,7 +2061,7 @@ class OrderController {
           throw error;
         }
 
-        throw new ServiceUnavailableException("inventory reservation failed");
+        throw dependencyUnavailable("inventory reservation failed", { orderId, skuId: line.skuId });
       }
     }
 
@@ -2051,14 +2108,22 @@ class OrderController {
 
       if (!response.ok) {
         if (response.status === 409) {
-          throw new ConflictException(payload.message ?? "insufficient inventory");
+          throw inventoryShortage(payload.message ?? "insufficient inventory", {
+            path,
+            skuId: body.skuId,
+            response: payload
+          });
         }
 
-        throw new ServiceUnavailableException(payload.message ?? "inventory service unavailable");
+        throw dependencyUnavailable(payload.message ?? "inventory service unavailable", {
+          path,
+          status: response.status,
+          response: payload
+        });
       }
 
       if (!payload.reservationId || !payload.skuId || !payload.warehouseId || !payload.storageMode) {
-        throw new ServiceUnavailableException("inventory service returned an invalid reservation");
+        throw dependencyUnavailable("inventory service returned an invalid reservation", { path, response: payload });
       }
 
       return payload as InventoryReservationResult;
@@ -2067,7 +2132,7 @@ class OrderController {
         throw error;
       }
 
-      throw new ServiceUnavailableException("inventory service unavailable");
+      throw dependencyUnavailable("inventory service unavailable", { path });
     } finally {
       clearTimeout(timeout);
     }
