@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { BadRequestException, Body, Controller, Get, Headers, Inject, Injectable, Module, OnApplicationShutdown, Put, Query, ServiceUnavailableException } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { money } from "@commerce/money";
+import { catalogCacheKeys, categoryWriteInvalidationKeys, productWriteInvalidationKeys, regionWriteInvalidationKeys } from "./cache-policy.js";
 import type {
   CatalogCategory,
   CatalogMediaKind,
@@ -245,13 +246,6 @@ type CatalogReadiness = {
   cacheRequired: false;
 };
 
-const catalogCacheKeys = {
-  storefront: "catalog:storefront:v2",
-  categories: "catalog:categories:v1",
-  regions: "catalog:regions:v1",
-  productSummaries: "catalog:product-summaries:v1",
-  storefrontProducts: "catalog:storefront-products:v2"
-} as const;
 const slowCatalogReadMs = Number(process.env.SLOW_CATALOG_READ_MS ?? 500);
 
 function createStoreContext(correlationId: string | undefined): StoreContext {
@@ -1047,7 +1041,7 @@ class CatalogRepository implements OnApplicationShutdown {
       }
 
       await client.query("COMMIT");
-      await this.cache.invalidate(ctx, [catalogCacheKeys.categories, catalogCacheKeys.storefront]);
+      await this.cache.invalidate(ctx, categoryWriteInvalidationKeys());
       return this.listCategories(ctx);
     } catch (error) {
       await client.query("ROLLBACK");
@@ -1161,7 +1155,7 @@ class CatalogRepository implements OnApplicationShutdown {
       }
 
       await client.query("COMMIT");
-      await this.cache.invalidate(ctx, [catalogCacheKeys.regions, catalogCacheKeys.storefront]);
+      await this.cache.invalidate(ctx, regionWriteInvalidationKeys());
       return this.listRegions(ctx);
     } catch (error) {
       await client.query("ROLLBACK");
@@ -1403,11 +1397,7 @@ class CatalogRepository implements OnApplicationShutdown {
       }
 
       await client.query("COMMIT");
-      await this.cache.invalidate(ctx, [
-        catalogCacheKeys.productSummaries,
-        catalogCacheKeys.storefrontProducts,
-        catalogCacheKeys.storefront
-      ]);
+      await this.cache.invalidate(ctx, productWriteInvalidationKeys());
       return this.listStorefrontProducts(ctx);
     } catch (error) {
       await client.query("ROLLBACK");
