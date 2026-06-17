@@ -287,10 +287,16 @@ Helm 包必须支持：
 
 ## 补偿故障演练
 
-脚本：
+本地脚本：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/run-compensation-drill.ps1
+```
+
+测试服务器脚本：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run-server-compensation-drill.ps1 -HostName 170.106.136.169 -User ubuntu
 ```
 
 脚本会执行：
@@ -312,6 +318,13 @@ powershell -ExecutionPolicy Bypass -File scripts/run-compensation-drill.ps1
 
 失败处理：
 
-- 如果报 Docker daemon 不可用，先修复 Docker Desktop 或改用测试服务器执行。
+- 如果报 Docker daemon 不可用，先修复 Docker Desktop 或改用 `scripts/run-server-compensation-drill.ps1` 在测试服务器执行。
 - 如果 PostgreSQL 表缺失，先确认 fresh DB 是否挂载了 `infra/db/migrations/012-inventory-audit-events.sql` 和 `infra/db/migrations/013-order-audit-events.sql`，已有旧 volume 时需要重建测试库或手工执行迁移。
 - 如果 DLQ 未出现，查看 worker-service 日志并用 correlation ID 追踪 order-service、worker-service、inventory-service 调用链。
+
+最近一次服务器演练证据：
+
+- 2026-06-17 在测试服务器 `170.106.136.169` 执行 `scripts/run-server-compensation-drill.ps1 -TimeoutSeconds 180` 通过。
+- 演练订单：`ef3a0586-7da9-458c-a219-6d9b1d7dfbdb`。
+- Correlation ID：`server-drill-7200ffbe-f201-4e19-a11c-5fc5b5087b56`。
+- 验证结果：支付确认时 inventory-service 停止，订单进入 `compensation_pending`；worker 重试失败后写入 `dead_letter_tasks`；`admin-gateway /dead-letter-tasks` 返回该任务；脚本最后重启 inventory-service。
