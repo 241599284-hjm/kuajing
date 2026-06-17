@@ -315,6 +315,9 @@ importers:
 
   services/media-service:
     dependencies:
+      '@commerce/error-codes':
+        specifier: workspace:*
+        version: link:../../packages/error-codes
       '@commerce/store-context':
         specifier: workspace:*
         version: link:../../packages/store-context

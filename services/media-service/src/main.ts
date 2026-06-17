@@ -13,12 +13,14 @@ import {
   Param,
   Post,
   Res,
+  ServiceUnavailableException,
   StreamableFile,
   UploadedFile,
   UseInterceptors
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { NestFactory } from "@nestjs/core";
+import { ERROR_CODES } from "@commerce/error-codes";
 import { assertStoreContext, type StoreContext } from "@commerce/store-context";
 import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
@@ -103,6 +105,38 @@ function sanitizeFilename(value: string): string {
   const parsed = path.parse(value);
   const baseName = parsed.name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
   return baseName || "media";
+}
+
+function validationFailed(message: string, details?: unknown): BadRequestException {
+  return new BadRequestException({
+    code: ERROR_CODES.VALIDATION_FAILED,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function uploadRejected(message: string, details?: unknown): BadRequestException {
+  return new BadRequestException({
+    code: ERROR_CODES.UPLOAD_REJECTED,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function notFound(message: string, details?: unknown): NotFoundException {
+  return new NotFoundException({
+    code: ERROR_CODES.NOT_FOUND,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function dependencyUnavailable(message: string, details?: unknown): ServiceUnavailableException {
+  return new ServiceUnavailableException({
+    code: ERROR_CODES.DEPENDENCY_UNAVAILABLE,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
 }
 
 function sniffMime(buffer: Buffer): string | null {
@@ -207,21 +241,33 @@ function readDimensions(mimeType: string, buffer: Buffer): { width: number; heig
 
 function validateUpload(file: UploadedMediaFile): { mimeType: string; kind: MediaKind; width: number | null; height: number | null } {
   if (!file?.buffer?.length) {
-    throw new BadRequestException("MEDIA_FILE_REQUIRED");
+    throw uploadRejected("media file is required", { reason: "MEDIA_FILE_REQUIRED" });
   }
 
   if (file.size > maxUploadBytes) {
-    throw new BadRequestException("MEDIA_FILE_TOO_LARGE");
+    throw uploadRejected("media file exceeds the configured size limit", {
+      reason: "MEDIA_FILE_TOO_LARGE",
+      byteSize: file.size,
+      maxUploadBytes
+    });
   }
 
   const sniffedMime = sniffMime(file.buffer);
 
   if (!sniffedMime || !allowedMimeTypes.has(sniffedMime)) {
-    throw new BadRequestException("MEDIA_TYPE_NOT_ALLOWED");
+    throw uploadRejected("media file type is not allowed", {
+      reason: "MEDIA_TYPE_NOT_ALLOWED",
+      declaredMimeType: file.mimetype || null,
+      detectedMimeType: sniffedMime
+    });
   }
 
   if (file.mimetype && file.mimetype !== "application/octet-stream" && file.mimetype !== sniffedMime) {
-    throw new BadRequestException("MEDIA_MIME_MISMATCH");
+    throw uploadRejected("media MIME type does not match the file signature", {
+      reason: "MEDIA_MIME_MISMATCH",
+      declaredMimeType: file.mimetype,
+      detectedMimeType: sniffedMime
+    });
   }
 
   const dimensions = readDimensions(sniffedMime, file.buffer);
@@ -249,11 +295,14 @@ function assertOwnedObjectKey(ctx: StoreContext, key: string) {
   const normalized = key.trim();
 
   if (!normalized || path.isAbsolute(normalized) || normalized.includes("..") || normalized.includes("\\")) {
-    throw new BadRequestException("MEDIA_OBJECT_KEY_INVALID");
+    throw validationFailed("media object key is invalid", { field: "objectKey", reason: "MEDIA_OBJECT_KEY_INVALID" });
   }
 
   if (!normalized.startsWith(`${ctx.storeId}/product-media/`)) {
-    throw new BadRequestException("MEDIA_OBJECT_KEY_STORE_MISMATCH");
+    throw validationFailed("media object key does not belong to this store", {
+      field: "objectKey",
+      reason: "MEDIA_OBJECT_KEY_STORE_MISMATCH"
+    });
   }
 
   return normalized;
@@ -407,7 +456,7 @@ class MediaStorage {
     const targetPath = path.resolve(localStorageRoot, normalizedKey);
 
     if (!targetPath.startsWith(path.resolve(localStorageRoot))) {
-      throw new BadRequestException("MEDIA_PATH_INVALID");
+      throw validationFailed("media path is invalid", { field: "objectKey", reason: "MEDIA_PATH_INVALID" });
     }
 
     try {
@@ -443,7 +492,10 @@ class MediaStorage {
     });
 
     if (!this.cdnUrl) {
-      throw new BadRequestException("OBJECT_STORAGE_CDN_URL_REQUIRED");
+      throw dependencyUnavailable("object storage CDN URL is not configured", {
+        dependency: "object-storage",
+        reason: "OBJECT_STORAGE_CDN_URL_REQUIRED"
+      });
     }
 
     return `${this.cdnUrl}/${key.split("/").map(encodeURIComponent).join("/")}`;
@@ -459,7 +511,10 @@ class MediaStorage {
     const secretKey = process.env.MINIO_SECRET_KEY?.trim();
 
     if (!endpoint || !accessKey || !secretKey || !this.bucket) {
-      throw new BadRequestException("OBJECT_STORAGE_CONFIG_INCOMPLETE");
+      throw dependencyUnavailable("object storage configuration is incomplete", {
+        dependency: "object-storage",
+        reason: "OBJECT_STORAGE_CONFIG_INCOMPLETE"
+      });
     }
 
     const parsedEndpoint = new URL(endpoint);
@@ -541,7 +596,7 @@ class MediaController {
         newValue: null,
         correlationId: ctx.correlationId
       });
-      throw new BadRequestException("MEDIA_FILE_REQUIRED");
+      throw uploadRejected("media file is required", { reason: "MEDIA_FILE_REQUIRED" });
     }
 
     try {
@@ -631,7 +686,7 @@ class MediaController {
     const requestedPath = path.resolve(localStorageRoot, storeId, scope, kind, yyyyMm, fileName);
 
     if (!requestedPath.startsWith(path.resolve(localStorageRoot))) {
-      throw new BadRequestException("MEDIA_PATH_INVALID");
+      throw validationFailed("media path is invalid", { reason: "MEDIA_PATH_INVALID" });
     }
 
     response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
@@ -640,7 +695,7 @@ class MediaController {
       await stat(requestedPath);
       return new StreamableFile(createReadStream(requestedPath));
     } catch {
-      throw new NotFoundException("MEDIA_FILE_NOT_FOUND");
+      throw notFound("media file was not found", { reason: "MEDIA_FILE_NOT_FOUND" });
     }
   }
 }
