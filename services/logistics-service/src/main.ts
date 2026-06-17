@@ -1,6 +1,7 @@
 import "reflect-metadata";
-import { BadRequestException, Body, Controller, Get, Headers, HttpException, Injectable, Module, Param, Post, Put } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Headers, Injectable, Module, Param, Post, Put, ServiceUnavailableException } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import { ERROR_CODES } from "@commerce/error-codes";
 import { assertStoreContext } from "@commerce/store-context";
 import { randomUUID } from "node:crypto";
 import pg from "pg";
@@ -83,6 +84,30 @@ const inMemoryCache = new Map<string, TrackingRecord>();
 const inMemoryLogs: CallLog[] = [];
 const pool = databaseUrl ? new Pool({ connectionString: databaseUrl }) : null;
 
+function validationFailed(message: string, details?: unknown): BadRequestException {
+  return new BadRequestException({
+    code: ERROR_CODES.VALIDATION_FAILED,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function providerUnavailable(message: string, details?: unknown): ServiceUnavailableException {
+  return new ServiceUnavailableException({
+    code: ERROR_CODES.PROVIDER_UNAVAILABLE,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function dependencyUnavailable(message: string, details?: unknown): ServiceUnavailableException {
+  return new ServiceUnavailableException({
+    code: ERROR_CODES.DEPENDENCY_UNAVAILABLE,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
 function headerValue(headers: HeaderBag, name: string): string | undefined {
   const value = headers[name] ?? headers[name.toLowerCase()];
   if (Array.isArray(value)) return value[0];
@@ -102,7 +127,7 @@ function normalizeTrackingNumber(value: string) {
   const normalized = value.trim().replace(/\s+/g, "").toUpperCase();
 
   if (!/^[A-Z0-9-]{6,48}$/.test(normalized)) {
-    throw new BadRequestException("tracking number is invalid");
+    throw validationFailed("tracking number is invalid", { field: "trackingNumber", minLength: 6, maxLength: 48 });
   }
 
   return normalized;
@@ -143,11 +168,11 @@ function accountFromInput(input: AccountInput, index: number): LogisticsAccount 
   const status = input.status ?? "active";
 
   if (!accountName) {
-    throw new BadRequestException("accountName is required");
+    throw validationFailed("accountName is required", { field: "accountName" });
   }
 
   if (!["active", "quota_exhausted", "disabled"].includes(status)) {
-    throw new BadRequestException("account status is invalid");
+    throw validationFailed("account status is invalid", { field: "status", allowed: ["active", "quota_exhausted", "disabled"] });
   }
 
   return {
@@ -569,7 +594,7 @@ class LogisticsService {
       correlationId: ctx.correlationId
     });
 
-    throw new HttpException({ message: "No available logistics provider account", code: "LOGISTICS_PROVIDER_UNAVAILABLE" }, 503);
+    throw providerUnavailable("No available logistics provider account", { trackingNumber });
   }
 
   async sendUpdateEmail(headers: HeaderBag, body: Record<string, unknown>) {
@@ -578,7 +603,7 @@ class LogisticsService {
     const trackingNumber = typeof body.trackingNumber === "string" ? normalizeTrackingNumber(body.trackingNumber) : "";
 
     if (!to || !trackingNumber) {
-      throw new BadRequestException("to and trackingNumber are required");
+      throw validationFailed("to and trackingNumber are required", { fields: ["to", "trackingNumber"] });
     }
 
     const response = await fetch(`${notificationServiceUrl}/emails/transactional`, {
@@ -605,7 +630,10 @@ class LogisticsService {
     const payload = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      throw new HttpException(payload, response.status);
+      throw dependencyUnavailable("notification service rejected logistics update email", {
+        status: response.status,
+        response: payload
+      });
     }
 
     return payload;
@@ -642,7 +670,7 @@ class LogisticsController {
   @Post("/tracking/refresh")
   refreshTracking(@Headers() headers: HeaderBag, @Body() body: Record<string, unknown>) {
     if (typeof body.trackingNumber !== "string") {
-      throw new BadRequestException("trackingNumber is required");
+      throw validationFailed("trackingNumber is required", { field: "trackingNumber" });
     }
 
     return this.logisticsService.query(headers, body.trackingNumber, true);
