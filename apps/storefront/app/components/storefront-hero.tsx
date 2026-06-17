@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import type { Route } from "next";
-import { ChevronDown, ChevronUp, Gem, PackageCheck, ShieldCheck, Truck } from "lucide-react";
 import { useState } from "react";
 import type { Locale, storefrontCopy } from "../lib/storefront-content.js";
 import { PremiumStorefrontHeader } from "./premium-storefront-header.js";
@@ -15,105 +14,55 @@ type StorefrontHeroProps = {
 };
 
 export function StorefrontHero({ locale, onLocaleChange, copy }: StorefrontHeroProps) {
-  const [isCollapsed, setIsCollapsed] = useState(false);
   const [isRegistrationOpen, setIsRegistrationOpen] = useState(false);
-  const featureItems = [
-    {
-      icon: Truck,
-      title: locale === "zh" ? "全球配送" : "Worldwide Shipping",
-      body: locale === "zh" ? "跨境物流预留" : "Delivered to your door"
-    },
-    {
-      icon: Gem,
-      title: locale === "zh" ? "手作工艺" : "Handmade Craft",
-      body: locale === "zh" ? "每件茶具都有细节" : "Each piece is unique"
-    },
-    {
-      icon: ShieldCheck,
-      title: locale === "zh" ? "优选材质" : "Premium Materials",
-      body: locale === "zh" ? "瓷器、紫砂、玻璃" : "Clay, porcelain, glass"
-    },
-    {
-      icon: PackageCheck,
-      title: locale === "zh" ? "安全包装" : "Secure Packaging",
-      body: locale === "zh" ? "易碎品保护" : "Fragile goods protected"
-    }
-  ];
+  const isZh = locale === "zh";
 
   return (
-    <section
-      className={[
-        "relative overflow-hidden bg-[var(--bg)] text-black transition-[min-height] duration-300",
-        isCollapsed ? "min-h-[96px] md:min-h-[82svh]" : "min-h-[82svh]"
-      ].join(" ")}
-    >
+    <section className="relative overflow-hidden bg-white text-[var(--ink)]">
+      <div className="h-10 overflow-hidden border-b border-[var(--line)] bg-[var(--surface-strong)] text-center text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--ink)]">
+        <div className="inline-block min-w-full whitespace-nowrap py-3 motion-safe:animate-[announcement-scroll_24s_linear_infinite]">
+          {isZh
+            ? "订单满 $85 全球免邮 | 景德镇手工瓷器 | 易碎品安全包装"
+            : "Free Worldwide Shipping On Orders Over $85 | Handmade Jingdezhen Porcelain | Secure Fragile Packaging"}
+        </div>
+      </div>
+
       <PremiumStorefrontHeader
         copy={copy}
         locale={locale}
         onLocaleChange={onLocaleChange}
         onRegisterClick={() => setIsRegistrationOpen(true)}
-        overlay
       />
 
-      <div
-        className={[
-          "premium-container relative z-10 grid gap-10 py-10 transition-opacity duration-300 md:grid-cols-[0.85fr_1.15fr] md:items-center md:py-16",
-          isCollapsed ? "hidden min-h-0 opacity-0 md:grid md:min-h-[58svh] md:opacity-100" : "min-h-[62svh] opacity-100 md:min-h-[58svh]"
-        ].join(" ")}
-      >
-        <div className="max-w-xl pt-6 md:pt-0">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--ink-soft)]">{copy.heroEyebrow}</p>
-          <h1 className="premium-display mt-6 text-5xl leading-[0.95] sm:text-7xl lg:text-8xl">
-            {copy.heroTitle}
-          </h1>
-          <p className="mt-6 max-w-md text-sm leading-7 text-[var(--ink-soft)] sm:text-base">
-            {copy.heroDescription}
-          </p>
-          <Link className="premium-btn mt-8" href={"#products" as Route}>
-            {locale === "zh" ? "选购系列" : "Shop collection"}
-          </Link>
-          <div className="mt-16 hidden items-center gap-4 text-xs font-medium text-[var(--ink-soft)] md:flex">
-            <span>01</span>
-            <span className="h-px w-14 bg-black/30" />
-            <span>03</span>
+      <div className="relative min-h-[70svh] bg-[var(--ink)] md:min-h-[62svh]">
+        <img
+          alt={copy.heroAlt}
+          className="absolute inset-0 h-full w-full object-cover opacity-80"
+          loading="eager"
+          src="/assets/hero-teaware-photo.jpg"
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/5 via-black/12 to-black/62" />
+        <div className="premium-container relative z-10 flex min-h-[70svh] items-end md:min-h-[62svh]">
+          <div className="max-w-3xl pb-12 pt-24 text-white md:pb-20">
+            <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-white/80">{copy.heroEyebrow}</p>
+            <h1 className="premium-display mt-5 max-w-4xl text-4xl leading-[1.02] sm:text-6xl lg:text-7xl">
+              {copy.heroTitle}
+            </h1>
+            <p className="mt-5 max-w-xl text-sm leading-7 text-white/85 sm:text-base">
+              {copy.heroDescription}
+            </p>
+            <div className="mt-8 grid gap-3 sm:flex sm:flex-wrap">
+              <Link className="premium-btn min-h-12" href={"/categories/gift" as Route}>
+                {isZh ? "选购茶具系列" : "Shop Tea Collections"}
+              </Link>
+              <Link className="inline-flex min-h-12 items-center justify-center border border-white/80 px-5 text-xs font-bold uppercase tracking-[0.08em] text-white transition hover:border-white hover:bg-white hover:text-[var(--ink)]" href={"/#products" as Route}>
+                {isZh ? "查看热销礼品" : "View Best Selling Gifts"}
+              </Link>
+            </div>
           </div>
         </div>
-
-        <div className="relative min-h-[22rem] md:min-h-[34rem]">
-          <div className="absolute bottom-0 left-0 right-0 h-32 bg-[var(--surface-strong)]" />
-          <img
-            alt={copy.heroAlt}
-            className="relative z-10 mx-auto h-[23rem] w-full max-w-[42rem] object-contain md:h-[35rem]"
-            src="/assets/porcelain-tea-set-photo.jpg"
-          />
-        </div>
       </div>
 
-      <div className="premium-container relative z-10 grid gap-5 border-y border-[var(--line)] bg-[var(--bg)] py-7 sm:grid-cols-2 lg:grid-cols-4">
-        {featureItems.map((item) => {
-          const Icon = item.icon;
-
-          return (
-            <div key={item.title} className="flex items-start gap-4">
-              <Icon className="mt-0.5 shrink-0" size={22} strokeWidth={1.4} />
-              <div>
-                <p className="text-sm font-semibold">{item.title}</p>
-                <p className="mt-1 text-xs text-[var(--ink-soft)]">{item.body}</p>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      <button
-        type="button"
-        aria-label={isCollapsed ? copy.expandHero : copy.collapseHero}
-        className="absolute bottom-4 right-4 z-20 flex h-10 items-center gap-2 border border-[var(--line)] bg-white/95 px-4 text-sm font-semibold text-black shadow-lg md:hidden"
-        onClick={() => setIsCollapsed((value) => !value)}
-      >
-        {isCollapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
-        <span>{isCollapsed ? copy.show : copy.hide}</span>
-      </button>
       <RegistrationDialog copy={copy.registration} isOpen={isRegistrationOpen} onClose={() => setIsRegistrationOpen(false)} />
     </section>
   );

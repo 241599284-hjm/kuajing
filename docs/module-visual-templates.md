@@ -305,22 +305,31 @@ AdminPanel
 结构：
 
 ```text
+Announcement bar
 PremiumStorefrontHeader
-Hero
-Service strip
-Category module
-Featured products with pagination
-Region module
-About / story
-Support entry
-Footer
+Single-image Hero
+Best Sellers product rail
+Four category image navigation
+Why Choose Us trust section
+Craft story image/text
+New Arrivals product rail
+Customer Reviews carousel/cards
+Promotion banners
+Newsletter subscribe block
+Black four-column Footer
 ```
 
 规则：
 
-- 第一屏必须看到品牌/商品视觉。
-- 商品、分类、地域都从 catalog/store 配置读取。
-- 移动端模块长度要可控，产品多时分页。
+- 首页视觉基准为“景德镇手工陶瓷 / 侘寂东方极简 / 跨境高信任电商”，不是旧的 CERAFAN/Serif 画册方向。
+- 第一屏必须看到品牌 Logo、单张真实茶具/陶瓷实景 Hero、主 CTA、次 CTA。
+- 顶部公告条必须可后台维护，默认展示免邮、景德镇手工瓷器、易碎品安全包装等信任信息。
+- Hero 禁止多图自动轮播，只用单张静态大图，降低加载压力。
+- 商品、分类、地域、SEO、公告、促销、评价、Footer 链接最终都必须从 catalog/content/settings 配置读取；当前静态文案只允许作为开发期默认种子。
+- 首页不再默认插入地域长列表；地域分类保留在导航、菜单和独立 `/regions` 页面，避免手机端首页过长。
+- 移动端优先：产品 rail 横向滑动，分类/信任/评价单列，主要按钮高度不低于 44px。
+- PC 端可展开为四列商品、二列分类、三列信任、四列 Footer。
+- PayPal 审核页必须在 Footer 可访问：Privacy Policy、Terms of Service、Return Policy、Contact Us。
 
 ### 2. 分类/地域列表页
 

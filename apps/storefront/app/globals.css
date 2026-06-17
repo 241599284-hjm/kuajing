@@ -1,13 +1,14 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #fbfaf7;
-  --surface: #f3f0ea;
-  --surface-strong: #e9e4da;
-  --ink: #111111;
-  --ink-soft: #68645d;
-  --accent: #111111;
-  --line: #e1ded6;
+  --bg: #ffffff;
+  --surface: #f7f4ef;
+  --surface-strong: #eae5dd;
+  --ink: #222222;
+  --ink-soft: #555555;
+  --ink-muted: #888888;
+  --accent: #912e2e;
+  --line: #ded8cf;
 }
 
 body {
@@ -17,15 +18,13 @@ body {
 }
 
 .premium-display {
-  font-family: Georgia, "Times New Roman", serif;
-  font-weight: 400;
+  font-family: Inter, Arial, sans-serif;
+  font-weight: 800;
   letter-spacing: 0;
 }
 
 .premium-shell {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(251, 250, 247, 0.98) 18rem),
-    var(--bg);
+  background: var(--bg);
 }
 
 .premium-container {
@@ -64,7 +63,7 @@ body {
   height: 3rem;
   align-items: center;
   justify-content: center;
-  background: #111111;
+  background: var(--ink);
   color: #ffffff;
   padding-left: 1.25rem;
   padding-right: 1.25rem;
@@ -72,6 +71,12 @@ body {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.premium-btn:hover {
+  background: var(--accent);
+  transform: translateY(-1px);
 }
 
 .premium-btn-outline {
@@ -79,13 +84,29 @@ body {
   height: 3rem;
   align-items: center;
   justify-content: center;
-  border: 1px solid #111111;
+  border: 1px solid var(--ink);
   background: transparent;
-  color: #111111;
+  color: var(--ink);
   padding-left: 1.25rem;
   padding-right: 1.25rem;
   font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  transition: border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.premium-btn-outline:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: translateY(-1px);
+}
+
+@keyframes announcement-scroll {
+  0% {
+    transform: translateX(16%);
+  }
+  100% {
+    transform: translateX(-16%);
+  }
 }

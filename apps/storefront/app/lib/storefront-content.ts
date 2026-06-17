@@ -97,13 +97,13 @@ export const storefrontCopy = {
     hide: "Hide",
     collapseHero: "Collapse hero",
     expandHero: "Expand hero",
-    heroAlt: "Minimal teaware set",
-    heroEyebrow: "Premium minimal",
-    heroTitle: "Teaware for modern rituals",
-    heroDescription: "Ceramic, clay, and travel tea sets selected for gifting, daily brewing, and quiet tables.",
-    categoryTitle: "Search by category",
-    featuredTitle: "Featured products",
-    featuredDescription: "Ready for local checkout and mock payment testing.",
+    heroAlt: "Handcrafted Jingdezhen porcelain tea set in a quiet home tea ritual",
+    heroEyebrow: "Handmade in Jingdezhen",
+    heroTitle: "Handcrafted Jingdezhen Porcelain Tea Sets",
+    heroDescription: "Centuries-old ceramic craftsmanship for your daily tea ritual & elegant home decor.",
+    categoryTitle: "Shop Porcelain By Ritual",
+    featuredTitle: "Customer Favorite Porcelain Picks",
+    featuredDescription: "Handmade teaware, gift porcelain, and daily cups with safe worldwide shipping.",
     viewAll: "View all",
     regionTitle: "Regional custom porcelain",
     regionDescription: "Browse province-inspired porcelain collections by landmark, story, and gift positioning.",
@@ -137,16 +137,16 @@ export const storefrontCopy = {
       },
       categoryOptions: {
         teapot: "Teapots",
-        teacup: "Teacups",
-        travel: "Travel",
-        gift: "Gift sets"
+        teacup: "Single teacups",
+        travel: "Travel sets",
+        gift: "Gift boxes"
       }
     },
     categories: [
-      { name: "Teapots", image: "/assets/yixing-teapot-photo.jpg" },
-      { name: "Teacups", image: "/assets/porcelain-tea-set-photo.jpg" },
-      { name: "Travel sets", image: "/assets/travel-tea-set-photo.jpg" },
-      { name: "Gift sets", image: "/assets/porcelain-tea-set-photo.jpg" }
+      { name: "Tea Sets", image: "/assets/porcelain-tea-set-photo.jpg" },
+      { name: "Decor Vases", image: "/assets/region-jiangxi-tengwang.jpg" },
+      { name: "Gift Boxes", image: "/assets/hero-teaware-photo.jpg" },
+      { name: "Single Teacups", image: "/assets/yixing-teapot-photo.jpg" }
     ],
     mobile: {
       open: "Open navigation",
@@ -211,13 +211,13 @@ export const storefrontCopy = {
     hide: "折叠",
     collapseHero: "折叠主图",
     expandHero: "展开主图",
-    heroAlt: "极简茶具套装",
-    heroEyebrow: "欧美极简",
-    heroTitle: "现代茶席茶具",
-    heroDescription: "精选陶瓷、紫砂与旅行茶具，适合送礼、日常冲泡和安静的茶席陈列。",
-    categoryTitle: "按分类浏览",
-    featuredTitle: "精选商品",
-    featuredDescription: "已预留本地下单、结算和模拟支付测试能力。",
+    heroAlt: "安静家居茶席中的手工景德镇瓷器茶具",
+    heroEyebrow: "景德镇手工瓷器",
+    heroTitle: "手工景德镇瓷器茶具",
+    heroDescription: "把传统陶瓷工艺带入日常茶席、家居陈列和高端礼品场景。",
+    categoryTitle: "按茶席场景选瓷器",
+    featuredTitle: "全球买家喜爱的瓷器",
+    featuredDescription: "手工茶具、礼品瓷器和日用茶杯，突出安全包装与全球配送。",
     viewAll: "查看全部",
     regionTitle: "地域定制瓷器",
     regionDescription: "按省份地标、城市故事和礼品定位浏览定制瓷器系列。",
@@ -251,16 +251,16 @@ export const storefrontCopy = {
       },
       categoryOptions: {
         teapot: "茶壶",
-        teacup: "茶杯",
+        teacup: "单杯",
         travel: "旅行茶具",
-        gift: "礼品套装"
+        gift: "礼品礼盒"
       }
     },
     categories: [
-      { name: "茶壶", image: "/assets/yixing-teapot-photo.jpg" },
-      { name: "茶杯", image: "/assets/porcelain-tea-set-photo.jpg" },
-      { name: "旅行茶具", image: "/assets/travel-tea-set-photo.jpg" },
-      { name: "礼品套装", image: "/assets/porcelain-tea-set-photo.jpg" }
+      { name: "整套茶具", image: "/assets/porcelain-tea-set-photo.jpg" },
+      { name: "陶瓷花瓶", image: "/assets/region-jiangxi-tengwang.jpg" },
+      { name: "礼品礼盒", image: "/assets/hero-teaware-photo.jpg" },
+      { name: "单杯单品", image: "/assets/yixing-teapot-photo.jpg" }
     ],
     mobile: {
       open: "打开导航",
