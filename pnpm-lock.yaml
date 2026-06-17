@@ -216,6 +216,9 @@ importers:
       '@commerce/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@commerce/error-codes':
+        specifier: workspace:*
+        version: link:../../packages/error-codes
       '@commerce/money':
         specifier: workspace:*
         version: link:../../packages/money

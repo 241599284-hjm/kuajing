@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { BadRequestException, Body, Controller, Get, Headers, Inject, Injectable, Module, OnApplicationShutdown, Put, Query, ServiceUnavailableException } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import { ERROR_CODES } from "@commerce/error-codes";
 import { money } from "@commerce/money";
 import { catalogCacheKeys, categoryWriteInvalidationKeys, productWriteInvalidationKeys, regionWriteInvalidationKeys } from "./cache-policy.js";
 import type {
@@ -248,6 +249,30 @@ type CatalogReadiness = {
 
 const slowCatalogReadMs = Number(process.env.SLOW_CATALOG_READ_MS ?? 500);
 
+function validationFailed(message: string, details?: unknown): BadRequestException {
+  return new BadRequestException({
+    code: ERROR_CODES.VALIDATION_FAILED,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function notFound(message: string, details?: unknown): BadRequestException {
+  return new BadRequestException({
+    code: ERROR_CODES.NOT_FOUND,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function dependencyUnavailable(message: string, details?: unknown): ServiceUnavailableException {
+  return new ServiceUnavailableException({
+    code: ERROR_CODES.DEPENDENCY_UNAVAILABLE,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
 function createStoreContext(correlationId: string | undefined): StoreContext {
   return assertStoreContext({
     storeId: process.env.DEFAULT_STORE_ID ?? "00000000-0000-4000-8000-000000000001",
@@ -284,7 +309,7 @@ function normalizeSlug(value: string | undefined, field: string): string {
   const slug = value?.trim().toLowerCase();
 
   if (!slug || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
-    throw new BadRequestException(`${field} must be a lowercase slug`);
+    throw validationFailed(`${field} must be a lowercase slug`, { field });
   }
 
   return slug;
@@ -294,11 +319,11 @@ function normalizeText(value: string | undefined, field: string, maxLength = 240
   const text = value?.trim();
 
   if (!text) {
-    throw new BadRequestException(`${field} is required`);
+    throw validationFailed(`${field} is required`, { field });
   }
 
   if (text.length > maxLength) {
-    throw new BadRequestException(`${field} is too long`);
+    throw validationFailed(`${field} is too long`, { field, maxLength });
   }
 
   return text;
@@ -308,7 +333,7 @@ function normalizeInteger(value: number | undefined, field: string, max = 999999
   const numberValue = Number(value);
 
   if (!Number.isInteger(numberValue) || numberValue < 0 || numberValue > max) {
-    throw new BadRequestException(`${field} must be an integer between 0 and ${max}`);
+    throw validationFailed(`${field} must be an integer between 0 and ${max}`, { field, min: 0, max });
   }
 
   return numberValue;
@@ -318,7 +343,7 @@ function normalizeSortOrder(value: number | undefined): number {
   const sortOrder = Number(value ?? 0);
 
   if (!Number.isInteger(sortOrder) || sortOrder < 0) {
-    throw new BadRequestException("sortOrder must be a non-negative integer");
+    throw validationFailed("sortOrder must be a non-negative integer", { field: "sortOrder", min: 0 });
   }
 
   return sortOrder;
@@ -343,7 +368,7 @@ function normalizeSku(value: string | undefined): string {
   const sku = value?.trim().toUpperCase();
 
   if (!sku || sku.length > 80) {
-    throw new BadRequestException("product.sku is required");
+    throw validationFailed("product.sku is required", { field: "product.sku", maxLength: 80 });
   }
 
   return sku;
@@ -363,7 +388,7 @@ function normalizePriceMinor(value: number | undefined): number {
   const price = Number(value ?? 0);
 
   if (!Number.isFinite(price) || price < 0) {
-    throw new BadRequestException("product.price must be a non-negative number");
+    throw validationFailed("product.price must be a non-negative number", { field: "product.price", min: 0 });
   }
 
   return Math.round(price * 100);
@@ -373,7 +398,7 @@ function assertRegionIcon(value: string | undefined): CatalogRegionIcon {
   const icons: CatalogRegionIcon[] = ["palace", "skyline", "pavilion", "wall", "mountain", "bridge", "tower", "water", "statue", "pagoda"];
 
   if (!value || !icons.includes(value as CatalogRegionIcon)) {
-    throw new BadRequestException("region icon is invalid");
+    throw validationFailed("region icon is invalid", { field: "region.icon", allowed: icons });
   }
 
   return value as CatalogRegionIcon;
@@ -477,9 +502,8 @@ class CatalogRepository implements OnApplicationShutdown {
     try {
       await this.pool.query("SELECT 1");
     } catch {
-      throw new ServiceUnavailableException({
+      throw dependencyUnavailable("catalog database is unavailable", {
         service: "catalog-service",
-        status: "unavailable",
         dependencies: {
           postgres: "unavailable",
           redis: "unknown"
@@ -1188,11 +1212,11 @@ class CatalogRepository implements OnApplicationShutdown {
         );
 
         if (!categoryResult.rows[0]) {
-          throw new BadRequestException(`category ${categorySlug} does not exist`);
+          throw notFound(`category ${categorySlug} does not exist`, { categorySlug });
         }
 
         if (!regionResult.rows[0]) {
-          throw new BadRequestException(`region ${regionSlug} does not exist`);
+          throw notFound(`region ${regionSlug} does not exist`, { regionSlug });
         }
 
         const existingSkuResult = await client.query<{ product_id: string }>(
