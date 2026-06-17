@@ -106,7 +106,7 @@ export function ProductDetailShell({ product }: ProductDetailShellProps) {
 
       <section className="premium-container grid gap-8 py-6 sm:py-10 md:grid-cols-[8rem_minmax(0,1.05fr)_minmax(20rem,0.8fr)] lg:gap-10">
         <div>
-          <Link className="inline-flex items-center gap-2 text-sm font-semibold" href={"/#products" as Route}>
+          <Link className="inline-flex items-center gap-2 text-sm font-semibold" href={"/products" as Route}>
             <ArrowLeft size={16} />
             {copy.detail.back}
           </Link>

@@ -54,7 +54,7 @@ export function CartShell() {
             <p className="mt-2 text-sm text-[var(--ink-soft)]">
               {isZh ? "去商品详情页点击加入购物车，商品会保存在本地购物车里。" : "Open a product detail page and add an item to keep it here."}
             </p>
-            <Link className="premium-btn mt-5" href={"/#products" as Route}>
+            <Link className="premium-btn mt-5" href={"/products" as Route}>
               {isZh ? "去选商品" : "Shop products"}
             </Link>
           </div>

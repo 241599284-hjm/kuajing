@@ -209,7 +209,7 @@ export function LegalPageShell({ pageKey }: { pageKey: LegalPageKey }) {
         locale={locale}
         onLocaleChange={setLocale}
         onRegisterClick={() => setRegistrationOpen(true)}
-        productsHref="/#products"
+        productsHref="/products"
         supportHref="/contact-us"
       />
       <section className="premium-container py-14 md:py-20">

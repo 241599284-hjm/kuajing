@@ -188,7 +188,7 @@ export function CheckoutShell() {
           <div className="mt-8 border border-dashed border-[var(--line)] px-4 py-14 text-center">
             <h2 className="text-xl font-semibold">{isZh ? "没有可结算商品" : "No items to checkout"}</h2>
             {message ? <p className="mx-auto mt-3 max-w-md text-sm text-[var(--ink-soft)]" role="status">{message}</p> : null}
-            <Link className="premium-btn mt-5" href={"/#products" as Route}>
+            <Link className="premium-btn mt-5" href={"/products" as Route}>
               {isZh ? "去选商品" : "Shop products"}
             </Link>
           </div>

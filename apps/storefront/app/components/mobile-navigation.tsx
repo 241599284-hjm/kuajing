@@ -3,7 +3,7 @@
 import { ChevronDown, ChevronRight, ChevronUp, Menu, X } from "lucide-react";
 import { useState } from "react";
 import type { Locale, storefrontCopy } from "../lib/storefront-content.js";
-import { LanguageToggle } from "./language-toggle.js";
+import { MarketPreferenceSelector } from "./market-preference-selector.js";
 import { ProductSearchBox } from "./product-search-box.js";
 import { useStorefrontCatalog } from "./storefront-catalog-provider.js";
 
@@ -21,7 +21,7 @@ export function MobileNavigation({
   locale,
   onLocaleChange,
   copy,
-  supportHref = "#support"
+  supportHref = "/contact-us"
 }: MobileNavigationProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isRegionsExpanded, setIsRegionsExpanded] = useState(false);
@@ -74,9 +74,8 @@ export function MobileNavigation({
               locale={locale}
             />
 
-            <div className="mt-4 flex items-center justify-between rounded-md border border-[var(--line)] px-4 py-3">
-              <span className="text-sm font-semibold">{locale === "en" ? "Language" : "语言"}</span>
-              <LanguageToggle locale={locale} onLocaleChange={onLocaleChange} />
+            <div className="mt-4 border-y border-[var(--line)] py-4">
+              <MarketPreferenceSelector locale={locale} onLocaleChange={onLocaleChange} />
             </div>
 
             <button
@@ -167,16 +166,27 @@ export function MobileNavigation({
               <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--ink-soft)]">
                 {copy.mobile.serviceTitle}
               </p>
-              {copy.mobile.serviceLinks.map((link) => (
-                <a
-                  key={link}
-                  className="block border-b border-[var(--line)] py-4 text-base"
-                  href={link === "Track order" || link === "物流追踪" ? "/track-order" : link === "Contact" || link === "联系我们" ? supportHref : "#"}
-                  onClick={() => setIsOpen(false)}
-                >
-                  {link}
-                </a>
-              ))}
+              {copy.mobile.serviceLinks.map((link) => {
+                const href =
+                  link === "Track order" || link === "物流追踪"
+                    ? "/track-order"
+                    : link === "Returns" || link === "退换货"
+                      ? "/refund-return-policy"
+                      : link === "Wholesale" || link === "批发采购" || link === "Contact" || link === "联系我们"
+                        ? supportHref
+                        : "/products";
+
+                return (
+                  <a
+                    key={link}
+                    className="block border-b border-[var(--line)] py-4 text-base"
+                    href={href}
+                    onClick={() => setIsOpen(false)}
+                  >
+                    {link}
+                  </a>
+                );
+              })}
             </nav>
           </aside>
         </div>

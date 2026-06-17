@@ -78,7 +78,7 @@ export function PaymentResultShell() {
         locale={locale}
         onLocaleChange={setLocale}
         onRegisterClick={() => setRegistrationOpen(true)}
-        productsHref="/#products"
+        productsHref="/products"
         supportHref="/contact-us"
       />
       <section className="premium-container flex min-h-[calc(100vh-5rem)] items-center py-16">
@@ -90,7 +90,7 @@ export function PaymentResultShell() {
           <h1 className="premium-display mt-3 text-4xl leading-tight md:text-5xl">{result.title}</h1>
           <p className="mx-auto mt-5 max-w-lg text-sm leading-7 text-[var(--ink-soft)]">{result.body}</p>
           <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
-            <Link className="premium-btn" href={"/#products" as Route}>{resultCopy[locale].continueShopping}</Link>
+            <Link className="premium-btn" href={"/products" as Route}>{resultCopy[locale].continueShopping}</Link>
             <Link className="premium-btn-outline" href={"/account" as Route}>{resultCopy[locale].account}</Link>
           </div>
         </div>

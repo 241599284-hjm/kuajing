@@ -9,6 +9,7 @@ import {
   AdminNumberInput,
   AdminPanel,
   AdminPrimaryButton,
+  AdminSelect,
   AdminSecondaryButton,
   AdminTextInput,
   AdminTextarea,
@@ -20,14 +21,14 @@ const adminGatewayUrl = process.env.NEXT_PUBLIC_ADMIN_GATEWAY_URL ?? "http://loc
 type OpsSettings = {
   ssl: {
     domain: string;
-    issuer: "lets_encrypt";
+    issuer: "lets_encrypt" | "edgeone_free";
     forceHttps: boolean;
     expiresAt: string | null;
     autoRenew: boolean;
     lastCheckAt: string | null;
   };
   cdn: {
-    provider: "cloudflare_free";
+    provider: "cloudflare_free" | "edgeone_free";
     enabled: boolean;
     cacheHitRate: number;
     realIpHeaderEnabled: boolean;
@@ -71,14 +72,14 @@ type AuditEvent = {
 const defaultSettings: OpsSettings = {
   ssl: {
     domain: "[WEBSITE_DOMAIN]",
-    issuer: "lets_encrypt",
+    issuer: "edgeone_free",
     forceHttps: true,
     expiresAt: "",
     autoRenew: true,
     lastCheckAt: ""
   },
   cdn: {
-    provider: "cloudflare_free",
+    provider: "edgeone_free",
     enabled: false,
     cacheHitRate: 0,
     realIpHeaderEnabled: true,
@@ -202,12 +203,21 @@ export function OpsManagementPanel() {
   return (
     <AdminPanel id="ops-management" eyebrow="免费服务" title="SSL / CDN / 统计配置" status={`存储：${storageMode}`}>
       <AdminHelpText>
-        管理 Let's Encrypt、Cloudflare 免费 CDN、GA4/GSC 免费统计的配置入口。当前版本记录配置和操作审计，不伪装真实云端执行。
+        管理 EdgeOne 免费 SSL 证书、Let's Encrypt、Cloudflare/EdgeOne 免费 CDN、GA4/GSC 免费统计的配置入口。当前版本记录配置和操作审计，不伪装真实云端执行。
       </AdminHelpText>
 
       <form className="mt-6 grid gap-5" onSubmit={save}>
-        <AdminListCard eyebrow="SSL" title="HTTPS 证书" description="仅允许 Let's Encrypt 官方可信证书。">
+        <AdminListCard eyebrow="SSL" title="HTTPS 证书" description="可选择 EdgeOne 免费证书或 Let's Encrypt；EdgeOne 证书由边缘侧自动申请、部署和续期。">
           <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <AdminField label="证书来源">
+              <AdminSelect
+                value={settings.ssl.issuer}
+                onChange={(event) => setSettings({ ...settings, ssl: { ...settings.ssl, issuer: event.target.value as OpsSettings["ssl"]["issuer"] } })}
+              >
+                <option value="edgeone_free">EdgeOne 免费证书</option>
+                <option value="lets_encrypt">Let's Encrypt</option>
+              </AdminSelect>
+            </AdminField>
             <AdminField label="证书域名">
               <AdminTextInput value={settings.ssl.domain} onChange={(event) => setSettings({ ...settings, ssl: { ...settings.ssl, domain: event.target.value } })} />
             </AdminField>
@@ -218,14 +228,24 @@ export function OpsManagementPanel() {
             <AdminCheckbox label="自动续期" checked={settings.ssl.autoRenew} onChange={(event) => setSettings({ ...settings, ssl: { ...settings.ssl, autoRenew: event.target.checked } })} />
           </div>
           <div className="mt-4 flex flex-wrap gap-3">
+            <AdminSecondaryButton type="button" onClick={() => runAction("edgeone-free-cert-apply")}>记录 EdgeOne 免费证书申请</AdminSecondaryButton>
             <AdminSecondaryButton type="button" onClick={() => runAction("ssl-renew")}>手动续签</AdminSecondaryButton>
             <AdminSecondaryButton type="button" onClick={() => runAction("http-scan")}>检测 HTTP 资源</AdminSecondaryButton>
           </div>
         </AdminListCard>
 
-        <AdminListCard eyebrow="CDN" title="Cloudflare 免费 CDN" description="动态接口不缓存规则必须保留。">
+        <AdminListCard eyebrow="CDN" title="免费 CDN / 边缘防护" description="动态接口不缓存规则必须保留；可选择 Cloudflare 免费版或 EdgeOne 免费版。">
           <div className="mt-4 grid gap-4 md:grid-cols-2">
-            <AdminCheckbox label="启用 Cloudflare 免费 CDN" checked={settings.cdn.enabled} onChange={(event) => setSettings({ ...settings, cdn: { ...settings.cdn, enabled: event.target.checked } })} />
+            <AdminField label="CDN Provider">
+              <AdminSelect
+                value={settings.cdn.provider}
+                onChange={(event) => setSettings({ ...settings, cdn: { ...settings.cdn, provider: event.target.value as OpsSettings["cdn"]["provider"] } })}
+              >
+                <option value="edgeone_free">EdgeOne 免费版</option>
+                <option value="cloudflare_free">Cloudflare 免费版</option>
+              </AdminSelect>
+            </AdminField>
+            <AdminCheckbox label="启用免费 CDN / 边缘防护" checked={settings.cdn.enabled} onChange={(event) => setSettings({ ...settings, cdn: { ...settings.cdn, enabled: event.target.checked } })} />
             <AdminCheckbox label="启用真实 IP 回传" checked={settings.cdn.realIpHeaderEnabled} onChange={(event) => setSettings({ ...settings, cdn: { ...settings.cdn, realIpHeaderEnabled: event.target.checked } })} />
             <AdminCheckbox label="启用基础攻击防护" checked={settings.cdn.attackProtectionEnabled} onChange={(event) => setSettings({ ...settings, cdn: { ...settings.cdn, attackProtectionEnabled: event.target.checked } })} />
             <AdminField label="当前缓存命中率">

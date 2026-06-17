@@ -22,11 +22,11 @@ export function MarketPreferenceSelector({ locale, onLocaleChange }: MarketPrefe
   }, [countryIso2, currentMarket.currency, locale]);
 
   return (
-    <div className="grid gap-4 border border-[var(--line)] bg-white p-4">
+    <div className="grid gap-4 bg-white">
       <label className="grid gap-2 text-sm font-medium">
         {locale === "zh" ? "运送到" : "Ship to"}
         <select
-          className="h-11 border border-[var(--line)] bg-white px-3"
+          className="h-11 border-b border-black/25 bg-white px-0 outline-none"
           onChange={(event) => setCountryIso2(event.target.value)}
           value={countryIso2}
         >
@@ -40,7 +40,7 @@ export function MarketPreferenceSelector({ locale, onLocaleChange }: MarketPrefe
       <label className="grid gap-2 text-sm font-medium">
         {locale === "zh" ? "语言" : "Language"}
         <select
-          className="h-11 border border-[var(--line)] bg-white px-3"
+          className="h-11 border-b border-black/25 bg-white px-0 outline-none"
           onChange={(event) => onLocaleChange(event.target.value === "zh" ? "zh" : "en")}
           value={locale}
         >

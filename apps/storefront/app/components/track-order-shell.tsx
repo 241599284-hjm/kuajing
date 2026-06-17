@@ -124,8 +124,8 @@ function TrackOrderContent() {
         locale={locale}
         onLocaleChange={setLocale}
         onRegisterClick={() => setIsRegistrationOpen(true)}
-        productsHref="/#products"
-        supportHref="/#support"
+        productsHref="/products"
+        supportHref="/contact-us"
       />
       <RegistrationDialog
         copy={copy.registration}

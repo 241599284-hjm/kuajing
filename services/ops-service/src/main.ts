@@ -12,14 +12,14 @@ type StorageMode = "postgres" | "memory";
 type OpsSettings = {
   ssl: {
     domain: string;
-    issuer: "lets_encrypt";
+    issuer: "lets_encrypt" | "edgeone_free";
     forceHttps: boolean;
     expiresAt: string | null;
     autoRenew: boolean;
     lastCheckAt: string | null;
   };
   cdn: {
-    provider: "cloudflare_free";
+    provider: "cloudflare_free" | "edgeone_free";
     enabled: boolean;
     cacheHitRate: number;
     realIpHeaderEnabled: boolean;
@@ -70,14 +70,14 @@ function defaultSettings(): OpsSettings {
   return {
     ssl: {
       domain: "[WEBSITE_DOMAIN]",
-      issuer: "lets_encrypt",
+      issuer: "edgeone_free",
       forceHttps: true,
       expiresAt: null,
       autoRenew: true,
       lastCheckAt: null
     },
     cdn: {
-      provider: "cloudflare_free",
+      provider: "edgeone_free",
       enabled: false,
       cacheHitRate: 0,
       realIpHeaderEnabled: true,
@@ -140,6 +140,14 @@ function cleanBoolean(value: unknown, fallback: boolean) {
   return typeof value === "boolean" ? value : fallback;
 }
 
+function cleanSslIssuer(value: unknown, fallback: OpsSettings["ssl"]["issuer"]) {
+  return value === "edgeone_free" || value === "lets_encrypt" ? value : fallback;
+}
+
+function cleanCdnProvider(value: unknown, fallback: OpsSettings["cdn"]["provider"]) {
+  return value === "edgeone_free" || value === "cloudflare_free" ? value : fallback;
+}
+
 function cleanNoCachePaths(value: unknown) {
   if (!Array.isArray(value)) return defaultSettings().cdn.noCachePaths;
   return value.map((item) => String(item).trim()).filter(Boolean).slice(0, 100);
@@ -198,14 +206,14 @@ function normalizeSettings(input: unknown): OpsSettings {
   return {
     ssl: {
       domain: cleanString(ssl.domain, current.ssl.domain),
-      issuer: "lets_encrypt",
+      issuer: cleanSslIssuer(ssl.issuer, current.ssl.issuer),
       forceHttps: cleanBoolean(ssl.forceHttps, current.ssl.forceHttps),
       expiresAt: cleanString(ssl.expiresAt, "") || null,
       autoRenew: cleanBoolean(ssl.autoRenew, current.ssl.autoRenew),
       lastCheckAt: cleanString(ssl.lastCheckAt, "") || null
     },
     cdn: {
-      provider: "cloudflare_free",
+      provider: cleanCdnProvider(cdn.provider, current.cdn.provider),
       enabled: cleanBoolean(cdn.enabled, current.cdn.enabled),
       cacheHitRate: Math.max(0, Math.min(100, Number(cdn.cacheHitRate ?? current.cdn.cacheHitRate))),
       realIpHeaderEnabled: cleanBoolean(cdn.realIpHeaderEnabled, current.cdn.realIpHeaderEnabled),
@@ -426,7 +434,7 @@ class OpsController {
   @Post("/actions/:action")
   async action(@Headers() headers: HeaderBag, @Param("action") action: string, @Body() body: unknown) {
     const context = createContext(headers);
-    const allowedActions = new Set(["ssl-renew", "http-scan", "cdn-purge-all", "cdn-purge-path", "analytics-test", "credential-expiry-scan"]);
+    const allowedActions = new Set(["ssl-renew", "edgeone-free-cert-apply", "http-scan", "cdn-purge-all", "cdn-purge-path", "analytics-test", "credential-expiry-scan"]);
     const normalizedAction = action.trim().toLowerCase();
     let summary = allowedActions.has(normalizedAction)
       ? `已记录 ${normalizedAction} 运维动作，真实云 API 执行器待接入。`

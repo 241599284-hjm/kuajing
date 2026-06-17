@@ -84,6 +84,13 @@ NEXT_PUBLIC_AUTH_SERVICE_URL=http://170.106.136.169:4102
 
 这些 `NEXT_PUBLIC_*` 会被 Next.js 写入浏览器端 JS。生产接入域名和 HTTPS 后，必须改成正式 `https://...` 域名。
 
+生产 HTTPS / CDN Provider：
+
+- 推荐优先使用 EdgeOne 免费 SSL 证书 + EdgeOne 免费 CDN/边缘防护，适合已经在腾讯云注册域名、DNS 和轻量云服务器的客户；EdgeOne 免费证书由 EdgeOne 控制台完成申请、验证、部署和自动续期。
+- 也可继续使用 Cloudflare 免费 CDN + Let's Encrypt；每个客户只能选择一套主 CDN/SSL Provider，避免双重强制 HTTPS、缓存规则互相覆盖。
+- 后台“运维配置”只记录 Provider、域名、证书状态、动态接口不缓存规则和操作审计；当前不会假装调用 EdgeOne/Cloudflare/Let's Encrypt 云 API 成功。
+- 支付、登录、评论、物流、后台、结账、邮件回调等动态路径必须保持不缓存：`/api/*`、`/admin/*`、`/checkout`、`/payment-result`、`/track-order`、`/products/*/reviews`。
+
 查看服务器已有版本：
 
 ```powershell

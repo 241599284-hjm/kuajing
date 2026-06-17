@@ -8,6 +8,7 @@ import { useCart } from "../lib/cart.js";
 import { useCustomerSession } from "../lib/customer-session.js";
 import { LanguageToggle } from "./language-toggle.js";
 import { HLArtisanLogo } from "./hl-artisan-logo.js";
+import { MarketPreferenceSelector } from "./market-preference-selector.js";
 import { MobileNavigation } from "./mobile-navigation.js";
 import { ProductSearchBox } from "./product-search-box.js";
 
@@ -45,8 +46,8 @@ export function PremiumStorefrontHeader({
   copy,
   onRegisterClick,
   overlay = false,
-  productsHref = "/#products",
-  supportHref = "/#support"
+  productsHref = "/products",
+  supportHref = "/contact-us"
 }: PremiumStorefrontHeaderProps) {
   const customer = useCustomerSession();
   const navItems = [
@@ -111,7 +112,14 @@ export function PremiumStorefrontHeader({
             onLocaleChange={onLocaleChange}
             variant="compact"
           />
-          <span className="hidden text-xs font-semibold text-[var(--ink-soft)] md:inline-flex">USD</span>
+          <details className="group relative hidden md:block">
+            <summary className="premium-focus flex h-10 cursor-pointer list-none items-center px-1 text-xs font-semibold text-[var(--ink-soft)]">
+              {locale === "zh" ? "地区 / 货币" : "Market / USD"}
+            </summary>
+            <div className="absolute right-0 top-[calc(100%+0.75rem)] z-40 w-72 border border-[var(--line)] bg-white p-3 shadow-2xl">
+              <MarketPreferenceSelector locale={locale} onLocaleChange={onLocaleChange} />
+            </div>
+          </details>
           <Link aria-label={copy.account} className="premium-focus flex size-10 items-center justify-center text-black md:size-11" href={"/account" as Route}>
             <User size={19} strokeWidth={1.8} />
             {customer ? <span className="sr-only">{customer.username}</span> : null}

@@ -86,7 +86,7 @@ function ProductRail({
           <h2 className="premium-display mt-2 max-w-2xl text-4xl leading-tight sm:text-5xl">{title}</h2>
           {id === "products" ? <p className="mt-3 text-sm text-[var(--ink-soft)]">{copy.featuredDescription}</p> : null}
         </div>
-        <Link className="hidden text-xs font-bold uppercase tracking-[0.12em] text-[var(--ink-soft)] transition hover:text-[var(--accent)] md:inline-flex" href={"/#products" as Route}>
+        <Link className="hidden text-xs font-bold uppercase tracking-[0.12em] text-[var(--ink-soft)] transition hover:text-[var(--accent)] md:inline-flex" href={"/products" as Route}>
           {isZh ? "查看全部" : "View all products"} →
         </Link>
       </div>
@@ -246,7 +246,7 @@ function TrustAndCraft({ locale }: { locale: Locale }) {
                 ? "我们直接围绕景德镇陶瓷、茶席礼品和家居陈列组织商品内容。每只壶、杯、瓶都要同时讲清楚工艺、材质、包装和跨境履约，让海外买家敢买、愿意送礼。"
                 : "We source authentic porcelain directly from Jingdezhen, the hometown of Chinese ceramics. Each teapot, cup and vase carries traditional oriental aesthetics, designed for tea lovers and home decor enthusiasts around the world."}
             </p>
-            <Link className="mt-7 inline-flex text-xs font-bold uppercase tracking-[0.12em] transition hover:text-[var(--accent)]" href={"/#products" as Route}>
+            <Link className="mt-7 inline-flex text-xs font-bold uppercase tracking-[0.12em] transition hover:text-[var(--accent)]" href={"/products" as Route}>
               {isZh ? "查看商品" : "About our products"} →
             </Link>
           </div>
@@ -310,7 +310,7 @@ function PromoSection({ locale }: { locale: Locale }) {
           </h2>
           <p className="mt-2 text-sm text-white/70">{isZh ? "选购更多高端茶具即可解锁免费配送" : "Shop more premium teaware to unlock free delivery"}</p>
         </div>
-        <Link className="flex min-h-16 items-center justify-center bg-[var(--ink)] px-8 text-xs font-bold uppercase tracking-[0.12em] text-white transition hover:bg-[var(--accent)]" href={"/#products" as Route}>
+        <Link className="flex min-h-16 items-center justify-center bg-[var(--ink)] px-8 text-xs font-bold uppercase tracking-[0.12em] text-white transition hover:bg-[var(--accent)]" href={"/products" as Route}>
           {isZh ? "继续选购" : "Shop More"}
         </Link>
       </div>

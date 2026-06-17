@@ -10,7 +10,7 @@ const footerColumns = {
     {
       title: "Shop",
       links: [
-        { label: "All Products", href: "/#products" },
+        { label: "All Products", href: "/products" },
         { label: "Tea Sets", href: "/categories/gift" },
         { label: "Single Cups", href: "/categories/teacup" },
         { label: "Decor Vases", href: "/categories/accessories" },
@@ -52,7 +52,7 @@ const footerColumns = {
     {
       title: "商城",
       links: [
-        { label: "全部商品", href: "/#products" },
+        { label: "全部商品", href: "/products" },
         { label: "整套茶具", href: "/categories/gift" },
         { label: "单杯单品", href: "/categories/teacup" },
         { label: "陶瓷花瓶", href: "/categories/accessories" },

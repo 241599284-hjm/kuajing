@@ -327,6 +327,7 @@ Black four-column Footer
 - Hero 禁止多图自动轮播，只用单张静态大图，降低加载压力。
 - 商品、分类、地域、SEO、公告、促销、评价、Footer 链接最终都必须从 catalog/content/settings 配置读取；当前静态文案只允许作为开发期默认种子。
 - 首页不再默认插入地域长列表；地域分类保留在导航、菜单和独立 `/regions` 页面，避免手机端首页过长。
+- “Shop All / 全部商品 / 继续购物”必须优先指向 `/products` 全商品页；首页 `#products` 只作为热销爆款区锚点，不再承担完整商品集合页职责。
 - 移动端优先：产品 rail 横向滑动，分类/信任/评价单列，主要按钮高度不低于 44px。
 - PC 端可展开为四列商品、二列分类、三列信任、四列 Footer。
 - PayPal 审核页必须在 Footer 可访问：Privacy Policy、Terms of Service、Return Policy、Contact Us。
