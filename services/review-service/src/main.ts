@@ -1,6 +1,7 @@
 import "reflect-metadata";
-import { BadRequestException, Body, Controller, Get, Headers, HttpException, Injectable, Module, Param, Post, Put, Query } from "@nestjs/common";
+import { BadRequestException, Body, ConflictException, Controller, Get, Headers, HttpException, Injectable, Module, Param, Post, Put, Query, ServiceUnavailableException } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import { ERROR_CODES } from "@commerce/error-codes";
 import { assertStoreContext } from "@commerce/store-context";
 import { createHash, randomUUID } from "node:crypto";
 import pg from "pg";
@@ -42,6 +43,38 @@ const orderServiceUrl = process.env.ORDER_SERVICE_URL ?? "http://localhost:4105"
 const pool = databaseUrl ? new Pool({ connectionString: databaseUrl }) : null;
 const memoryReviews = new Map<string, ProductReview>();
 
+function validationFailed(message: string, details?: unknown): BadRequestException {
+  return new BadRequestException({
+    code: ERROR_CODES.VALIDATION_FAILED,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function notFound(message: string, details?: unknown): BadRequestException {
+  return new BadRequestException({
+    code: ERROR_CODES.NOT_FOUND,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function conflict(message: string, details?: unknown): ConflictException {
+  return new ConflictException({
+    code: ERROR_CODES.CONFLICT,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function dependencyUnavailable(message: string, details?: unknown): ServiceUnavailableException {
+  return new ServiceUnavailableException({
+    code: ERROR_CODES.DEPENDENCY_UNAVAILABLE,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
 function headerValue(headers: HeaderBag, name: string): string | undefined {
   const value = headers[name] ?? headers[name.toLowerCase()];
   if (Array.isArray(value)) return value[0];
@@ -58,16 +91,16 @@ function createContext(headers: HeaderBag) {
 }
 
 function sanitizeText(value: unknown, field: string, min = 1, max = 2000) {
-  if (typeof value !== "string") throw new BadRequestException(`${field} is required`);
+  if (typeof value !== "string") throw validationFailed(`${field} is required`, { field });
   const text = value.trim();
-  if (text.length < min || text.length > max) throw new BadRequestException(`${field} length is invalid`);
+  if (text.length < min || text.length > max) throw validationFailed(`${field} length is invalid`, { field, minLength: min, maxLength: max });
   return text;
 }
 
 function normalizeRating(value: unknown) {
   const rating = Number(value);
   if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
-    throw new BadRequestException("rating must be an integer from 1 to 5");
+    throw validationFailed("rating must be an integer from 1 to 5", { field: "rating", min: 1, max: 5 });
   }
   return rating;
 }
@@ -80,7 +113,7 @@ function normalizeImages(value: unknown) {
 function normalizeEmail(value: unknown) {
   const email = sanitizeText(value, "customerEmail", 5, 180).toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    throw new BadRequestException("valid customerEmail is required");
+    throw validationFailed("valid customerEmail is required", { field: "customerEmail" });
   }
   return email;
 }
@@ -193,7 +226,7 @@ class ReviewRepository {
 
     if (!pool) {
       const duplicate = [...memoryReviews.values()].find((item) => item.productSlug === review.productSlug && item.orderId === review.orderId && item.customerEmail === review.customerEmail);
-      if (duplicate) throw new BadRequestException("review already exists for this order and product");
+      if (duplicate) throw conflict("review already exists for this order and product", { productSlug: review.productSlug, orderId: review.orderId });
       memoryReviews.set(review.id, review);
       return { review, storageMode: "memory" as StorageMode };
     }
@@ -212,7 +245,7 @@ class ReviewRepository {
       return { review: toReview(result.rows[0]), storageMode: "postgres" as StorageMode };
     } catch (error) {
       if (error instanceof Error && error.message.includes("duplicate")) {
-        throw new BadRequestException("review already exists for this order and product");
+        throw conflict("review already exists for this order and product", { productSlug: review.productSlug, orderId: review.orderId });
       }
       throw error;
     }
@@ -224,12 +257,12 @@ class ReviewRepository {
     const pinned = typeof body.pinned === "boolean" ? body.pinned : false;
 
     if (status && !["pending", "approved", "hidden", "deleted"].includes(status)) {
-      throw new BadRequestException("review status is invalid");
+      throw validationFailed("review status is invalid", { field: "status", allowed: ["pending", "approved", "hidden", "deleted"] });
     }
 
     if (!pool) {
       const current = memoryReviews.get(id);
-      if (!current) throw new BadRequestException("review not found");
+      if (!current) throw notFound("review not found", { reviewId: id });
       const next = { ...current, status: status ?? current.status, merchantReply, pinned, updatedAt: new Date().toISOString() };
       memoryReviews.set(id, next);
       return { review: next, storageMode: "memory" as StorageMode };
@@ -248,7 +281,7 @@ class ReviewRepository {
       [id, status ?? null, merchantReply, pinned]
     );
 
-    if (!result.rows[0]) throw new BadRequestException("review not found");
+    if (!result.rows[0]) throw notFound("review not found", { reviewId: id });
     return { review: toReview(result.rows[0]), storageMode: "postgres" as StorageMode };
   }
 }
@@ -275,19 +308,19 @@ class OrderPurchaseVerifier {
 
       detail = (await response.json()) as OrderDetailForReview;
     } catch {
-      throw new BadRequestException("order verification is unavailable; review was not accepted");
+      throw dependencyUnavailable("order verification is unavailable; review was not accepted", { orderId, productSlug });
     }
 
     if (detail.customerEmail.toLowerCase() !== customerEmail) {
-      throw new BadRequestException("review email does not match the order");
+      throw validationFailed("review email does not match the order", { field: "customerEmail", orderId });
     }
 
     if (detail.paymentStatus !== "paid") {
-      throw new BadRequestException("only paid orders can be reviewed");
+      throw validationFailed("only paid orders can be reviewed", { orderId, paymentStatus: detail.paymentStatus });
     }
 
     if (!Array.isArray(detail.lines) || !detail.lines.some((line) => line.productSlug === productSlug)) {
-      throw new BadRequestException("this order does not contain the reviewed product");
+      throw validationFailed("this order does not contain the reviewed product", { orderId, productSlug });
     }
   }
 }
