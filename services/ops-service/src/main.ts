@@ -2,7 +2,9 @@ import "reflect-metadata";
 import { Body, Controller, Get, Headers, Injectable, Module, Param, Post, Put } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { assertStoreContext } from "@commerce/store-context";
+import { resolve4, resolve6, resolveCname } from "node:dns/promises";
 import { randomUUID } from "node:crypto";
+import tls from "node:tls";
 import pg from "pg";
 
 const { Pool } = pg;
@@ -250,6 +252,150 @@ function expiringCompanyCredentials(settings: OpsSettings) {
   });
 }
 
+function configuredDomain(settings: OpsSettings) {
+  const raw = settings.ssl.domain.trim();
+  if (!raw || raw === "[WEBSITE_DOMAIN]") return "";
+  return raw.replace(/^https?:\/\//i, "").split("/")[0]?.split(":")[0]?.trim() ?? "";
+}
+
+async function resolveDomainRecords(domain: string) {
+  const [cname, ipv4, ipv6] = await Promise.allSettled([
+    resolveCname(domain),
+    resolve4(domain),
+    resolve6(domain)
+  ]);
+
+  return {
+    cname: cname.status === "fulfilled" ? cname.value : [],
+    ipv4: ipv4.status === "fulfilled" ? ipv4.value : [],
+    ipv6: ipv6.status === "fulfilled" ? ipv6.value : []
+  };
+}
+
+function readCertificate(domain: string) {
+  return new Promise<{
+    authorized: boolean;
+    authorizationError: string | null;
+    subject: unknown;
+    issuer: unknown;
+    validFrom: string | null;
+    validTo: string | null;
+    daysRemaining: number | null;
+  }>((resolve) => {
+    const socket = tls.connect({
+      host: domain,
+      port: 443,
+      servername: domain,
+      rejectUnauthorized: false,
+      timeout: 8000
+    });
+
+    socket.once("secureConnect", () => {
+      const cert = socket.getPeerCertificate();
+      const validToTime = cert.valid_to ? new Date(cert.valid_to).getTime() : Number.NaN;
+      socket.end();
+      resolve({
+        authorized: socket.authorized,
+        authorizationError: socket.authorizationError ? String(socket.authorizationError) : null,
+        subject: cert.subject ?? null,
+        issuer: cert.issuer ?? null,
+        validFrom: cert.valid_from ?? null,
+        validTo: cert.valid_to ?? null,
+        daysRemaining: Number.isFinite(validToTime) ? Math.ceil((validToTime - Date.now()) / 86400000) : null
+      });
+    });
+
+    socket.once("timeout", () => {
+      socket.destroy();
+      resolve({
+        authorized: false,
+        authorizationError: "TLS connection timed out",
+        subject: null,
+        issuer: null,
+        validFrom: null,
+        validTo: null,
+        daysRemaining: null
+      });
+    });
+
+    socket.once("error", (error) => {
+      resolve({
+        authorized: false,
+        authorizationError: error.message,
+        subject: null,
+        issuer: null,
+        validFrom: null,
+        validTo: null,
+        daysRemaining: null
+      });
+    });
+  });
+}
+
+async function fetchHomepage(domain: string) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+
+  try {
+    const response = await fetch(`https://${domain}`, {
+      redirect: "follow",
+      signal: controller.signal
+    });
+    const contentType = response.headers.get("content-type") ?? "";
+    const text = contentType.includes("text/html") ? await response.text() : "";
+    const mixedContentRefs = Array.from(new Set(text.match(/http:\/\/[^"'\s<>)]*/gi) ?? []))
+      .filter((url) => !url.toLowerCase().startsWith("http://www.w3.org/"))
+      .slice(0, 20);
+    return {
+      status: response.status,
+      finalUrl: response.url,
+      mixedContentRefs
+    };
+  } catch (error) {
+    return {
+      status: 0,
+      finalUrl: `https://${domain}`,
+      error: error instanceof Error ? error.message : "unknown fetch error",
+      mixedContentRefs: []
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function runEdgeOneCertificateCheck(settings: OpsSettings) {
+  const domain = configuredDomain(settings);
+  if (!domain) {
+    return {
+      domain,
+      ok: false,
+      summary: "请先填写真实证书域名。",
+      dns: { cname: [], ipv4: [], ipv6: [] },
+      https: null,
+      certificate: null
+    };
+  }
+
+  const [dns, certificate, https] = await Promise.all([
+    resolveDomainRecords(domain),
+    readCertificate(domain),
+    fetchHomepage(domain)
+  ]);
+  const hasAddress = dns.cname.length > 0 || dns.ipv4.length > 0 || dns.ipv6.length > 0;
+  const ok = hasAddress && https.status >= 200 && https.status < 400 && certificate.daysRemaining !== null && certificate.daysRemaining > 15 && https.mixedContentRefs.length === 0;
+
+  return {
+    domain,
+    ok,
+    summary: ok
+      ? "HTTPS、证书有效期和混合内容检测通过。"
+      : "HTTPS 检测存在待处理项，请查看 DNS、证书有效期或 HTTP 混合资源。",
+    dns,
+    https,
+    certificate
+  };
+}
+
 async function sendCompanyCredentialReminder(context: ReturnType<typeof createContext>, settings: OpsSettings, documents: CompanyCredentialDocument[]) {
   if (!settings.companyCredentials.alertEmail || documents.length === 0) {
     return { attempted: false, status: "skipped", reason: "missing alert email or no expiring credentials" };
@@ -319,6 +465,26 @@ class OpsRepository {
     } catch {
       memorySettings = settings;
       memoryAuditEvents.unshift(event);
+      return "memory";
+    }
+  }
+
+  async upsertSettings(settings: OpsSettings): Promise<StorageMode> {
+    if (!pool) {
+      memorySettings = settings;
+      return "memory";
+    }
+
+    try {
+      await pool.query(
+        `insert into ops_settings (id, settings, updated_at)
+         values ('default', $1, now())
+         on conflict (id) do update set settings = excluded.settings, updated_at = now()`,
+        [settings]
+      );
+      return "postgres";
+    } catch {
+      memorySettings = settings;
       return "memory";
     }
   }
@@ -434,7 +600,7 @@ class OpsController {
   @Post("/actions/:action")
   async action(@Headers() headers: HeaderBag, @Param("action") action: string, @Body() body: unknown) {
     const context = createContext(headers);
-    const allowedActions = new Set(["ssl-renew", "edgeone-free-cert-apply", "http-scan", "cdn-purge-all", "cdn-purge-path", "analytics-test", "credential-expiry-scan"]);
+    const allowedActions = new Set(["ssl-renew", "edgeone-free-cert-apply", "edgeone-free-cert-check", "http-scan", "cdn-purge-all", "cdn-purge-path", "analytics-test", "credential-expiry-scan"]);
     const normalizedAction = action.trim().toLowerCase();
     let summary = allowedActions.has(normalizedAction)
       ? `已记录 ${normalizedAction} 运维动作，真实云 API 执行器待接入。`
@@ -454,6 +620,23 @@ class OpsController {
         ? `发现 ${expiring.length} 项企业资质将在 ${settings.companyCredentials.reminderDays} 天内到期。`
         : "未发现即将到期的企业资质。";
       details = { requested: body, expiring, reminder };
+    }
+
+    if (normalizedAction === "edgeone-free-cert-check" || normalizedAction === "http-scan") {
+      const { settings } = await this.repository.settings();
+      const checkedAt = new Date().toISOString();
+      const result = await runEdgeOneCertificateCheck(settings);
+      const nextSettings = {
+        ...settings,
+        ssl: {
+          ...settings.ssl,
+          lastCheckAt: checkedAt,
+          expiresAt: result.certificate?.validTo ? new Date(result.certificate.validTo).toISOString() : settings.ssl.expiresAt
+        }
+      };
+      await this.repository.upsertSettings(nextSettings);
+      summary = `EdgeOne 免费 SSL 检测：${result.summary}`;
+      details = { requested: body, checkedAt, result };
     }
 
     const event = auditEvent(

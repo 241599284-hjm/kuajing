@@ -229,6 +229,7 @@ export function OpsManagementPanel() {
           </div>
           <div className="mt-4 flex flex-wrap gap-3">
             <AdminSecondaryButton type="button" onClick={() => runAction("edgeone-free-cert-apply")}>记录 EdgeOne 免费证书申请</AdminSecondaryButton>
+            <AdminSecondaryButton type="button" onClick={() => runAction("edgeone-free-cert-check")}>检测 EdgeOne HTTPS</AdminSecondaryButton>
             <AdminSecondaryButton type="button" onClick={() => runAction("ssl-renew")}>手动续签</AdminSecondaryButton>
             <AdminSecondaryButton type="button" onClick={() => runAction("http-scan")}>检测 HTTP 资源</AdminSecondaryButton>
           </div>

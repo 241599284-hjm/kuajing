@@ -87,9 +87,48 @@ NEXT_PUBLIC_AUTH_SERVICE_URL=http://170.106.136.169:4102
 生产 HTTPS / CDN Provider：
 
 - 推荐优先使用 EdgeOne 免费 SSL 证书 + EdgeOne 免费 CDN/边缘防护，适合已经在腾讯云注册域名、DNS 和轻量云服务器的客户；EdgeOne 免费证书由 EdgeOne 控制台完成申请、验证、部署和自动续期。
+- EdgeOne 免费证书不下载到本服务器，证书部署在 EdgeOne 边缘节点。服务器仍只需要开放 80/443 给 EdgeOne 回源；浏览器看到的是 EdgeOne 边缘 HTTPS。
+- EdgeOne 免费证书通常由 TrustAsia 或 Let's Encrypt 颁发，有效期 90 天，到期前平台自动续期。后台运维页必须记录域名、到期时间、最近检测时间和操作审计，但不把“点击记录申请”当成真实申请成功。
 - 也可继续使用 Cloudflare 免费 CDN + Let's Encrypt；每个客户只能选择一套主 CDN/SSL Provider，避免双重强制 HTTPS、缓存规则互相覆盖。
-- 后台“运维配置”只记录 Provider、域名、证书状态、动态接口不缓存规则和操作审计；当前不会假装调用 EdgeOne/Cloudflare/Let's Encrypt 云 API 成功。
+- 后台“运维配置”记录 Provider、域名、证书状态、动态接口不缓存规则和操作审计；当前不会假装调用 EdgeOne/Cloudflare/Let's Encrypt 云 API 成功。后台“检测 EdgeOne HTTPS”会真实检查 DNS、HTTPS 首页、证书到期时间和 HTTP 混合资源。
 - 支付、登录、评论、物流、后台、结账、邮件回调等动态路径必须保持不缓存：`/api/*`、`/admin/*`、`/checkout`、`/payment-result`、`/track-order`、`/products/*/reviews`。
+
+EdgeOne 免费 SSL 接入步骤：
+
+1. 在 EdgeOne 控制台添加站点和加速域名。
+2. 在域名 HTTPS 配置里选择“申请免费证书”，按控制台要求完成自动验证、DNS 委派验证或文件验证。
+3. 按 EdgeOne 控制台给出的目标配置 CNAME 记录。不要在同一个主机记录上同时保留冲突的 A 记录和 CNAME。
+4. 等待 CNAME 生效和证书状态变为已配置。
+5. 在本项目后台“运维配置”里选择 `EdgeOne 免费证书`，填写正式域名并保存。
+6. 点击“检测 EdgeOne HTTPS”，确认 DNS、HTTPS、证书有效期和混合内容检测通过。
+7. 把 shared `.env` 里的公网地址改为正式 HTTPS 域名后重新部署：
+
+```bash
+STOREFRONT_PUBLIC_URL=https://hlandteaware.com
+NEXT_PUBLIC_API_GATEWAY_URL=https://hlandteaware.com/api
+NEXT_PUBLIC_ADMIN_GATEWAY_URL=https://admin.hlandteaware.com
+NEXT_PUBLIC_AUTH_SERVICE_URL=https://hlandteaware.com/auth
+```
+
+本地复查命令：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/check-edgeone-free-ssl.ps1 -Domain hlandteaware.com
+```
+
+成功标准：
+
+- DNS 至少有 CNAME、A 或 AAAA 记录之一。
+- `https://<domain>` 返回 2xx 或 3xx。
+- 证书剩余天数大于 15 天。
+- 首页 HTML 不包含 `http://` 混合内容引用。
+
+失败处理：
+
+- DNS 为空：检查域名是否已解析到 EdgeOne 给出的 CNAME。
+- HTTPS 不通：检查 EdgeOne 证书状态是否已配置、源站防火墙是否放通回源。
+- 证书剩余天数小于等于 15：检查 EdgeOne 自动续期状态；必要时在控制台重新申请免费证书。
+- 混合内容：把图片、脚本、接口、统计代码统一改为 HTTPS 或相对路径。
 
 查看服务器已有版本：
 
