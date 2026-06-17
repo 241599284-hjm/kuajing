@@ -63,7 +63,7 @@ export function StorefrontHero({ locale, onLocaleChange, copy }: StorefrontHeroP
         </div>
       </div>
 
-      <RegistrationDialog copy={copy.registration} isOpen={isRegistrationOpen} onClose={() => setIsRegistrationOpen(false)} />
+      <RegistrationDialog copy={copy.registration} isOpen={isRegistrationOpen} locale={locale} onClose={() => setIsRegistrationOpen(false)} />
     </section>
   );
 }

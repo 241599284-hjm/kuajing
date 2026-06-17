@@ -1,5 +1,6 @@
 "use client";
 
+import { localizedErrorMessage } from "@commerce/error-codes";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import {
   AdminActionRow,
@@ -175,7 +176,7 @@ export function ProductManagementPanel() {
         const payload = (await response.json().catch(() => ({}))) as AdminProductList;
 
         if (!response.ok || !Array.isArray(payload.items)) {
-          throw new Error(`HTTP ${response.status}`);
+          throw new Error(localizedErrorMessage(payload, response.status, "zh"));
         }
 
         if (isMounted && !hasSubmittedRef.current && payload.items.length > 0) {
@@ -216,7 +217,8 @@ export function ProductManagementPanel() {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(localizedErrorMessage(payload, response.status, "zh"));
       }
 
       setStatus("已保存");
@@ -264,7 +266,7 @@ export function ProductManagementPanel() {
       const payload = (await response.json().catch(() => ({}))) as MediaUploadResult | { message?: string };
 
       if (!response.ok || !("url" in payload)) {
-        throw new Error("message" in payload ? payload.message ?? `HTTP ${response.status}` : `HTTP ${response.status}`);
+        throw new Error(localizedErrorMessage(payload, response.status, "zh"));
       }
 
       const originalSize = Math.round(file.size / 1024);

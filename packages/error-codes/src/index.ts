@@ -23,6 +23,8 @@ export type StandardErrorPayload = {
   correlationId?: string;
 };
 
+export type ErrorLocale = "en" | "zh";
+
 const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   VALIDATION_FAILED: "The submitted data is invalid.",
   NOT_FOUND: "The requested resource was not found.",
@@ -39,8 +41,35 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   INTERNAL_ERROR: "The service encountered an unexpected error."
 };
 
+const LOCALIZED_MESSAGES: Record<ErrorLocale, Record<ErrorCode, string>> = {
+  en: DEFAULT_MESSAGES,
+  zh: {
+    VALIDATION_FAILED: "提交的数据不符合要求，请检查后重试。",
+    NOT_FOUND: "未找到请求的数据。",
+    UNAUTHORIZED: "请先登录后再继续。",
+    FORBIDDEN: "当前账号无权执行此操作。",
+    CONFLICT: "当前状态不允许执行此操作，请刷新后重试。",
+    RATE_LIMITED: "操作过于频繁，请稍后重试。",
+    IDEMPOTENCY_CONFLICT: "该请求已提交，且与之前的请求内容不一致。",
+    INVENTORY_SHORTAGE: "商品库存不足，请调整数量后重试。",
+    UPLOAD_REJECTED: "文件未通过上传校验，请检查格式和大小。",
+    PROVIDER_UNAVAILABLE: "第三方服务暂时不可用，请稍后重试。",
+    COMPENSATION_PENDING: "操作正在等待系统补偿处理。",
+    DEPENDENCY_UNAVAILABLE: "依赖服务暂时不可用，请稍后重试。",
+    INTERNAL_ERROR: "系统暂时无法处理该请求，请稍后重试。"
+  }
+};
+
 export function defaultMessageForCode(code: ErrorCode | string): string {
   return DEFAULT_MESSAGES[code as ErrorCode] ?? DEFAULT_MESSAGES.INTERNAL_ERROR;
+}
+
+function isErrorCode(value: string): value is ErrorCode {
+  return Object.prototype.hasOwnProperty.call(DEFAULT_MESSAGES, value);
+}
+
+export function localizedMessageForCode(code: ErrorCode | string, locale: ErrorLocale): string {
+  return isErrorCode(code) ? LOCALIZED_MESSAGES[locale][code] : LOCALIZED_MESSAGES[locale].INTERNAL_ERROR;
 }
 
 export function codeForHttpStatus(status: number): ErrorCode {
@@ -82,4 +111,19 @@ export function normalizeErrorPayload(payload: unknown, status: number, correlat
     ...(payload === undefined ? {} : { details: payload }),
     ...(correlationId ? { correlationId } : {})
   };
+}
+
+export function localizedErrorMessage(
+  payload: unknown,
+  status: number,
+  locale: ErrorLocale,
+  fallback?: string
+): string {
+  const normalized = normalizeErrorPayload(payload, status);
+
+  if (isErrorCode(normalized.code)) {
+    return localizedMessageForCode(normalized.code, locale);
+  }
+
+  return normalized.message || fallback || localizedMessageForCode(ERROR_CODES.INTERNAL_ERROR, locale);
 }

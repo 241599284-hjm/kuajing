@@ -1,5 +1,6 @@
 "use client";
 
+import { localizedErrorMessage } from "@commerce/error-codes";
 import { useEffect, useMemo, useState } from "react";
 import type { Locale } from "../lib/storefront-content.js";
 
@@ -86,7 +87,7 @@ export function ProductReviews({ locale, productSlug }: { locale: Locale; produc
       const payload = (await response.json().catch(() => ({}))) as { message?: string };
 
       if (!response.ok) {
-        throw new Error(payload.message ?? `HTTP ${response.status}`);
+        throw new Error(localizedErrorMessage(payload, response.status, locale));
       }
 
       setContent("");

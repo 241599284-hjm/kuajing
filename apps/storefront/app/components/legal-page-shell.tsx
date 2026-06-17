@@ -247,6 +247,7 @@ export function LegalPageShell({ pageKey }: { pageKey: LegalPageKey }) {
       <RegistrationDialog
         copy={copy.registration}
         isOpen={registrationOpen}
+        locale={locale}
         onClose={() => setRegistrationOpen(false)}
       />
       <StorefrontFooter locale={locale} />

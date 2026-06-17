@@ -1,5 +1,6 @@
 "use client";
 
+import { localizedErrorMessage } from "@commerce/error-codes";
 import { useEffect, useMemo, useState } from "react";
 import {
   AdminActionRow,
@@ -134,14 +135,14 @@ export function InventoryManagementPanel() {
       const payload = (await response.json().catch(() => [])) as AdminInventoryItem[] | { message?: string };
 
       if (!response.ok || !Array.isArray(payload)) {
-        throw new Error(Array.isArray(payload) ? `HTTP ${response.status}` : payload.message ?? `HTTP ${response.status}`);
+        throw new Error(localizedErrorMessage(payload, response.status, "zh"));
       }
 
       setItems(payload);
       setStatus(payload.length > 0 ? "已读取库存" : "暂无库存");
-    } catch {
+    } catch (error) {
       setItems([]);
-      setStatus("库存 API 未连接");
+      setStatus(error instanceof Error && !(error instanceof TypeError) ? error.message : "库存 API 未连接");
     } finally {
       setIsLoading(false);
     }
@@ -160,14 +161,14 @@ export function InventoryManagementPanel() {
       const payload = (await response.json().catch(() => [])) as AdminInventoryReservation[] | { message?: string };
 
       if (!response.ok || !Array.isArray(payload)) {
-        throw new Error(Array.isArray(payload) ? `HTTP ${response.status}` : payload.message ?? `HTTP ${response.status}`);
+        throw new Error(localizedErrorMessage(payload, response.status, "zh"));
       }
 
       setReservations(payload);
       setReservationStatus(payload.length > 0 ? `已读取 ${payload.length} 条预留流水` : "暂无预留流水");
-    } catch {
+    } catch (error) {
       setReservations([]);
-      setReservationStatus("预留流水 API 未连接");
+      setReservationStatus(error instanceof Error && !(error instanceof TypeError) ? error.message : "预留流水 API 未连接");
     } finally {
       setIsReservationLoading(false);
     }
@@ -186,14 +187,14 @@ export function InventoryManagementPanel() {
       const payload = (await response.json().catch(() => [])) as AdminInventoryAuditEvent[] | { message?: string };
 
       if (!response.ok || !Array.isArray(payload)) {
-        throw new Error(Array.isArray(payload) ? `HTTP ${response.status}` : payload.message ?? `HTTP ${response.status}`);
+        throw new Error(localizedErrorMessage(payload, response.status, "zh"));
       }
 
       setAuditEvents(payload);
       setAuditStatus(payload.length > 0 ? `已读取 ${payload.length} 条审计记录` : "暂无库存审计记录");
-    } catch {
+    } catch (error) {
       setAuditEvents([]);
-      setAuditStatus("库存审计 API 未连接");
+      setAuditStatus(error instanceof Error && !(error instanceof TypeError) ? error.message : "库存审计 API 未连接");
     } finally {
       setIsAuditLoading(false);
     }
@@ -247,7 +248,7 @@ export function InventoryManagementPanel() {
 
       if (!response.ok) {
         const body = (await response.json().catch(() => ({}))) as { message?: string };
-        throw new Error(body.message ?? `HTTP ${response.status}`);
+        throw new Error(localizedErrorMessage(body, response.status, "zh"));
       }
 
       setAdjustments((current) => ({ ...current, [item.itemId]: emptyAdjustmentDraft }));
@@ -275,13 +276,14 @@ export function InventoryManagementPanel() {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        const body = await response.json().catch(() => ({}));
+        throw new Error(localizedErrorMessage(body, response.status, "zh"));
       }
 
       setReservationStatus("已人工释放预留库存");
       await Promise.all([loadItems(), loadReservations(), loadAuditEvents()]);
-    } catch {
-      setReservationStatus("人工释放失败，未伪造成功");
+    } catch (error) {
+      setReservationStatus(error instanceof Error && !(error instanceof TypeError) ? error.message : "人工释放失败，未伪造成功");
     } finally {
       setReleasingId(null);
     }

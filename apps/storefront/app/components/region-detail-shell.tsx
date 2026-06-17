@@ -60,7 +60,7 @@ export function RegionDetailShell({ region }: RegionDetailShellProps) {
 
       <ProductCollection copy={copy} locale={locale} products={regionProducts} />
 
-      <RegistrationDialog copy={copy.registration} isOpen={isRegistrationOpen} onClose={() => setIsRegistrationOpen(false)} />
+      <RegistrationDialog copy={copy.registration} isOpen={isRegistrationOpen} locale={locale} onClose={() => setIsRegistrationOpen(false)} />
     </main>
   );
 }

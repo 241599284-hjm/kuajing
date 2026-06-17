@@ -1,5 +1,6 @@
 "use client";
 
+import { localizedErrorMessage } from "@commerce/error-codes";
 import { useEffect, useMemo, useState } from "react";
 import {
   AdminActionRow,
@@ -74,7 +75,7 @@ export function ReviewManagementPanel() {
       const payload = (await response.json().catch(() => ({}))) as { reviews?: ProductReview[]; storageMode?: string; message?: string };
 
       if (!response.ok) {
-        throw new Error(payload.message ?? `HTTP ${response.status}`);
+        throw new Error(localizedErrorMessage(payload, response.status, "zh"));
       }
 
       const nextReviews = payload.reviews ?? [];
@@ -113,7 +114,7 @@ export function ReviewManagementPanel() {
       const payload = (await response.json().catch(() => ({}))) as { review?: ProductReview; message?: string };
 
       if (!response.ok || !payload.review) {
-        throw new Error(payload.message ?? `HTTP ${response.status}`);
+        throw new Error(localizedErrorMessage(payload, response.status, "zh"));
       }
 
       setReviews((current) => current.map((item) => (item.id === payload.review?.id ? payload.review : item)));

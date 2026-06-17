@@ -1,5 +1,6 @@
 "use client";
 
+import { localizedErrorMessage } from "@commerce/error-codes";
 import { useEffect, useMemo, useState } from "react";
 import {
   AdminActionRow,
@@ -154,7 +155,7 @@ export function OrderManagementPanel() {
       const payload = (await response.json().catch(() => [])) as AdminOrderSummary[] | { message?: string };
 
       if (!response.ok || !Array.isArray(payload)) {
-        throw new Error(Array.isArray(payload) ? `HTTP ${response.status}` : payload.message ?? `HTTP ${response.status}`);
+        throw new Error(localizedErrorMessage(payload, response.status, "zh"));
       }
 
       setOrders(payload);
@@ -164,9 +165,9 @@ export function OrderManagementPanel() {
         setDetailStatus("未选择订单");
       }
       setStatus(payload.length > 0 ? "已读取订单" : "暂无订单");
-    } catch {
+    } catch (error) {
       setOrders([]);
-      setStatus("订单 API 未连接");
+      setStatus(error instanceof Error && !(error instanceof TypeError) ? error.message : "订单 API 未连接");
     } finally {
       setIsLoading(false);
     }
@@ -186,14 +187,14 @@ export function OrderManagementPanel() {
       const payload = (await response.json().catch(() => ({}))) as AdminOrderDetail | { message?: string };
 
       if (!response.ok || !("orderId" in payload)) {
-        throw new Error("message" in payload ? payload.message ?? `HTTP ${response.status}` : `HTTP ${response.status}`);
+        throw new Error(localizedErrorMessage(payload, response.status, "zh"));
       }
 
       setOrderDetail(payload);
       setDetailStatus("已读取订单详情");
-    } catch {
+    } catch (error) {
       setOrderDetail(null);
-      setDetailStatus("订单详情 API 未连接");
+      setDetailStatus(error instanceof Error && !(error instanceof TypeError) ? error.message : "订单详情 API 未连接");
     } finally {
       setIsDetailLoading(false);
     }
@@ -219,14 +220,20 @@ export function OrderManagementPanel() {
       const payload = (await response.json().catch(() => ({}))) as PaymentTransitionResult | { message?: string };
 
       if (!response.ok || !("orderId" in payload)) {
-        throw new Error("message" in payload ? payload.message ?? `HTTP ${response.status}` : `HTTP ${response.status}`);
+        throw new Error(localizedErrorMessage(payload, response.status, "zh"));
       }
 
       setDetailStatus(payload.compensationQueued ? "操作已提交，库存补偿进入队列" : action === "confirm" ? "已确认支付" : "已取消支付");
       await loadOrders();
       await loadOrderDetail(orderDetail.orderId);
-    } catch {
-      setDetailStatus(action === "confirm" ? "确认支付失败，未伪造成功" : "取消支付失败，未伪造成功");
+    } catch (error) {
+      setDetailStatus(
+        error instanceof Error && !(error instanceof TypeError)
+          ? error.message
+          : action === "confirm"
+            ? "确认支付失败，未伪造成功"
+            : "取消支付失败，未伪造成功"
+      );
     }
   }
 
@@ -261,7 +268,7 @@ export function OrderManagementPanel() {
       const payload = (await response.json().catch(() => ({}))) as PaymentTransitionResult | { message?: string };
 
       if (!response.ok || !("orderId" in payload)) {
-        throw new Error("message" in payload ? payload.message ?? `HTTP ${response.status}` : `HTTP ${response.status}`);
+        throw new Error(localizedErrorMessage(payload, response.status, "zh"));
       }
 
       setManualCompensationReason("");

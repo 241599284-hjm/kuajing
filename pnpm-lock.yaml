@@ -29,6 +29,9 @@ importers:
 
   apps/admin:
     dependencies:
+      '@commerce/error-codes':
+        specifier: workspace:*
+        version: link:../../packages/error-codes
       lucide-react:
         specifier: ^1.17.0
         version: 1.17.0(react@19.2.7)
@@ -57,6 +60,9 @@ importers:
 
   apps/storefront:
     dependencies:
+      '@commerce/error-codes':
+        specifier: workspace:*
+        version: link:../../packages/error-codes
       '@commerce/theme-system':
         specifier: workspace:*
         version: link:../../packages/theme-system

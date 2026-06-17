@@ -1,5 +1,6 @@
 "use client";
 
+import { localizedErrorMessage } from "@commerce/error-codes";
 import { ArrowLeft, CreditCard, Mail, MapPin, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import type { Route } from "next";
@@ -99,7 +100,7 @@ export function CheckoutShell() {
       };
 
       if (!response.ok) {
-        throw new Error(payload.message ?? `HTTP ${response.status}`);
+        throw new Error(localizedErrorMessage(payload, response.status, locale));
       }
 
       if (!buyNowSlug) clearCart();
@@ -112,12 +113,11 @@ export function CheckoutShell() {
           ? `模拟订单 ${payload.orderNumber ?? ""} 已创建，库存模式：${payload.inventoryMode ?? "unknown"}，存储模式：${payload.storageMode ?? "unknown"}，支付模式：${payload.paymentMode ?? "unknown"}。`
           : `Mock order ${payload.orderNumber ?? ""} created with ${payload.inventoryMode ?? "unknown"} inventory, ${payload.storageMode ?? "unknown"} storage, and ${payload.paymentMode ?? "unknown"} payment.`
       );
-    } catch {
-      setMessage(
-        isZh
-          ? "订单 API 未连接，购物车已保留，未假装下单成功。"
-          : "Order API is unavailable. Cart is kept, and no fake success was shown."
-      );
+    } catch (error) {
+      const unavailableMessage = isZh
+        ? "订单 API 未连接，购物车已保留，未假装下单成功。"
+        : "Order API is unavailable. Cart is kept, and no fake success was shown.";
+      setMessage(error instanceof Error && error.name !== "AbortError" && !(error instanceof TypeError) ? error.message : unavailableMessage);
       setGuestOrder(null);
     } finally {
       window.clearTimeout(timeoutId);
@@ -145,7 +145,9 @@ export function CheckoutShell() {
       const payload = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(payload.message ?? (isZh ? "补注册失败" : "Registration failed"));
+        throw new Error(
+          localizedErrorMessage(payload, response.status, locale, isZh ? "补注册失败" : "Registration failed")
+        );
       }
 
       setGuestRegistrationMessage(
@@ -361,7 +363,7 @@ export function CheckoutShell() {
           </section>
         ) : null}
       </section>
-      <RegistrationDialog copy={copy.registration} isOpen={isRegistrationOpen} onClose={() => setIsRegistrationOpen(false)} />
+      <RegistrationDialog copy={copy.registration} isOpen={isRegistrationOpen} locale={locale} onClose={() => setIsRegistrationOpen(false)} />
       <TeawareLoadingOverlay isOpen={isSubmitting} locale={locale} />
     </main>
   );

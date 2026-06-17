@@ -1,5 +1,6 @@
 "use client";
 
+import { localizedErrorMessage } from "@commerce/error-codes";
 import { useEffect, useState } from "react";
 import { storefrontCopy } from "../lib/storefront-content.js";
 import { PremiumStorefrontHeader } from "./premium-storefront-header.js";
@@ -93,8 +94,7 @@ function TrackOrderContent() {
       const payload = (await response.json().catch(() => ({}))) as TrackingRecord | { message?: string };
 
       if (!response.ok || !("trackingNumber" in payload)) {
-        const message = "message" in payload ? payload.message : "";
-        throw new Error(message && message !== "Internal server error" ? message : trackingUnavailableMessage(locale));
+        throw new Error(localizedErrorMessage(payload, response.status, locale, trackingUnavailableMessage(locale)));
       }
 
       setTracking(payload);
@@ -130,6 +130,7 @@ function TrackOrderContent() {
       <RegistrationDialog
         copy={copy.registration}
         isOpen={isRegistrationOpen}
+        locale={locale}
         onClose={() => setIsRegistrationOpen(false)}
       />
 

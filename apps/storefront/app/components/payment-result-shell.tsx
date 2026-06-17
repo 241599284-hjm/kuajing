@@ -98,6 +98,7 @@ export function PaymentResultShell() {
       <RegistrationDialog
         copy={copy.registration}
         isOpen={registrationOpen}
+        locale={locale}
         onClose={() => setRegistrationOpen(false)}
       />
       <StorefrontFooter locale={locale} />

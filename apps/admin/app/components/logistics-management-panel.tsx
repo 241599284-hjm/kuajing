@@ -1,5 +1,6 @@
 "use client";
 
+import { localizedErrorMessage } from "@commerce/error-codes";
 import { useEffect, useMemo, useState } from "react";
 import {
   AdminActionRow,
@@ -123,7 +124,7 @@ export function LogisticsManagementPanel() {
       const logsPayload = (await logsResponse.json().catch(() => ({}))) as { logs?: LogisticsLog[]; storageMode?: string; message?: string };
 
       if (!accountsResponse.ok) {
-        throw new Error(accountsPayload.message ?? `HTTP ${accountsResponse.status}`);
+        throw new Error(localizedErrorMessage(accountsPayload, accountsResponse.status, "zh"));
       }
 
       setAccounts(accountsPayload.accounts ?? []);
@@ -153,7 +154,7 @@ export function LogisticsManagementPanel() {
       const payload = (await response.json().catch(() => ({}))) as { accounts?: LogisticsAccount[]; storageMode?: string; message?: string };
 
       if (!response.ok) {
-        throw new Error(payload.message ?? `HTTP ${response.status}`);
+        throw new Error(localizedErrorMessage(payload, response.status, "zh"));
       }
 
       setAccounts(payload.accounts ?? nextAccounts);
@@ -181,7 +182,7 @@ export function LogisticsManagementPanel() {
       const payload = (await response.json().catch(() => ({}))) as TrackingRecord | { message?: string };
 
       if (!response.ok || !("trackingNumber" in payload)) {
-        throw new Error("message" in payload ? payload.message ?? `HTTP ${response.status}` : `HTTP ${response.status}`);
+        throw new Error(localizedErrorMessage(payload, response.status, "zh"));
       }
 
       setTracking(payload);

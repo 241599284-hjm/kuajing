@@ -51,6 +51,7 @@ function ProductIndexContent() {
       <RegistrationDialog
         copy={copy.registration}
         isOpen={isRegistrationOpen}
+        locale={locale}
         onClose={() => setIsRegistrationOpen(false)}
       />
       <StorefrontFooter locale={locale} />

@@ -1,5 +1,6 @@
 "use client";
 
+import { localizedErrorMessage } from "@commerce/error-codes";
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { clearCustomerSession, readCustomerSession, writeCustomerSession } from "../lib/customer-session.js";
@@ -79,7 +80,7 @@ export function AccountShell() {
     })
       .then(async (response) => {
         const payload = await response.json().catch(() => []);
-        if (!response.ok) throw new Error(payload.message ?? "order history unavailable");
+        if (!response.ok) throw new Error(localizedErrorMessage(payload, response.status, locale));
         return Array.isArray(payload) ? payload as CustomerOrderSummary[] : [];
       })
       .then((nextOrders) => {
@@ -91,9 +92,10 @@ export function AccountShell() {
       .catch((error) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
         setOrders([]);
-        setOrdersStatus(isZh
+        const unavailableMessage = isZh
           ? "订单 API 未连接，未展示假订单。"
-          : "Order API is unavailable. No fake orders are shown.");
+          : "Order API is unavailable. No fake orders are shown.";
+        setOrdersStatus(error instanceof Error && !(error instanceof TypeError) ? error.message : unavailableMessage);
       });
 
     return () => controller.abort();
@@ -110,7 +112,7 @@ export function AccountShell() {
     const payload = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      setMessage(payload.message ?? (isZh ? "登录失败" : "Login failed"));
+      setMessage(localizedErrorMessage(payload, response.status, locale, isZh ? "登录失败" : "Login failed"));
       return;
     }
 
@@ -130,7 +132,7 @@ export function AccountShell() {
 
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
-      setMessage(payload.message ?? (isZh ? "发送失败" : "Send failed"));
+      setMessage(localizedErrorMessage(payload, response.status, locale, isZh ? "发送失败" : "Send failed"));
       return;
     }
 
@@ -148,7 +150,7 @@ export function AccountShell() {
 
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
-      setMessage(payload.message ?? (isZh ? "修改失败" : "Change failed"));
+      setMessage(localizedErrorMessage(payload, response.status, locale, isZh ? "修改失败" : "Change failed"));
       return;
     }
 
@@ -391,7 +393,7 @@ export function AccountShell() {
 
         {message ? <p className="mt-5 rounded-md border border-[var(--line)] p-3 text-sm text-[var(--ink-soft)]" role="status">{message}</p> : null}
       </section>
-      <RegistrationDialog copy={copy.registration} isOpen={isRegistrationOpen} onClose={() => setIsRegistrationOpen(false)} />
+      <RegistrationDialog copy={copy.registration} isOpen={isRegistrationOpen} locale={locale} onClose={() => setIsRegistrationOpen(false)} />
     </main>
   );
 }

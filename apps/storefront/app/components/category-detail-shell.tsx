@@ -56,7 +56,7 @@ export function CategoryDetailShell({ category }: CategoryDetailShellProps) {
 
       <ProductCollection copy={copy} locale={locale} products={categoryProducts} variant="category" />
 
-      <RegistrationDialog copy={copy.registration} isOpen={isRegistrationOpen} onClose={() => setIsRegistrationOpen(false)} />
+      <RegistrationDialog copy={copy.registration} isOpen={isRegistrationOpen} locale={locale} onClose={() => setIsRegistrationOpen(false)} />
     </main>
   );
 }

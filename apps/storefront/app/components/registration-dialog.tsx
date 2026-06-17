@@ -1,5 +1,6 @@
 "use client";
 
+import { localizedErrorMessage } from "@commerce/error-codes";
 import { X } from "lucide-react";
 import { FormEvent, useState } from "react";
 import type { Locale, storefrontCopy } from "../lib/storefront-content.js";
@@ -8,11 +9,12 @@ type RegistrationDialogProps = {
   isOpen: boolean;
   onClose: () => void;
   copy: (typeof storefrontCopy)[Locale]["registration"];
+  locale: Locale;
 };
 
 const authServiceUrl = process.env.NEXT_PUBLIC_AUTH_SERVICE_URL ?? "http://localhost:4102";
 
-export function RegistrationDialog({ isOpen, onClose, copy }: RegistrationDialogProps) {
+export function RegistrationDialog({ isOpen, onClose, copy, locale }: RegistrationDialogProps) {
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -40,7 +42,7 @@ export function RegistrationDialog({ isOpen, onClose, copy }: RegistrationDialog
       const payload = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(payload.message ?? copy.failed);
+        throw new Error(localizedErrorMessage(payload, response.status, locale, copy.failed));
       }
 
       setStatus("sent");

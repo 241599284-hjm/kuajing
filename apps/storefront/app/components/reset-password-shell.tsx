@@ -1,5 +1,6 @@
 "use client";
 
+import { localizedErrorMessage } from "@commerce/error-codes";
 import Link from "next/link";
 import type { Route } from "next";
 import { FormEvent, useState } from "react";
@@ -28,7 +29,7 @@ export function ResetPasswordShell() {
 
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
-      setMessage(payload.message ?? (isZh ? "重置失败" : "Reset failed"));
+      setMessage(localizedErrorMessage(payload, response.status, locale, isZh ? "重置失败" : "Reset failed"));
       return;
     }
 

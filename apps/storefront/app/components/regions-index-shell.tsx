@@ -69,7 +69,7 @@ export function RegionsIndexShell() {
           })}
         </div>
       </section>
-      <RegistrationDialog copy={copy.registration} isOpen={isRegistrationOpen} onClose={() => setIsRegistrationOpen(false)} />
+      <RegistrationDialog copy={copy.registration} isOpen={isRegistrationOpen} locale={locale} onClose={() => setIsRegistrationOpen(false)} />
     </main>
   );
 }
