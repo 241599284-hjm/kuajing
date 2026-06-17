@@ -247,6 +247,9 @@ importers:
 
   services/inventory-service:
     dependencies:
+      '@commerce/error-codes':
+        specifier: workspace:*
+        version: link:../../packages/error-codes
       '@commerce/saga-core':
         specifier: workspace:*
         version: link:../../packages/saga-core

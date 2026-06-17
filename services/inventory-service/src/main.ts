@@ -15,6 +15,7 @@ import {
   Post
 } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import { ERROR_CODES } from "@commerce/error-codes";
 import { assertStoreContext, type StoreContext } from "@commerce/store-context";
 import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
@@ -156,6 +157,38 @@ const defaultSkuId = process.env.DEFAULT_SKU_ID ?? "00000000-0000-4000-8000-0000
 const slowInventoryReserveMs = Number(process.env.SLOW_INVENTORY_RESERVE_MS ?? 1000);
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+function validationFailed(message: string, details?: unknown): BadRequestException {
+  return new BadRequestException({
+    code: ERROR_CODES.VALIDATION_FAILED,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function notFound(message: string, details?: unknown): BadRequestException {
+  return new BadRequestException({
+    code: ERROR_CODES.NOT_FOUND,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function inventoryShortage(details?: unknown): ConflictException {
+  return new ConflictException({
+    code: ERROR_CODES.INVENTORY_SHORTAGE,
+    message: "Insufficient inventory for this item.",
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function stateConflict(message: string, details?: unknown): ConflictException {
+  return new ConflictException({
+    code: ERROR_CODES.CONFLICT,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
 function createStoreContext(correlationId: string | undefined): StoreContext {
   return assertStoreContext({
     storeId: selfHostedStore.storeId,
@@ -188,7 +221,7 @@ function normalizeUuid(value: string | undefined, field: string): string {
   const uuid = value?.trim();
 
   if (!uuid || !uuidPattern.test(uuid)) {
-    throw new BadRequestException(`${field} must be a UUID`);
+    throw validationFailed(`${field} must be a UUID`, { field });
   }
 
   return uuid;
@@ -198,7 +231,7 @@ function normalizeQuantity(value: number | undefined): number {
   const qty = Number(value);
 
   if (!Number.isInteger(qty) || qty <= 0 || qty > 999) {
-    throw new BadRequestException("qty must be an integer between 1 and 999");
+    throw validationFailed("qty must be an integer between 1 and 999", { field: "qty", min: 1, max: 999 });
   }
 
   return qty;
@@ -212,7 +245,7 @@ function normalizeNonNegativeInteger(value: number | undefined, field: string): 
   const qty = Number(value);
 
   if (!Number.isInteger(qty) || qty < 0 || qty > 999999) {
-    throw new BadRequestException(`${field} must be an integer between 0 and 999999`);
+    throw validationFailed(`${field} must be an integer between 0 and 999999`, { field, min: 0, max: 999999 });
   }
 
   return qty;
@@ -226,7 +259,7 @@ function normalizeSignedInteger(value: number | undefined, field: string): numbe
   const qty = Number(value);
 
   if (!Number.isInteger(qty) || qty < -999999 || qty > 999999) {
-    throw new BadRequestException(`${field} must be an integer between -999999 and 999999`);
+    throw validationFailed(`${field} must be an integer between -999999 and 999999`, { field, min: -999999, max: 999999 });
   }
 
   return qty;
@@ -236,7 +269,7 @@ function normalizeReason(value: string | undefined): string {
   const reason = value?.trim();
 
   if (!reason || reason.length > 300) {
-    throw new BadRequestException("reason is required and must be 300 characters or less");
+    throw validationFailed("reason is required and must be 300 characters or less", { field: "reason", maxLength: 300 });
   }
 
   return reason;
@@ -246,7 +279,7 @@ function normalizeActorId(value: string | undefined): string {
   const actorId = value?.trim() || "local-admin";
 
   if (actorId.length > 120) {
-    throw new BadRequestException("actorId must be 120 characters or less");
+    throw validationFailed("actorId must be 120 characters or less", { field: "actorId", maxLength: 120 });
   }
 
   return actorId;
@@ -258,11 +291,15 @@ function normalizeAdjustmentRequest(body: AdminInventoryAdjustmentRequest) {
   const safetyQty = normalizeNonNegativeInteger(body.safetyQty, "safetyQty");
 
   if (availableDelta !== undefined && stocktakeAvailableQty !== undefined) {
-    throw new BadRequestException("availableDelta and stocktakeAvailableQty cannot be used together");
+    throw validationFailed("availableDelta and stocktakeAvailableQty cannot be used together", {
+      fields: ["availableDelta", "stocktakeAvailableQty"]
+    });
   }
 
   if (availableDelta === undefined && stocktakeAvailableQty === undefined && safetyQty === undefined) {
-    throw new BadRequestException("at least one inventory adjustment field is required");
+    throw validationFailed("at least one inventory adjustment field is required", {
+      fields: ["availableDelta", "stocktakeAvailableQty", "safetyQty"]
+    });
   }
 
   return {
@@ -278,7 +315,7 @@ function normalizeRequest(body: ReservationRequest, idempotencyKeyHeader: string
   const idempotencyKey = idempotencyKeyHeader?.trim() || body.idempotencyKey?.trim();
 
   if (!idempotencyKey || idempotencyKey.length > 160) {
-    throw new BadRequestException("idempotencyKey is required");
+    throw validationFailed("idempotencyKey is required", { field: "idempotencyKey", maxLength: 160 });
   }
 
   return {
@@ -354,7 +391,7 @@ class InventoryMemoryStore {
     const sellableQty = item.availableQty - item.reservedQty - item.safetyQty;
 
     if (sellableQty < input.qty) {
-      throw new ConflictException("insufficient inventory");
+      throw inventoryShortage({ skuId: input.skuId, requestedQty: input.qty, sellableQty });
     }
 
     item.reservedQty += input.qty;
@@ -382,7 +419,7 @@ class InventoryMemoryStore {
     }
 
     if (reservation.status === "cancelled") {
-      throw new ConflictException("cancelled reservation cannot be confirmed");
+      throw stateConflict("cancelled reservation cannot be confirmed", { idempotencyKey: input.idempotencyKey });
     }
 
     item.availableQty -= reservation.qty;
@@ -401,7 +438,7 @@ class InventoryMemoryStore {
     }
 
     if (reservation.status === "confirmed") {
-      throw new ConflictException("confirmed reservation cannot be cancelled");
+      throw stateConflict("confirmed reservation cannot be cancelled", { idempotencyKey: input.idempotencyKey });
     }
 
     item.reservedQty -= reservation.qty;
@@ -446,7 +483,7 @@ class InventoryMemoryStore {
     const reservation = [...this.reservationsByIdempotencyKey.values()].find((item) => item.id === reservationId);
 
     if (!reservation) {
-      throw new BadRequestException("reservation does not exist");
+      throw notFound("reservation does not exist", { reservationId });
     }
 
     const item = this.ensureItem(reservation.skuId, reservation.warehouseId);
@@ -470,7 +507,7 @@ class InventoryMemoryStore {
     const item = [...this.items.values()].find((candidate) => candidate.id === itemId);
 
     if (!item) {
-      throw new BadRequestException("inventory item does not exist");
+      throw notFound("inventory item does not exist", { itemId });
     }
 
     const oldValue = this.snapshotMemoryItem(item);
@@ -478,7 +515,7 @@ class InventoryMemoryStore {
     const nextSafetyQty = input.safetyQty ?? item.safetyQty;
 
     if (nextAvailableQty < 0) {
-      throw new ConflictException("available inventory cannot be negative");
+      throw stateConflict("available inventory cannot be negative", { itemId, nextAvailableQty });
     }
 
     item.availableQty = nextAvailableQty;
@@ -580,7 +617,7 @@ class InventoryMemoryStore {
     const reservation = this.reservationsByIdempotencyKey.get(idempotencyKey);
 
     if (!reservation) {
-      throw new BadRequestException("reservation does not exist for idempotencyKey");
+      throw notFound("reservation does not exist for idempotencyKey", { idempotencyKey });
     }
 
     return reservation;
@@ -610,7 +647,7 @@ class InventoryRepository implements OnApplicationShutdown {
       const sellableQty = item.available_qty - item.reserved_qty - item.safety_qty;
 
       if (sellableQty < input.qty) {
-        throw new ConflictException("insufficient inventory");
+        throw inventoryShortage({ skuId: input.skuId, requestedQty: input.qty, sellableQty });
       }
 
       const reservation: ReservationRow = {
@@ -667,7 +704,7 @@ class InventoryRepository implements OnApplicationShutdown {
       }
 
       if (reservation.status === "cancelled") {
-        throw new ConflictException("cancelled reservation cannot be confirmed");
+        throw stateConflict("cancelled reservation cannot be confirmed", { idempotencyKey: input.idempotencyKey });
       }
 
       const updatedItem = await this.updateItemQuantities(client, item.id, {
@@ -689,7 +726,7 @@ class InventoryRepository implements OnApplicationShutdown {
       }
 
       if (reservation.status === "confirmed") {
-        throw new ConflictException("confirmed reservation cannot be cancelled");
+        throw stateConflict("confirmed reservation cannot be cancelled", { idempotencyKey: input.idempotencyKey });
       }
 
       const updatedItem = await this.updateItemQuantities(client, item.id, {
@@ -767,7 +804,7 @@ class InventoryRepository implements OnApplicationShutdown {
       const reservation = reservationResult.rows[0];
 
       if (!reservation) {
-        throw new BadRequestException("reservation does not exist");
+        throw notFound("reservation does not exist", { reservationId });
       }
 
       const item = await this.findItemForReservation(client, ctx, reservation);
@@ -777,7 +814,7 @@ class InventoryRepository implements OnApplicationShutdown {
       }
 
       if (reservation.status === "confirmed") {
-        throw new ConflictException("confirmed reservation cannot be manually released");
+        throw stateConflict("confirmed reservation cannot be manually released", { reservationId });
       }
 
       const oldValue = this.snapshotItem(item);
@@ -810,7 +847,7 @@ class InventoryRepository implements OnApplicationShutdown {
       const nextSafetyQty = input.safetyQty ?? item.safety_qty;
 
       if (nextAvailableQty < 0) {
-        throw new ConflictException("available inventory cannot be negative");
+        throw stateConflict("available inventory cannot be negative", { itemId, nextAvailableQty });
       }
 
       const result = await client.query<InventoryItemRow>(
@@ -828,7 +865,7 @@ class InventoryRepository implements OnApplicationShutdown {
       const updatedItem = result.rows[0];
 
       if (!updatedItem) {
-        throw new BadRequestException("inventory item does not exist");
+        throw notFound("inventory item does not exist", { itemId });
       }
 
       await this.insertAuditEvent(client, ctx, {
@@ -904,7 +941,7 @@ class InventoryRepository implements OnApplicationShutdown {
     const reservation = await this.findReservation(client, ctx, idempotencyKey);
 
     if (!reservation) {
-      throw new BadRequestException("reservation does not exist for idempotencyKey");
+      throw notFound("reservation does not exist for idempotencyKey", { idempotencyKey });
     }
 
     return reservation;
@@ -926,7 +963,7 @@ class InventoryRepository implements OnApplicationShutdown {
     );
 
     if (!result.rows[0]) {
-      throw new BadRequestException("inventory item does not exist");
+      throw notFound("inventory item does not exist", { skuId: reservation.sku_id, warehouseId: reservation.warehouse_id });
     }
 
     return result.rows[0];
@@ -945,7 +982,7 @@ class InventoryRepository implements OnApplicationShutdown {
     );
 
     if (!result.rows[0]) {
-      throw new BadRequestException("inventory item does not exist");
+      throw notFound("inventory item does not exist", { itemId });
     }
 
     return result.rows[0];
@@ -973,7 +1010,7 @@ class InventoryRepository implements OnApplicationShutdown {
     );
 
     if (!result.rows[0]) {
-      throw new BadRequestException("inventory item does not exist");
+      throw notFound("inventory item does not exist", { skuId: input.skuId, warehouseId: input.warehouseId });
     }
 
     return result.rows[0];
@@ -998,7 +1035,7 @@ class InventoryRepository implements OnApplicationShutdown {
     const item = result.rows[0];
 
     if (!item || item.available_qty < 0 || item.reserved_qty < 0) {
-      throw new ConflictException("inventory quantity invariant failed");
+      throw stateConflict("inventory quantity invariant failed", { itemId, availableQty: item?.available_qty, reservedQty: item?.reserved_qty });
     }
 
     return item;
