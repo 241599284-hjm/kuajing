@@ -1,6 +1,7 @@
 import "reflect-metadata";
-import { BadRequestException, Body, Controller, Get, Headers, Injectable, Module, Param, Post, Put } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Headers, Injectable, Module, Param, Post, Put, ServiceUnavailableException } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import { ERROR_CODES } from "@commerce/error-codes";
 import { assertStoreContext, type StoreContext } from "@commerce/store-context";
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
@@ -296,6 +297,38 @@ function htmlEscape(value: string) {
   });
 }
 
+function validationFailed(message: string, details?: unknown): BadRequestException {
+  return new BadRequestException({
+    code: ERROR_CODES.VALIDATION_FAILED,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function notFound(message: string, details?: unknown): BadRequestException {
+  return new BadRequestException({
+    code: ERROR_CODES.NOT_FOUND,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function dependencyUnavailable(message: string, details?: unknown): ServiceUnavailableException {
+  return new ServiceUnavailableException({
+    code: ERROR_CODES.DEPENDENCY_UNAVAILABLE,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function providerUnavailable(message: string, details?: unknown): ServiceUnavailableException {
+  return new ServiceUnavailableException({
+    code: ERROR_CODES.PROVIDER_UNAVAILABLE,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
 function renderTemplate(template: string, variables: Record<string, string | number | boolean | null> | undefined, html: boolean) {
   const rawHtml = html
     ? template.replace(/\{\{\{\s*([a-zA-Z0-9_.-]+Html)\s*\}\}\}/g, (_match, key: string) => {
@@ -318,13 +351,13 @@ function normalizeEmail(body: SendEmailBody): NormalizedEmail {
   const text = body.text?.trim();
 
   if (!to || !isEmail(to)) {
-    throw new BadRequestException("valid recipient email is required");
+    throw validationFailed("valid recipient email is required", { field: "to" });
   }
   if (!subject || subject.length > 200 || /[\r\n]/.test(subject)) {
-    throw new BadRequestException("subject must be 1-200 characters without new lines");
+    throw validationFailed("subject must be 1-200 characters without new lines", { field: "subject", minLength: 1, maxLength: 200 });
   }
   if (!html && !text) {
-    throw new BadRequestException("html or text content is required");
+    throw validationFailed("html or text content is required", { fields: ["html", "text"] });
   }
 
   return {
@@ -340,19 +373,21 @@ function normalizeEmail(body: SendEmailBody): NormalizedEmail {
 }
 
 function normalizeText(value: unknown, field: string, min: number, max: number) {
-  if (typeof value !== "string") throw new BadRequestException(`${field} is required`);
+  if (typeof value !== "string") throw validationFailed(`${field} is required`, { field });
   const text = value.trim();
   if (text.length < min || text.length > max || /[\r\n]/.test(text)) {
-    throw new BadRequestException(`${field} must be ${min}-${max} characters`);
+    throw validationFailed(`${field} must be ${min}-${max} characters`, { field, minLength: min, maxLength: max });
   }
   return text;
 }
 
 function normalizeOptionalText(value: unknown, field: string, max: number) {
   if (value === null || value === undefined || value === "") return undefined;
-  if (typeof value !== "string") throw new BadRequestException(`${field} must be text`);
+  if (typeof value !== "string") throw validationFailed(`${field} must be text`, { field });
   const text = value.trim();
-  if (text.length > max || /[\r\n]/.test(text)) throw new BadRequestException(`${field} must be 1-${max} characters without new lines`);
+  if (text.length > max || /[\r\n]/.test(text)) {
+    throw validationFailed(`${field} must be 1-${max} characters without new lines`, { field, maxLength: max });
+  }
   return text || undefined;
 }
 
@@ -363,16 +398,16 @@ function normalizeAccount(input: Partial<EmailAccountRecord>): EmailAccountRecor
   const status = input.status ?? "active";
 
   if (!Number.isInteger(dailyLimit) || dailyLimit < 1 || dailyLimit > 100000) {
-    throw new BadRequestException("dailyLimit must be 1-100000");
+    throw validationFailed("dailyLimit must be 1-100000", { field: "dailyLimit", min: 1, max: 100000 });
   }
   if (!Number.isInteger(usedCount) || usedCount < 0) {
-    throw new BadRequestException("usedCount must be a non-negative integer");
+    throw validationFailed("usedCount must be a non-negative integer", { field: "usedCount", min: 0 });
   }
   if (!Number.isInteger(failureCount) || failureCount < 0) {
-    throw new BadRequestException("failureCount must be a non-negative integer");
+    throw validationFailed("failureCount must be a non-negative integer", { field: "failureCount", min: 0 });
   }
   if (!["active", "quota_exhausted", "disabled"].includes(status)) {
-    throw new BadRequestException("account status is invalid");
+    throw validationFailed("account status is invalid", { field: "status", allowed: ["active", "quota_exhausted", "disabled"] });
   }
 
   return {
@@ -393,12 +428,12 @@ function normalizeAccount(input: Partial<EmailAccountRecord>): EmailAccountRecor
 
 function resolveSecretRef(ref: string) {
   if (!ref.startsWith("env:")) {
-    throw new Error("secret references must use env:NAME and cannot contain raw secrets");
+    throw dependencyUnavailable("secret references must use env:NAME and cannot contain raw secrets", { field: "secretRef" });
   }
   const key = ref.slice(4).trim();
-  if (!key || !/^[A-Z0-9_]+$/.test(key)) throw new Error("secret env reference is invalid");
+  if (!key || !/^[A-Z0-9_]+$/.test(key)) throw dependencyUnavailable("secret env reference is invalid", { field: "secretRef" });
   const value = process.env[key];
-  if (!value) throw new Error(`${key} is not configured`);
+  if (!value) throw dependencyUnavailable("email provider secret is not configured", { secretRef: key });
   return value;
 }
 
@@ -478,7 +513,7 @@ class EmailStore {
   async saveAccounts(store: StoreContext, input: unknown) {
     const rawAccounts = Array.isArray(input) ? input : typeof input === "object" && input && "accounts" in input ? (input as { accounts?: unknown }).accounts : undefined;
     if (!Array.isArray(rawAccounts) || rawAccounts.length === 0 || rawAccounts.length > 20) {
-      throw new BadRequestException("accounts must contain 1-20 items");
+      throw validationFailed("accounts must contain 1-20 items", { field: "accounts", minItems: 1, maxItems: 20 });
     }
     const accounts = rawAccounts.map((item) => normalizeAccount(item as Partial<EmailAccountRecord>));
 
@@ -589,7 +624,7 @@ class EmailStore {
 
   async saveTemplate(store: StoreContext, key: string, body: Partial<Omit<EmailTemplateRecord, "key" | "updatedAt" | "storageMode">>) {
     const current = (await this.listTemplates(store)).find((template) => template.key === key);
-    if (!current) throw new BadRequestException("unknown template key");
+    if (!current) throw notFound("unknown template key", { templateKey: key });
     const next = {
       ...current,
       ...body,
@@ -827,13 +862,15 @@ class NotificationService {
       return { providerMessageId: result.messageId };
     }
 
-    throw new Error(`unsupported email provider: ${account.provider}`);
+    throw providerUnavailable("unsupported email provider", { provider: account.provider });
   }
 
   async prepare(store: StoreContext, body: SendEmailBody): Promise<NormalizedEmail> {
     if (!body.templateKey) return normalizeEmail(body);
     const template = (await this.store.listTemplates(store)).find((item) => item.key === body.templateKey);
-    if (!template || !template.enabled) throw new BadRequestException("enabled templateKey is required");
+    if (!template || !template.enabled) {
+      throw validationFailed("enabled templateKey is required", { field: "templateKey", templateKey: body.templateKey });
+    }
     const locale = String(body.variables?.locale ?? body.variables?.language ?? "en").toLowerCase().startsWith("zh") ? "zh" : "en";
     return normalizeEmail({
       ...body,
