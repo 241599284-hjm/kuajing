@@ -545,6 +545,8 @@ class OpsRepository {
   }
 }
 
+const fallbackRepository = new OpsRepository();
+
 function auditEvent(action: string, actor: string, summary: string, details: unknown, correlationId: string): AuditEvent {
   return {
     id: randomUUID(),
@@ -559,7 +561,11 @@ function auditEvent(action: string, actor: string, summary: string, details: unk
 
 @Controller()
 class OpsController {
-  constructor(private readonly repository: OpsRepository) {}
+  constructor(private readonly injectedRepository?: OpsRepository) {}
+
+  private get repository() {
+    return this.injectedRepository ?? fallbackRepository;
+  }
 
   @Get("/health")
   health() {
