@@ -4,6 +4,7 @@ import {
   Body,
   ConflictException,
   Controller,
+  ForbiddenException,
   Get,
   Header,
   Headers,
@@ -13,9 +14,12 @@ import {
   OnApplicationShutdown,
   Post,
   Put,
-  Query
+  Query,
+  ServiceUnavailableException,
+  UnauthorizedException
 } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import { ERROR_CODES, normalizeErrorPayload } from "@commerce/error-codes";
 import { assertStoreContext, type StoreContext } from "@commerce/store-context";
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
@@ -110,6 +114,51 @@ const selfHostedStore = {
 const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL ?? "http://localhost:4111";
 const emailDeliveryMode = process.env.AUTH_EMAIL_DELIVERY_MODE ?? "notification-service";
 
+function validationFailed(message: string, details?: unknown): BadRequestException {
+  return new BadRequestException({
+    code: ERROR_CODES.VALIDATION_FAILED,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function stateConflict(message: string, details?: unknown): ConflictException {
+  return new ConflictException({
+    code: ERROR_CODES.CONFLICT,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function unauthorized(message: string): UnauthorizedException {
+  return new UnauthorizedException({
+    code: ERROR_CODES.UNAUTHORIZED,
+    message
+  });
+}
+
+function forbidden(message: string): ForbiddenException {
+  return new ForbiddenException({
+    code: ERROR_CODES.FORBIDDEN,
+    message
+  });
+}
+
+function dependencyUnavailable(message: string, details?: unknown): ServiceUnavailableException {
+  return new ServiceUnavailableException({
+    code: ERROR_CODES.DEPENDENCY_UNAVAILABLE,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function providerUnavailable(message: string): ServiceUnavailableException {
+  return new ServiceUnavailableException({
+    code: ERROR_CODES.PROVIDER_UNAVAILABLE,
+    message
+  });
+}
+
 function isEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
@@ -118,7 +167,7 @@ function normalizeText(value: string | null | undefined, field: string, min: num
   const text = value?.trim();
 
   if (!text || text.length < min || text.length > max || /[\r\n]/.test(text)) {
-    throw new BadRequestException(`${field} must be ${min}-${max} characters`);
+    throw validationFailed(`${field} must be ${min}-${max} characters`);
   }
 
   return text;
@@ -132,7 +181,7 @@ function normalizeOptionalText(value: string | null | undefined, field: string, 
   }
 
   if (text.length > max || /[\r\n]/.test(text)) {
-    throw new BadRequestException(`${field} must be at most ${max} characters`);
+    throw validationFailed(`${field} must be at most ${max} characters`);
   }
 
   return text;
@@ -164,11 +213,10 @@ async function sendTransactionalEmail(ctx: StoreContext, body: TransactionalEmai
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new BadRequestException({
-      message: "notification-service email delivery failed",
-      statusCode: response.status,
-      details: payload
-    });
+    throw dependencyUnavailable(
+      "notification-service email delivery failed",
+      normalizeErrorPayload(payload, response.status, ctx.correlationId)
+    );
   }
 }
 
@@ -178,15 +226,15 @@ function normalizeRegisterRequest(body: RegisterRequest) {
   const password = body.password ?? "";
 
   if (!username || username.length < 3 || username.length > 40) {
-    throw new BadRequestException("username must be 3-40 characters");
+    throw validationFailed("username must be 3-40 characters");
   }
 
   if (!email || !isEmail(email)) {
-    throw new BadRequestException("valid email is required");
+    throw validationFailed("valid email is required");
   }
 
   if (password.length < 8 || password.length > 128) {
-    throw new BadRequestException("password must be 8-128 characters");
+    throw validationFailed("password must be 8-128 characters");
   }
 
   return { username, email, password };
@@ -197,11 +245,11 @@ function normalizeLoginRequest(body: LoginRequest) {
   const password = body.password ?? "";
 
   if (!email || !isEmail(email)) {
-    throw new BadRequestException("valid email is required");
+    throw validationFailed("valid email is required");
   }
 
   if (password.length < 8 || password.length > 128) {
-    throw new BadRequestException("password must be 8-128 characters");
+    throw validationFailed("password must be 8-128 characters");
   }
 
   return { email, password };
@@ -211,7 +259,7 @@ function normalizeForgotPasswordRequest(body: ForgotPasswordRequest) {
   const email = body.email?.trim().toLowerCase();
 
   if (!email || !isEmail(email)) {
-    throw new BadRequestException("valid email is required");
+    throw validationFailed("valid email is required");
   }
 
   return { email };
@@ -222,11 +270,11 @@ function normalizeResetPasswordRequest(body: ResetPasswordRequest) {
   const password = body.password ?? "";
 
   if (!token || token.length < 32 || token.length > 200) {
-    throw new BadRequestException("token is required");
+    throw validationFailed("token is required");
   }
 
   if (password.length < 8 || password.length > 128) {
-    throw new BadRequestException("password must be 8-128 characters");
+    throw validationFailed("password must be 8-128 characters");
   }
 
   return { token, password };
@@ -238,11 +286,11 @@ function normalizeChangePasswordRequest(body: ChangePasswordRequest) {
   const newPassword = body.newPassword ?? "";
 
   if (!email || !isEmail(email)) {
-    throw new BadRequestException("valid email is required");
+    throw validationFailed("valid email is required");
   }
 
   if (currentPassword.length < 8 || currentPassword.length > 128 || newPassword.length < 8 || newPassword.length > 128) {
-    throw new BadRequestException("password must be 8-128 characters");
+    throw validationFailed("password must be 8-128 characters");
   }
 
   return { email, currentPassword, newPassword };
@@ -252,26 +300,26 @@ function normalizeEmailSettingsRequest(body: EmailSettingsRequest): EmailSetting
   const provider = body.provider ?? "smtp";
 
   if (provider !== "smtp") {
-    throw new BadRequestException("only smtp provider is supported locally");
+    throw validationFailed("only smtp provider is supported locally");
   }
 
   const smtpHost = normalizeText(body.smtpHost, "smtpHost", 1, 200);
   const smtpPort = Number(body.smtpPort);
 
   if (!Number.isInteger(smtpPort) || smtpPort <= 0 || smtpPort > 65535) {
-    throw new BadRequestException("smtpPort must be between 1 and 65535");
+    throw validationFailed("smtpPort must be between 1 and 65535");
   }
 
   const fromEmail = normalizeText(body.fromEmail, "fromEmail", 3, 200).toLowerCase();
 
   if (!isEmail(fromEmail)) {
-    throw new BadRequestException("fromEmail must be a valid email address");
+    throw validationFailed("fromEmail must be a valid email address");
   }
 
   const replyToEmail = normalizeOptionalText(body.replyToEmail, "replyToEmail", 200)?.toLowerCase() ?? null;
 
   if (replyToEmail && !isEmail(replyToEmail)) {
-    throw new BadRequestException("replyToEmail must be a valid email address");
+    throw validationFailed("replyToEmail must be a valid email address");
   }
 
   const smtpUsername = normalizeOptionalText(body.smtpUsername, "smtpUsername", 200);
@@ -279,7 +327,7 @@ function normalizeEmailSettingsRequest(body: EmailSettingsRequest): EmailSetting
   const verificationTokenTtlMinutes = Number(body.verificationTokenTtlMinutes ?? 30);
 
   if (!Number.isInteger(verificationTokenTtlMinutes) || verificationTokenTtlMinutes < 5 || verificationTokenTtlMinutes > 1440) {
-    throw new BadRequestException("verificationTokenTtlMinutes must be an integer from 5 to 1440");
+    throw validationFailed("verificationTokenTtlMinutes must be an integer from 5 to 1440");
   }
 
   return {
@@ -356,7 +404,7 @@ class AuthRepository implements OnApplicationShutdown {
       await client.query("ROLLBACK");
 
       if (typeof error === "object" && error && "code" in error && error.code === "23505") {
-        throw new ConflictException("username or email already registered");
+        throw stateConflict("username or email already registered");
       }
 
       throw error;
@@ -417,7 +465,7 @@ class AuthRepository implements OnApplicationShutdown {
     }
 
     if (row.provider !== "smtp") {
-      throw new BadRequestException("email provider is not supported by auth-service");
+      throw validationFailed("email provider is not supported by auth-service");
     }
 
     return {
@@ -565,15 +613,15 @@ class AuthRepository implements OnApplicationShutdown {
       const row = result.rows[0];
 
       if (!row) {
-        throw new BadRequestException("verification token is invalid");
+        throw validationFailed("verification token is invalid");
       }
 
       if (row.used_at) {
-        throw new BadRequestException("verification token has already been used");
+        throw stateConflict("verification token has already been used");
       }
 
       if (new Date(row.expires_at).getTime() < Date.now()) {
-        throw new BadRequestException("verification token has expired");
+        throw validationFailed("verification token has expired");
       }
 
       await client.query("UPDATE email_verification_tokens SET used_at = now() WHERE token = $1", [token]);
@@ -610,11 +658,11 @@ class AuthRepository implements OnApplicationShutdown {
     const row = result.rows[0];
 
     if (!row || !verifyPassword(input.password, row.password_hash)) {
-      throw new BadRequestException("email or password is invalid");
+      throw unauthorized("email or password is invalid");
     }
 
     if (row.status !== "active") {
-      throw new BadRequestException("account is not active");
+      throw forbidden("account is not active");
     }
 
     return {
@@ -673,15 +721,15 @@ class AuthRepository implements OnApplicationShutdown {
       const row = result.rows[0];
 
       if (!row) {
-        throw new BadRequestException("password reset token is invalid");
+        throw validationFailed("password reset token is invalid");
       }
 
       if (row.used_at) {
-        throw new BadRequestException("password reset token has already been used");
+        throw stateConflict("password reset token has already been used");
       }
 
       if (new Date(row.expires_at).getTime() < Date.now()) {
-        throw new BadRequestException("password reset token has expired");
+        throw validationFailed("password reset token has expired");
       }
 
       await client.query("UPDATE customers SET password_hash = $1 WHERE id = $2 AND store_id = $3", [
@@ -761,7 +809,7 @@ class AuthRepository implements OnApplicationShutdown {
 class VerificationEmailSender {
   async send(ctx: StoreContext, registration: CustomerRegistration, settings: EmailSettings): Promise<void> {
     if (!settings.enabled) {
-      throw new BadRequestException("email delivery is disabled");
+      throw providerUnavailable("email delivery is disabled");
     }
 
     if (emailDeliveryMode !== "smtp") {
@@ -822,7 +870,7 @@ class VerificationEmailSender {
 class PasswordResetEmailSender {
   async send(ctx: StoreContext, reset: PasswordReset, settings: EmailSettings): Promise<void> {
     if (!settings.enabled) {
-      throw new BadRequestException("email delivery is disabled");
+      throw providerUnavailable("email delivery is disabled");
     }
 
     if (emailDeliveryMode !== "smtp") {
@@ -898,7 +946,7 @@ class AuthService {
 
   async verifyEmail(ctx: StoreContext, token: string) {
     if (!token) {
-      throw new BadRequestException("token is required");
+      throw validationFailed("token is required");
     }
 
     const customer = await this.authRepository.verifyEmail(token);
