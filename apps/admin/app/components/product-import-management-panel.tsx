@@ -1,5 +1,6 @@
 "use client";
 
+import { localizedErrorMessage } from "@commerce/error-codes";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   AdminCheckbox,
@@ -161,17 +162,22 @@ export function ProductImportManagementPanel() {
       const configPayload = await configResponse.json();
       const tasksPayload = (await tasksResponse.json()) as ImportListPayload;
 
-      if (!configResponse.ok) throw new Error(configPayload.message ?? "product import config unavailable");
+      if (!configResponse.ok) {
+        throw new Error(localizedErrorMessage(configPayload, configResponse.status, "zh"));
+      }
+      if (!tasksResponse.ok) {
+        throw new Error(localizedErrorMessage(tasksPayload, tasksResponse.status, "zh"));
+      }
 
       setConfig(configPayload.config ?? defaultConfig);
       setStorageMode(configPayload.storageMode ?? tasksPayload.storageMode ?? "unknown");
       setTasks(Array.isArray(tasksPayload.items) ? tasksPayload.items : []);
       setStatus(configPayload.storageMode === "postgres" ? "已连接商品导入服务" : "商品导入服务使用内存降级，未伪造生产持久化");
-    } catch {
+    } catch (error) {
       setConfig(defaultConfig);
       setTasks([]);
       setStorageMode("unknown");
-      setStatus("商品导入 API 未连接。");
+      setStatus(error instanceof TypeError ? "商品导入 API 未连接。" : error instanceof Error ? error.message : "读取商品导入配置失败。");
     }
   }
 
@@ -193,12 +199,14 @@ export function ProductImportManagementPanel() {
         body: JSON.stringify(config)
       });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.message ?? "save failed");
+      if (!response.ok) {
+        throw new Error(localizedErrorMessage(payload, response.status, "zh"));
+      }
       setConfig(payload.config);
       setStorageMode(payload.storageMode ?? "unknown");
       setStatus(payload.storageMode === "postgres" ? "AI 导入配置已保存" : "配置仅保存到内存降级层。");
-    } catch {
-      setStatus("AI 导入配置保存失败，未假装成功。");
+    } catch (error) {
+      setStatus(error instanceof TypeError ? "商品导入 API 未连接，配置未保存。" : error instanceof Error ? error.message : "AI 导入配置保存失败，未假装成功。");
     }
   }
 
@@ -216,12 +224,14 @@ export function ProductImportManagementPanel() {
         body: JSON.stringify({ text: importText })
       });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.message ?? "import failed");
+      if (!response.ok) {
+        throw new Error(localizedErrorMessage(payload, response.status, "zh"));
+      }
       setImportText("");
       setStatus(`已导入 ${Array.isArray(payload.tasks) ? payload.tasks.length : 0} 条，缺少 AI Provider 时会显性阻塞。`);
       await load();
-    } catch {
-      setStatus("导入失败，请检查 URL 格式。");
+    } catch (error) {
+      setStatus(error instanceof TypeError ? "商品导入 API 未连接。" : error instanceof Error ? error.message : "导入失败，请检查 URL 格式。");
     }
   }
 
@@ -238,11 +248,13 @@ export function ProductImportManagementPanel() {
         body: JSON.stringify(draft)
       });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.message ?? "draft save failed");
+      if (!response.ok) {
+        throw new Error(localizedErrorMessage(payload, response.status, "zh"));
+      }
       setTasks((items) => items.map((item) => (item.id === task.id ? payload.task : item)));
       setStatus("导入草稿已保存");
-    } catch {
-      setStatus("导入草稿保存失败，未假装成功。");
+    } catch (error) {
+      setStatus(error instanceof TypeError ? "商品导入 API 未连接，草稿未保存。" : error instanceof Error ? error.message : "导入草稿保存失败，未假装成功。");
     }
   }
 
@@ -259,11 +271,21 @@ export function ProductImportManagementPanel() {
         body: "{}"
       });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.message ?? "action failed");
-      setStatus(payload.message ?? (action === "generate" ? "AI 生成请求已记录" : "发布校验已通过"));
+      if (!response.ok) {
+        throw new Error(localizedErrorMessage(payload, response.status, "zh"));
+      }
+      setStatus(action === "generate" ? "AI 生成请求已记录" : "发布校验已通过");
       await load();
-    } catch {
-      setStatus(action === "generate" ? "AI 生成不可用，未假装成功。" : "发布失败，请补齐必填字段。");
+    } catch (error) {
+      setStatus(
+        error instanceof TypeError
+          ? "商品导入 API 未连接。"
+          : error instanceof Error
+            ? error.message
+            : action === "generate"
+              ? "AI 生成不可用，未假装成功。"
+              : "发布失败，请补齐必填字段。"
+      );
     }
   }
 

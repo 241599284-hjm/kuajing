@@ -1,5 +1,6 @@
 "use client";
 
+import { localizedErrorMessage } from "@commerce/error-codes";
 import { FormEvent, useEffect, useState } from "react";
 import {
   AdminField,
@@ -120,17 +121,22 @@ export function OpsManagementPanel() {
       const settingsPayload = await settingsResponse.json();
       const auditPayload = await auditResponse.json();
 
-      if (!settingsResponse.ok) throw new Error(settingsPayload.message ?? "ops settings unavailable");
+      if (!settingsResponse.ok) {
+        throw new Error(localizedErrorMessage(settingsPayload, settingsResponse.status, "zh"));
+      }
+      if (!auditResponse.ok) {
+        throw new Error(localizedErrorMessage(auditPayload, auditResponse.status, "zh"));
+      }
 
       setSettings(settingsPayload.settings ?? defaultSettings);
       setStorageMode(settingsPayload.storageMode ?? "unknown");
       setAuditEvents(Array.isArray(auditPayload.events) ? auditPayload.events : []);
       setStatus(settingsPayload.storageMode === "postgres" ? "已读取真实运维配置" : "运维服务使用内存降级，未伪造生产持久化");
-    } catch {
+    } catch (error) {
       setSettings(defaultSettings);
       setAuditEvents([]);
       setStorageMode("unknown");
-      setStatus("运维 API 未连接，当前仅显示默认配置。");
+      setStatus(error instanceof TypeError ? "运维 API 未连接，当前仅显示默认配置。" : error instanceof Error ? error.message : "读取运维配置失败。");
     }
   }
 
@@ -166,14 +172,16 @@ export function OpsManagementPanel() {
       });
       const payload = await response.json();
 
-      if (!response.ok) throw new Error(payload.message ?? "save failed");
+      if (!response.ok) {
+        throw new Error(localizedErrorMessage(payload, response.status, "zh"));
+      }
 
       setSettings(payload.settings);
       setStorageMode(payload.storageMode ?? "unknown");
       setStatus(payload.storageMode === "postgres" ? "运维配置已保存" : "配置仅保存到内存降级层，请连接 PostgreSQL 后再交付。");
       await load();
-    } catch {
-      setStatus("保存失败，未假装成功。");
+    } catch (error) {
+      setStatus(error instanceof TypeError ? "运维 API 未连接，配置未保存。" : error instanceof Error ? error.message : "保存失败，未假装成功。");
     }
   }
 
@@ -191,12 +199,14 @@ export function OpsManagementPanel() {
       });
       const payload = await response.json();
 
-      if (!response.ok) throw new Error(payload.message ?? "action failed");
+      if (!response.ok) {
+        throw new Error(localizedErrorMessage(payload, response.status, "zh"));
+      }
 
-      setStatus(payload.message ?? "运维动作已记录。真实云 API 执行器待接入。");
+      setStatus("运维动作已记录。真实云 API 执行器待接入。");
       await load();
-    } catch {
-      setStatus("运维动作失败，未假装执行成功。");
+    } catch (error) {
+      setStatus(error instanceof TypeError ? "运维 API 未连接，动作未执行。" : error instanceof Error ? error.message : "运维动作失败，未假装执行成功。");
     }
   }
 

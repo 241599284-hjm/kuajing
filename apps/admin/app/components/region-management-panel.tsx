@@ -1,5 +1,6 @@
 "use client";
 
+import { localizedErrorMessage } from "@commerce/error-codes";
 import { FormEvent, useEffect, useState } from "react";
 import {
   AdminActionRow,
@@ -59,9 +60,12 @@ export function RegionManagementPanel() {
     async function loadRegions() {
       try {
         const response = await fetch(`${adminGatewayUrl}/catalog/regions`);
-        if (!response.ok) return;
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(localizedErrorMessage(payload, response.status, "zh"));
+        }
 
-        const data = (await response.json()) as Array<{
+        const data = payload as Array<{
           slug: string;
           icon: RegionRow["icon"];
           isVisible: boolean;
@@ -84,8 +88,8 @@ export function RegionManagementPanel() {
           status: region.isVisible ? "active" : "inactive"
         })));
         setStatus("已从 catalog-service 加载");
-      } catch {
-        setStatus("本地演示数据，API 未连接");
+      } catch (error) {
+        setStatus(error instanceof TypeError ? "Catalog API 未连接，当前显示本地演示数据。" : error instanceof Error ? error.message : "读取地域配置失败。");
       }
     }
 
@@ -133,13 +137,14 @@ export function RegionManagementPanel() {
         body: JSON.stringify({ regions })
       });
 
+      const payload = await response.json();
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        throw new Error(localizedErrorMessage(payload, response.status, "zh"));
       }
 
       setStatus("已保存");
-    } catch {
-      setStatus("API 未连接，本地已保留修改");
+    } catch (error) {
+      setStatus(error instanceof TypeError ? "Catalog API 未连接，本地已保留修改。" : error instanceof Error ? error.message : "地域配置保存失败。");
     }
   }
 

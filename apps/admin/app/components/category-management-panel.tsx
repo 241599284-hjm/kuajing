@@ -1,5 +1,6 @@
 "use client";
 
+import { localizedErrorMessage } from "@commerce/error-codes";
 import { FormEvent, useEffect, useState } from "react";
 import {
   AdminActionRow,
@@ -41,9 +42,12 @@ export function CategoryManagementPanel() {
     async function loadCategories() {
       try {
         const response = await fetch(`${adminGatewayUrl}/catalog/categories`);
-        if (!response.ok) return;
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(localizedErrorMessage(payload, response.status, "zh"));
+        }
 
-        const data = (await response.json()) as Array<{
+        const data = payload as Array<{
           slug: string;
           isVisible: boolean;
           sortOrder: number;
@@ -60,8 +64,8 @@ export function CategoryManagementPanel() {
           status: category.isVisible ? "active" : "inactive"
         })));
         setStatus("已从 catalog-service 加载");
-      } catch {
-        setStatus("本地演示数据，API 未连接");
+      } catch (error) {
+        setStatus(error instanceof TypeError ? "Catalog API 未连接，当前显示本地演示数据。" : error instanceof Error ? error.message : "读取商品分类失败。");
       }
     }
 
@@ -105,13 +109,14 @@ export function CategoryManagementPanel() {
         body: JSON.stringify({ categories })
       });
 
+      const payload = await response.json();
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        throw new Error(localizedErrorMessage(payload, response.status, "zh"));
       }
 
       setStatus("已保存");
-    } catch {
-      setStatus("API 未连接，本地已保留修改");
+    } catch (error) {
+      setStatus(error instanceof TypeError ? "Catalog API 未连接，本地已保留修改。" : error instanceof Error ? error.message : "分类保存失败。");
     }
   }
 

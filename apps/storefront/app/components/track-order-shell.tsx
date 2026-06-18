@@ -103,7 +103,7 @@ function TrackOrderContent() {
         : locale === "zh" ? "已读取物流轨迹" : "Tracking details loaded");
     } catch (error) {
       setTracking(null);
-      setStatus(error instanceof Error && error.message !== "Internal server error" ? error.message : trackingUnavailableMessage(locale));
+      setStatus(error instanceof TypeError ? trackingUnavailableMessage(locale) : error instanceof Error ? error.message : trackingUnavailableMessage(locale));
     } finally {
       setIsLoading(false);
     }
