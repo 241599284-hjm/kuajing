@@ -274,7 +274,7 @@ export function ProductImportManagementPanel() {
       if (!response.ok) {
         throw new Error(localizedErrorMessage(payload, response.status, "zh"));
       }
-      setStatus(action === "generate" ? "AI 生成请求已记录" : "发布校验已通过");
+      setStatus(action === "generate" ? "AI 生成请求已记录" : "商品已写入正式商品库");
       await load();
     } catch (error) {
       setStatus(

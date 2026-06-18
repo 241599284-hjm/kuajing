@@ -4,6 +4,7 @@ import { NestFactory } from "@nestjs/core";
 import { ERROR_CODES } from "@commerce/error-codes";
 import { money } from "@commerce/money";
 import { catalogCacheKeys, categoryWriteInvalidationKeys, productWriteInvalidationKeys, regionWriteInvalidationKeys } from "./cache-policy.js";
+import { normalizeProductPriceMinor } from "./product-price.js";
 import type {
   CatalogCategory,
   CatalogMediaKind,
@@ -150,6 +151,7 @@ type SaveProductInput = {
   category?: string;
   region?: string;
   price?: number;
+  priceMinor?: number;
   detailZh?: string;
   detailEn?: string;
   materialZh?: string;
@@ -382,16 +384,6 @@ function slugFromName(value: string): string {
     .replace(/^-+|-+$/g, "");
 
   return slug || `product-${randomUUID().slice(0, 8)}`;
-}
-
-function normalizePriceMinor(value: number | undefined): number {
-  const price = Number(value ?? 0);
-
-  if (!Number.isFinite(price) || price < 0) {
-    throw validationFailed("product.price must be a non-negative number", { field: "product.price", min: 0 });
-  }
-
-  return Math.round(price * 100);
 }
 
 function assertRegionIcon(value: string | undefined): CatalogRegionIcon {
@@ -1225,7 +1217,7 @@ class CatalogRepository implements OnApplicationShutdown {
         );
         const productId = existingSkuResult.rows[0]?.product_id ?? randomUUID();
         const slug = slugFromName(nameEn);
-        const priceMinor = normalizePriceMinor(product.price);
+        const priceMinor = normalizeProductPriceMinor(product.price, product.priceMinor);
         const materialZh = normalizeText(product.materialZh, "product.materialZh");
         const materialEn = normalizeText(product.materialEn, "product.materialEn");
         const originZh = normalizeText(product.originZh, "product.originZh");

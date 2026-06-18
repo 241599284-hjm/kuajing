@@ -1,7 +1,9 @@
 import "reflect-metadata";
-import { BadRequestException, Body, Controller, Get, Headers, Injectable, Module, Param, Post, Put, Query } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Headers, Injectable, Module, NotFoundException, Param, Post, Put, Query } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import { ERROR_CODES } from "@commerce/error-codes";
 import { assertStoreContext } from "@commerce/store-context";
+import { publishDraftToCatalog } from "./catalog-publisher.js";
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 
@@ -103,10 +105,38 @@ type AuditEvent = {
 };
 
 const databaseUrl = process.env.PRODUCT_IMPORT_DATABASE_URL;
+const catalogServiceUrl = process.env.CATALOG_SERVICE_URL ?? "http://localhost:4103";
 const pool = databaseUrl ? new Pool({ connectionString: databaseUrl }) : null;
 const memoryTasks: ImportTask[] = [];
 const memoryAuditEvents: AuditEvent[] = [];
 let memoryConfig = defaultConfig();
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function validationFailed(message: string, details?: unknown): BadRequestException {
+  return new BadRequestException({
+    code: ERROR_CODES.VALIDATION_FAILED,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function notFound(message: string, details?: unknown): NotFoundException {
+  return new NotFoundException({
+    code: ERROR_CODES.NOT_FOUND,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function normalizeTaskId(value: string): string {
+  const taskId = value.trim();
+
+  if (!uuidPattern.test(taskId)) {
+    throw validationFailed("product import task id must be a UUID");
+  }
+
+  return taskId;
+}
 
 function defaultConfig(): ImportConfig {
   return {
@@ -237,7 +267,7 @@ function validateSourceUrl(value: string) {
     if (!["http:", "https:"].includes(url.protocol)) throw new Error("invalid protocol");
     return url.toString();
   } catch {
-    throw new BadRequestException("sourceUrl must be a valid http or https URL");
+    throw validationFailed("sourceUrl must be a valid http or https URL");
   }
 }
 
@@ -342,11 +372,13 @@ function validatePublishDraft(draft: ImportDraft) {
   ].filter(([, value]) => !value);
 
   if (missing.length > 0) {
-    throw new BadRequestException(`publish blocked, missing fields: ${missing.map(([field]) => field).join(", ")}`);
+    throw validationFailed(`publish blocked, missing fields: ${missing.map(([field]) => field).join(", ")}`, {
+      missingFields: missing.map(([field]) => field)
+    });
   }
 
   if (draft.priceMinor <= 0 || draft.weightGrams <= 0) {
-    throw new BadRequestException("publish blocked, priceMinor and weightGrams must be positive integers");
+    throw validationFailed("publish blocked, priceMinor and weightGrams must be positive integers");
   }
 }
 
@@ -441,7 +473,9 @@ class ProductImportRepository {
     const { config } = await this.config();
 
     if (cleanUrls.length > config.queue.maxImportUrls) {
-      throw new BadRequestException(`single import limit is ${config.queue.maxImportUrls} URLs`);
+      throw validationFailed(`single import limit is ${config.queue.maxImportUrls} URLs`, {
+        maxImportUrls: config.queue.maxImportUrls
+      });
     }
 
     const tasks = cleanUrls.map((sourceUrl) => {
@@ -567,7 +601,7 @@ class ProductImportRepository {
 
   async updateDraft(storeId: string, taskId: string, actor: string, input: unknown, correlationId: string) {
     const task = await this.findTask(storeId, taskId);
-    if (!task) throw new BadRequestException("product import task not found");
+    if (!task) throw notFound("product import task not found");
     const draft = normalizeDraft(input, task.draft);
     const nextTask = { ...task, draft, status: "editing" as const, updatedAt: new Date().toISOString() };
 
@@ -586,7 +620,7 @@ class ProductImportRepository {
 
   async startGeneration(storeId: string, taskId: string, actor: string, correlationId: string) {
     const task = await this.findTask(storeId, taskId);
-    if (!task) throw new BadRequestException("product import task not found");
+    if (!task) throw notFound("product import task not found");
     const { config } = await this.config();
     const hasCopyProvider = config.copywriting.mode === "api" && Boolean(config.copywriting.apiUrl);
     const hasImageProvider = config.image.mode === "api" && Boolean(config.image.apiUrl);
@@ -623,10 +657,17 @@ class ProductImportRepository {
 
   async publish(storeId: string, taskId: string, actor: string, correlationId: string) {
     const task = await this.findTask(storeId, taskId);
-    if (!task) throw new BadRequestException("product import task not found");
+    if (!task) throw notFound("product import task not found");
     validatePublishDraft(task.draft);
 
-    const publishedProductId = task.publishedProductId ?? randomUUID();
+    const publishedProductId = await publishDraftToCatalog({
+      catalogServiceUrl,
+      taskId: task.id,
+      draft: task.draft,
+      actor,
+      correlationId
+    });
+
     if (!pool) {
       const index = memoryTasks.findIndex((item) => item.id === taskId && item.storeId === storeId);
       if (index >= 0) {
@@ -644,8 +685,7 @@ class ProductImportRepository {
     return {
       published: true,
       productId: publishedProductId,
-      storageMode: "postgres" as const,
-      message: "导入任务已通过发布校验并标记发布。正式写入 catalog-service 仍需接入 Catalog 发布适配器。"
+      storageMode: "postgres" as const
     };
   }
 
@@ -747,7 +787,7 @@ class ProductImportController {
     const context = createContext(headers);
     const textUrls = typeof body.text === "string" ? body.text.split(/\r?\n/) : [];
     const urls = [...(Array.isArray(body.urls) ? body.urls : []), ...textUrls].map((item) => String(item).trim()).filter(Boolean);
-    if (urls.length === 0) throw new BadRequestException("at least one source URL is required");
+    if (urls.length === 0) throw validationFailed("at least one source URL is required");
     return this.repository.createTasks(context.storeId, urls, actorFromHeaders(headers), context.correlationId);
   }
 
@@ -771,19 +811,19 @@ class ProductImportController {
   @Put("/imports/:id/draft")
   updateDraft(@Headers() headers: HeaderBag, @Param("id") id: string, @Body() body: unknown) {
     const context = createContext(headers);
-    return this.repository.updateDraft(context.storeId, id, actorFromHeaders(headers), body, context.correlationId);
+    return this.repository.updateDraft(context.storeId, normalizeTaskId(id), actorFromHeaders(headers), body, context.correlationId);
   }
 
   @Post("/imports/:id/generate")
   startGeneration(@Headers() headers: HeaderBag, @Param("id") id: string) {
     const context = createContext(headers);
-    return this.repository.startGeneration(context.storeId, id, actorFromHeaders(headers), context.correlationId);
+    return this.repository.startGeneration(context.storeId, normalizeTaskId(id), actorFromHeaders(headers), context.correlationId);
   }
 
   @Post("/imports/:id/publish")
   publish(@Headers() headers: HeaderBag, @Param("id") id: string) {
     const context = createContext(headers);
-    return this.repository.publish(context.storeId, id, actorFromHeaders(headers), context.correlationId);
+    return this.repository.publish(context.storeId, normalizeTaskId(id), actorFromHeaders(headers), context.correlationId);
   }
 
   @Get("/audit-events")

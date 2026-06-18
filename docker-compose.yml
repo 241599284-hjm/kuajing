@@ -211,6 +211,7 @@ services:
       NODE_ENV: development
       PORT: 4114
       PRODUCT_IMPORT_DATABASE_URL: postgresql://${POSTGRES_USER:-commerce}:${POSTGRES_PASSWORD:-commerce}@postgres:5432/product_import_db
+      CATALOG_SERVICE_URL: http://catalog-service:4103
       DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
       DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
       DEFAULT_STORE_TIMEZONE: ${DEFAULT_STORE_TIMEZONE:-Asia/Hong_Kong}
@@ -219,6 +220,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      catalog-service:
+        condition: service_started
 
   auth-service:
     profiles: ["app"]
