@@ -1,5 +1,6 @@
 "use client";
 
+import { localizedErrorMessage } from "@commerce/error-codes";
 import { FormEvent, useEffect, useState } from "react";
 import {
   AdminActionRow,
@@ -111,12 +112,11 @@ export function EmailSettingsPanel() {
     async function loadSettings() {
       try {
         const response = await fetch(`${authServiceUrl}/admin/email-settings`);
+        const data = (await response.json().catch(() => ({}))) as EmailSettings;
 
         if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
+          throw new Error(localizedErrorMessage(data, response.status, "zh"));
         }
-
-        const data = (await response.json()) as EmailSettings;
 
         if (isMounted) {
           setSettings(data);
@@ -132,8 +132,8 @@ export function EmailSettingsPanel() {
     async function loadTemplates() {
       try {
         const response = await fetch(`${adminGatewayUrl}/notification/templates`);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = (await response.json()) as NotificationEmailTemplate[];
+        const data = (await response.json().catch(() => ({}))) as NotificationEmailTemplate[] | { message?: string };
+        if (!response.ok || !Array.isArray(data)) throw new Error(localizedErrorMessage(data, response.status, "zh"));
         if (isMounted) {
           setTemplates(data);
           setSelectedTemplateKey(data[0]?.key ?? "");
@@ -150,8 +150,8 @@ export function EmailSettingsPanel() {
     async function loadEmailLogs() {
       try {
         const response = await fetch(`${adminGatewayUrl}/notification/email-logs`);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = (await response.json()) as NotificationEmailLog[];
+        const data = (await response.json().catch(() => ({}))) as NotificationEmailLog[] | { message?: string };
+        if (!response.ok || !Array.isArray(data)) throw new Error(localizedErrorMessage(data, response.status, "zh"));
         if (isMounted) {
           setEmailLogs(data);
         }
@@ -165,8 +165,8 @@ export function EmailSettingsPanel() {
     async function loadEmailAccounts() {
       try {
         const response = await fetch(`${adminGatewayUrl}/notification/email-accounts`);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = (await response.json()) as EmailAccountRecord[];
+        const data = (await response.json().catch(() => ({}))) as EmailAccountRecord[] | { message?: string };
+        if (!response.ok || !Array.isArray(data)) throw new Error(localizedErrorMessage(data, response.status, "zh"));
         if (isMounted) {
           setEmailAccounts(data);
           setAccountsStatus("已加载");
@@ -218,7 +218,7 @@ export function EmailSettingsPanel() {
 
       if (!response.ok) {
         const body = (await response.json().catch(() => ({}))) as { message?: string };
-        throw new Error(body.message ?? `HTTP ${response.status}`);
+        throw new Error(localizedErrorMessage(body, response.status, "zh"));
       }
 
       const data = (await response.json()) as EmailSettings;
@@ -227,12 +227,7 @@ export function EmailSettingsPanel() {
       setClearSmtpPassword(false);
       setStatus("已保存");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "保存失败";
-      setStatus(
-        message === "Failed to fetch" || message === "Internal server error" || message.startsWith("HTTP 5")
-          ? "API 未连接，本地已保留修改"
-          : message
-      );
+      setStatus(error instanceof TypeError ? "API 未连接，本地已保留修改" : error instanceof Error ? error.message : "保存失败");
     } finally {
       setIsSaving(false);
     }
@@ -261,7 +256,7 @@ export function EmailSettingsPanel() {
 
       if (!response.ok) {
         const body = (await response.json().catch(() => ({}))) as { message?: string };
-        throw new Error(body.message ?? `HTTP ${response.status}`);
+        throw new Error(localizedErrorMessage(body, response.status, "zh"));
       }
 
       const saved = (await response.json()) as NotificationEmailTemplate;
@@ -269,8 +264,7 @@ export function EmailSettingsPanel() {
       setTemplateDraft(saved);
       setTemplateStatus(saved.storageMode === "memory" ? "已保存到内存，数据库未连接" : "已保存");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "保存失败";
-      setTemplateStatus(message === "Internal server error" || message.startsWith("HTTP 5") ? "API 未连接，本地已保留修改" : message);
+      setTemplateStatus(error instanceof TypeError ? "API 未连接，本地已保留修改" : error instanceof Error ? error.message : "保存失败");
     } finally {
       setIsSavingTemplate(false);
     }
@@ -329,7 +323,7 @@ export function EmailSettingsPanel() {
 
       if (!response.ok) {
         const body = (await response.json().catch(() => ({}))) as { message?: string };
-        throw new Error(body.message ?? `HTTP ${response.status}`);
+        throw new Error(localizedErrorMessage(body, response.status, "zh"));
       }
 
       const saved = (await response.json()) as EmailAccountRecord[];

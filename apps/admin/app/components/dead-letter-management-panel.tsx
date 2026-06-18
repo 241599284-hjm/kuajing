@@ -1,5 +1,6 @@
 "use client";
 
+import { localizedErrorMessage } from "@commerce/error-codes";
 import { useEffect, useMemo, useState } from "react";
 import {
   AdminActionRow,
@@ -104,14 +105,14 @@ export function DeadLetterManagementPanel() {
       const payload = (await response.json().catch(() => [])) as DeadLetterTask[] | { message?: string };
 
       if (!response.ok || !Array.isArray(payload)) {
-        throw new Error(Array.isArray(payload) ? `HTTP ${response.status}` : payload.message ?? `HTTP ${response.status}`);
+        throw new Error(localizedErrorMessage(payload, response.status, "zh"));
       }
 
       setTasks(payload);
       setStatus(payload.length > 0 ? "已读取死信队列" : "暂无死信任务");
-    } catch {
+    } catch (error) {
       setTasks([]);
-      setStatus("DLQ API 未连接");
+      setStatus(error instanceof Error && !(error instanceof TypeError) ? error.message : "DLQ API 未连接");
     } finally {
       setIsLoading(false);
     }
@@ -136,7 +137,7 @@ export function DeadLetterManagementPanel() {
       const payload = (await response.json().catch(() => ({}))) as { message?: string };
 
       if (!response.ok) {
-        throw new Error(payload.message ?? `HTTP ${response.status}`);
+        throw new Error(localizedErrorMessage(payload, response.status, "zh"));
       }
 
       setStatus("已发起人工重试");
@@ -167,7 +168,7 @@ export function DeadLetterManagementPanel() {
       const payload = (await response.json().catch(() => ({}))) as { message?: string };
 
       if (!response.ok) {
-        throw new Error(payload.message ?? `HTTP ${response.status}`);
+        throw new Error(localizedErrorMessage(payload, response.status, "zh"));
       }
 
       setStatus("已作废死信任务");
