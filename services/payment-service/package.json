@@ -11,6 +11,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@commerce/error-codes": "workspace:*",
     "@commerce/money": "workspace:*",
     "@commerce/provider-contracts": "workspace:*",
     "@commerce/store-context": "workspace:*",

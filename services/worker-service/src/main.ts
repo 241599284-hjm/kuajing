@@ -2,6 +2,7 @@ import "reflect-metadata";
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
   Get,
   Headers,
@@ -15,6 +16,7 @@ import {
   Post
 } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import { ERROR_CODES, normalizeErrorPayload } from "@commerce/error-codes";
 import { nextRetryAt } from "@commerce/outbox-inbox";
 import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
@@ -88,11 +90,35 @@ const pollIntervalMs = Number(process.env.WORKER_POLL_INTERVAL_MS ?? 5000);
 const batchSize = Number(process.env.WORKER_BATCH_SIZE ?? 5);
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+function validationFailed(message: string, details?: unknown): BadRequestException {
+  return new BadRequestException({
+    code: ERROR_CODES.VALIDATION_FAILED,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function notFound(message: string, details?: unknown): NotFoundException {
+  return new NotFoundException({
+    code: ERROR_CODES.NOT_FOUND,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function stateConflict(message: string, details?: unknown): ConflictException {
+  return new ConflictException({
+    code: ERROR_CODES.CONFLICT,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
 function normalizeTaskId(value: string): string {
   const taskId = value.trim();
 
   if (!uuidPattern.test(taskId)) {
-    throw new BadRequestException("dead letter task id must be a UUID");
+    throw validationFailed("dead letter task id must be a UUID");
   }
 
   return taskId;
@@ -253,15 +279,17 @@ class CompensationWorker implements OnModuleInit, OnApplicationShutdown {
       const deadLetterTask = existing.rows[0];
 
       if (!deadLetterTask) {
-        throw new NotFoundException("dead letter task does not exist");
+        throw notFound("dead letter task does not exist");
       }
 
       if (deadLetterTask.status !== "open") {
-        throw new BadRequestException("only open dead letter tasks can be retried");
+        throw stateConflict("only open dead letter tasks can be retried", {
+          currentStatus: deadLetterTask.status
+        });
       }
 
       if (!deadLetterTask.source_task_id) {
-        throw new BadRequestException("dead letter task has no source compensation task");
+        throw stateConflict("dead letter task has no source compensation task");
       }
 
       await client.query(
@@ -354,7 +382,7 @@ class CompensationWorker implements OnModuleInit, OnApplicationShutdown {
       const updated = result.rows[0];
 
       if (!updated) {
-        throw new NotFoundException("open dead letter task does not exist");
+        throw notFound("open dead letter task does not exist");
       }
 
       await this.insertDeadLetterAuditEvent(client, {
@@ -474,8 +502,9 @@ class CompensationWorker implements OnModuleInit, OnApplicationShutdown {
       });
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => ({}))) as { message?: string };
-        throw new Error(payload.message ?? `inventory ${path} failed with HTTP ${response.status}`);
+        const payload = await response.json().catch(() => ({}));
+        const normalized = normalizeErrorPayload(payload, response.status, task.correlation_id);
+        throw new Error(`${normalized.code}: ${normalized.message}`);
       }
     } finally {
       clearTimeout(timeout);
@@ -672,7 +701,7 @@ class CompensationWorker implements OnModuleInit, OnApplicationShutdown {
     const row = result.rows[0];
 
     if (!row) {
-      throw new NotFoundException("dead letter task does not exist");
+      throw notFound("dead letter task does not exist");
     }
 
     return {

@@ -11,6 +11,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@commerce/error-codes": "workspace:*",
     "@commerce/outbox-inbox": "workspace:*",
     "@commerce/store-context": "workspace:*",
     "@nestjs/common": "^11.0.0",

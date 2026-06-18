@@ -448,6 +448,9 @@ importers:
 
   services/payment-service:
     dependencies:
+      '@commerce/error-codes':
+        specifier: workspace:*
+        version: link:../../packages/error-codes
       '@commerce/money':
         specifier: workspace:*
         version: link:../../packages/money
@@ -585,6 +588,9 @@ importers:
 
   services/worker-service:
     dependencies:
+      '@commerce/error-codes':
+        specifier: workspace:*
+        version: link:../../packages/error-codes
       '@commerce/outbox-inbox':
         specifier: workspace:*
         version: link:../../packages/outbox-inbox

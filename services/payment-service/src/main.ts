@@ -1,6 +1,7 @@
 import "reflect-metadata";
-import { BadRequestException, Body, Controller, Get, Headers, Module, Post, ServiceUnavailableException } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Headers, HttpException, Module, Post, ServiceUnavailableException } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import { ERROR_CODES, normalizeErrorPayload } from "@commerce/error-codes";
 import type { IPaymentProvider, ProviderHealth } from "@commerce/provider-contracts";
 import { assertStoreContext, type StoreContext } from "@commerce/store-context";
 import { randomUUID } from "node:crypto";
@@ -27,6 +28,22 @@ const selfHostedStore = {
 const orderServiceUrl = process.env.ORDER_SERVICE_URL ?? "http://localhost:4105";
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+function validationFailed(message: string, details?: unknown): BadRequestException {
+  return new BadRequestException({
+    code: ERROR_CODES.VALIDATION_FAILED,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function dependencyUnavailable(message: string, details?: unknown): ServiceUnavailableException {
+  return new ServiceUnavailableException({
+    code: ERROR_CODES.DEPENDENCY_UNAVAILABLE,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
 function createStoreContext(correlationId: string | undefined): StoreContext {
   return assertStoreContext({
     storeId: selfHostedStore.storeId,
@@ -45,15 +62,15 @@ function normalizePaymentIntent(body: MockPaymentIntentRequest) {
   const returnUrl = body.returnUrl?.trim() || `${process.env.STOREFRONT_PUBLIC_URL ?? "http://localhost:3000"}/payment-result?mock=success`;
 
   if (!orderId || !idempotencyKey) {
-    throw new BadRequestException("orderId and idempotencyKey are required");
+    throw validationFailed("orderId and idempotencyKey are required");
   }
 
   if (!Number.isInteger(amountMinor) || amountMinor < 0) {
-    throw new BadRequestException("amountMinor must be a non-negative integer");
+    throw validationFailed("amountMinor must be a non-negative integer");
   }
 
   if (!customerEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail)) {
-    throw new BadRequestException("valid customerEmail is required");
+    throw validationFailed("valid customerEmail is required");
   }
 
   return { orderId, idempotencyKey, amountMinor, currency, customerEmail, returnUrl };
@@ -64,11 +81,11 @@ function normalizeMockWebhook(body: MockWebhookRequest) {
   const status = body.status ?? "paid";
 
   if (!orderId || !uuidPattern.test(orderId)) {
-    throw new BadRequestException("orderId must be a UUID");
+    throw validationFailed("orderId must be a UUID");
   }
 
   if (status !== "paid" && status !== "cancelled") {
-    throw new BadRequestException("status must be paid or cancelled");
+    throw validationFailed("status must be paid or cancelled");
   }
 
   return { orderId, status };
@@ -166,7 +183,7 @@ class PaymentController {
       const payload = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new ServiceUnavailableException(payload);
+        throw new HttpException(normalizeErrorPayload(payload, response.status, store.correlationId), response.status);
       }
 
       return {
@@ -174,6 +191,14 @@ class PaymentController {
         provider: provider.name,
         orderTransition: payload
       };
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      throw dependencyUnavailable("Order service is unavailable.", {
+        cause: error instanceof Error ? error.message : "unknown error"
+      });
     } finally {
       clearTimeout(timeout);
     }
