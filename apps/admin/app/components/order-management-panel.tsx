@@ -1,7 +1,9 @@
 "use client";
 
+import { createRequestId } from "../lib/request-id.js";
 import { localizedErrorMessage } from "@commerce/error-codes";
 import { useEffect, useMemo, useState } from "react";
+import { parseRefundAmountMinor } from "../lib/payment-refund.js";
 import {
   AdminActionRow,
   AdminField,
@@ -13,6 +15,7 @@ import {
   AdminSecondaryButton,
   AdminTextInput
 } from "./admin-ui.js";
+import { ConfirmDialog } from "./ui/dialog.js";
 
 const adminGatewayUrl = process.env.NEXT_PUBLIC_ADMIN_GATEWAY_URL ?? "http://localhost:4001";
 
@@ -82,6 +85,37 @@ type PaymentTransitionResult = {
   storageMode: "postgres" | "memory";
 };
 
+type PaymentRefund = {
+  refundId: string;
+  providerRefundId?: string;
+  amountMinor: number;
+  currency: string;
+  status: "processing" | "pending" | "completed" | "failed";
+  reason: string;
+  actorId: string;
+  correlationId: string;
+  createdAt: string;
+  completedAt?: string;
+};
+
+type PaymentRefundSummary = {
+  orderId: string;
+  paymentStatus: string;
+  provider: string;
+  amountMinor: number;
+  currency: string;
+  refundedMinor: number;
+  reservedRefundMinor: number;
+  refundableMinor: number;
+  refunds: PaymentRefund[];
+};
+
+type PaymentRefundResult = {
+  refundId: string;
+  providerRefundId?: string;
+  status: "pending" | "completed";
+};
+
 function formatMoney(amountMinor: number, currency: string) {
   return new Intl.NumberFormat("zh-CN", {
     style: "currency",
@@ -112,7 +146,13 @@ function statusLabel(value: string) {
     paid: "已支付",
     cancelled: "已取消",
     compensating: "补偿处理中",
-    compensation_pending: "补偿待处理"
+    compensation_pending: "补偿待处理",
+    partially_refunded: "部分退款",
+    refunded: "已全额退款",
+    processing: "退款处理中",
+    completed: "退款完成",
+    pending: "待支付渠道确认",
+    failed: "退款失败"
   };
 
   return labels[value] ?? value;
@@ -141,6 +181,12 @@ export function OrderManagementPanel() {
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [manualCompensationReason, setManualCompensationReason] = useState("");
   const [manualCompensationAction, setManualCompensationAction] = useState<"confirm" | "cancel" | null>(null);
+  const [refundSummary, setRefundSummary] = useState<PaymentRefundSummary | null>(null);
+  const [refundStatus, setRefundStatus] = useState("当前订单暂无可退款交易");
+  const [refundAmount, setRefundAmount] = useState("");
+  const [refundReason, setRefundReason] = useState("");
+  const [isRefunding, setIsRefunding] = useState(false);
+  const [pendingRefundAmount, setPendingRefundAmount] = useState<string | null>(null);
 
   async function loadOrders() {
     setIsLoading(true);
@@ -149,7 +195,7 @@ export function OrderManagementPanel() {
     try {
       const response = await fetch(`${adminGatewayUrl}/orders`, {
         headers: {
-          "x-correlation-id": crypto.randomUUID()
+          "x-correlation-id": createRequestId()
         }
       });
       const payload = (await response.json().catch(() => [])) as AdminOrderSummary[] | { message?: string };
@@ -162,6 +208,7 @@ export function OrderManagementPanel() {
       if (selectedOrderId && !payload.some((order) => order.orderId === selectedOrderId)) {
         setSelectedOrderId(null);
         setOrderDetail(null);
+        setRefundSummary(null);
         setDetailStatus("未选择订单");
       }
       setStatus(payload.length > 0 ? "已读取订单" : "暂无订单");
@@ -177,13 +224,17 @@ export function OrderManagementPanel() {
     setSelectedOrderId(orderId);
     setIsDetailLoading(true);
     setDetailStatus("正在读取订单详情");
+    setRefundStatus("正在读取退款记录");
 
     try {
-      const response = await fetch(`${adminGatewayUrl}/orders/${orderId}`, {
-        headers: {
-          "x-correlation-id": crypto.randomUUID()
-        }
-      });
+      const [response, refundResponse] = await Promise.all([
+        fetch(`${adminGatewayUrl}/orders/${orderId}`, {
+          headers: { "x-correlation-id": createRequestId() }
+        }),
+        fetch(`${adminGatewayUrl}/payments/orders/${orderId}/refunds`, {
+          headers: { "x-correlation-id": createRequestId() }
+        })
+      ]);
       const payload = (await response.json().catch(() => ({}))) as AdminOrderDetail | { message?: string };
 
       if (!response.ok || !("orderId" in payload)) {
@@ -192,11 +243,74 @@ export function OrderManagementPanel() {
 
       setOrderDetail(payload);
       setDetailStatus("已读取订单详情");
+      const refundPayload = (await refundResponse.json().catch(() => ({}))) as PaymentRefundSummary | { message?: string };
+      if (refundResponse.ok && "orderId" in refundPayload && "refunds" in refundPayload) {
+        setRefundSummary(refundPayload);
+        setRefundStatus(refundPayload.refundableMinor > 0 ? "可提交部分或全额退款" : "该支付已无可退款余额");
+      } else {
+        setRefundSummary(null);
+        setRefundStatus(
+          refundResponse.status === 404
+            ? "当前订单暂无可退款交易"
+            : localizedErrorMessage(refundPayload, refundResponse.status, "zh")
+        );
+      }
     } catch (error) {
       setOrderDetail(null);
+      setRefundSummary(null);
       setDetailStatus(error instanceof Error && !(error instanceof TypeError) ? error.message : "订单详情 API 未连接");
     } finally {
       setIsDetailLoading(false);
+    }
+  }
+
+  async function submitRefund(amountValue = refundAmount) {
+    if (!orderDetail || !refundSummary) {
+      setRefundStatus("当前订单暂无可退款交易");
+      return;
+    }
+    if (refundReason.trim().length < 3) {
+      setRefundStatus("退款原因至少填写 3 个字符");
+      return;
+    }
+    const parsed = parseRefundAmountMinor(amountValue, refundSummary.refundableMinor);
+    if ("error" in parsed) {
+      setRefundStatus(parsed.error);
+      return;
+    }
+
+    setIsRefunding(true);
+    setRefundStatus("正在向支付渠道提交退款");
+    try {
+      const response = await fetch(`${adminGatewayUrl}/payments/refunds`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "idempotency-key": createRequestId(),
+          "x-correlation-id": createRequestId()
+        },
+        body: JSON.stringify({
+          orderId: orderDetail.orderId,
+          amountMinor: parsed.amountMinor,
+          currency: refundSummary.currency,
+          reason: refundReason.trim()
+        })
+      });
+      const payload = (await response.json().catch(() => ({}))) as PaymentRefundResult | { message?: string };
+      if (!response.ok || !("refundId" in payload)) {
+        throw new Error(localizedErrorMessage(payload, response.status, "zh"));
+      }
+
+      setRefundAmount("");
+      setRefundReason("");
+      setRefundStatus(payload.status === "completed" ? "退款已完成" : "退款已提交，等待支付渠道确认");
+      await loadOrders();
+      await loadOrderDetail(orderDetail.orderId);
+    } catch (error) {
+      setRefundStatus(error instanceof Error && !(error instanceof TypeError) ? error.message : "退款 API 未连接");
+    } finally {
+      setIsRefunding(false);
     }
   }
 
@@ -213,7 +327,7 @@ export function OrderManagementPanel() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-correlation-id": crypto.randomUUID()
+          "x-correlation-id": createRequestId()
         },
         body: JSON.stringify({ orderId: orderDetail.orderId })
       });
@@ -256,9 +370,9 @@ export function OrderManagementPanel() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "idempotency-key": crypto.randomUUID(),
+          "idempotency-key": createRequestId(),
           "x-admin-actor": "local-admin",
-          "x-correlation-id": crypto.randomUUID()
+          "x-correlation-id": createRequestId()
         },
         body: JSON.stringify({
           action,
@@ -293,6 +407,7 @@ export function OrderManagementPanel() {
   }, [orders]);
 
   return (
+    <>
     <AdminPanel eyebrow="履约运营" id="orders-title" status={status} title="订单管理">
       <AdminHelpText>
         这里读取 order-service 的真实订单边界。当前 Mock 订单会显示库存预留、支付意向和存储模式；API 未连接时不会展示假订单。
@@ -537,6 +652,107 @@ export function OrderManagementPanel() {
               </div>
             ) : null}
 
+            <section className="border-y border-[var(--line)] py-4" aria-labelledby="payment-refunds-title">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--ink-soft)]">Refunds</p>
+                  <h4 className="mt-1 text-base font-semibold" id="payment-refunds-title">支付退款</h4>
+                </div>
+                <AdminInlineStatus>{refundStatus}</AdminInlineStatus>
+              </div>
+
+              {refundSummary ? (
+                <>
+                  <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
+                    <div>
+                      <dt className="text-[var(--ink-soft)]">支付金额</dt>
+                      <dd className="mt-1 font-semibold">{formatMoney(refundSummary.amountMinor, refundSummary.currency)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-[var(--ink-soft)]">已完成退款</dt>
+                      <dd className="mt-1 font-semibold">{formatMoney(refundSummary.refundedMinor, refundSummary.currency)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-[var(--ink-soft)]">退款占用金额</dt>
+                      <dd className="mt-1 font-semibold">{formatMoney(refundSummary.reservedRefundMinor, refundSummary.currency)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-[var(--ink-soft)]">当前可退款</dt>
+                      <dd className="mt-1 font-semibold">{formatMoney(refundSummary.refundableMinor, refundSummary.currency)}</dd>
+                    </div>
+                  </dl>
+
+                  {refundSummary.refundableMinor > 0 ? (
+                    <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,180px)_minmax(260px,1fr)_auto_auto]">
+                      <AdminField label={`退款金额（${refundSummary.currency}）`}>
+                        <AdminTextInput
+                          inputMode="decimal"
+                          onChange={(event) => setRefundAmount(event.target.value)}
+                          placeholder="0.00"
+                          value={refundAmount}
+                        />
+                      </AdminField>
+                      <AdminField label="退款原因">
+                        <AdminTextInput
+                          maxLength={500}
+                          onChange={(event) => setRefundReason(event.target.value)}
+                          placeholder="例如：客户确认退回部分商品"
+                          value={refundReason}
+                        />
+                      </AdminField>
+                      <div className="flex items-end">
+                        <AdminPrimaryButton disabled={isRefunding} onClick={() => setPendingRefundAmount(refundAmount)} type="button">
+                          {isRefunding ? "提交中" : "提交退款"}
+                        </AdminPrimaryButton>
+                      </div>
+                      <div className="flex items-end">
+                        <AdminSecondaryButton
+                          disabled={isRefunding}
+                          onClick={() => setPendingRefundAmount((refundSummary.refundableMinor / 100).toFixed(2))}
+                          type="button"
+                        >
+                          退还全部余额
+                        </AdminSecondaryButton>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {refundSummary.refunds.length === 0 ? (
+                    <p className="mt-4 text-sm text-[var(--ink-soft)]">暂无退款记录。</p>
+                  ) : (
+                    <div className="mt-4 overflow-x-auto">
+                      <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+                        <thead className="border-b border-[var(--line)] text-[var(--ink-soft)]">
+                          <tr>
+                            <th className="py-2 pr-3 font-medium">提交时间</th>
+                            <th className="py-2 pr-3 font-medium">状态</th>
+                            <th className="py-2 pr-3 font-medium">金额</th>
+                            <th className="py-2 pr-3 font-medium">操作人</th>
+                            <th className="py-2 pr-3 font-medium">原因</th>
+                            <th className="py-2 pr-3 font-medium">渠道退款号</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {refundSummary.refunds.map((refund) => (
+                            <tr className="border-b border-[var(--line)] last:border-b-0" key={refund.refundId}>
+                              <td className="py-3 pr-3">{formatDate(refund.createdAt)}</td>
+                              <td className="py-3 pr-3 font-semibold">{statusLabel(refund.status)}</td>
+                              <td className="py-3 pr-3">{formatMoney(refund.amountMinor, refund.currency)}</td>
+                              <td className="py-3 pr-3">{refund.actorId}</td>
+                              <td className="py-3 pr-3">{refund.reason}</td>
+                              <td className="py-3 pr-3 text-xs text-[var(--ink-soft)]">{refund.providerRefundId ?? "待生成"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="mt-3 text-sm text-[var(--ink-soft)]">{refundStatus}</p>
+              )}
+            </section>
+
             <div className="rounded-md border border-[var(--line)] p-4">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--ink-soft)]">Audit</p>
@@ -585,5 +801,15 @@ export function OrderManagementPanel() {
         )}
       </div>
     </AdminPanel>
+    <ConfirmDialog
+      open={pendingRefundAmount !== null}
+      onOpenChange={(open) => { if (!open) setPendingRefundAmount(null); }}
+      title="确认发起退款？"
+      description={`将向支付渠道提交 ${pendingRefundAmount ?? "0.00"} ${refundSummary?.currency ?? ""} 的退款。该操作会影响可退款余额并写入审计记录。`}
+      confirmLabel="确认退款"
+      danger
+      onConfirm={() => void submitRefund(pendingRefundAmount ?? undefined)}
+    />
+    </>
   );
 }

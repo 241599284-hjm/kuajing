@@ -4,6 +4,19 @@ export type RegionIconKey = "palace" | "skyline" | "pavilion" | "wall" | "mounta
 export type ProductCategoryKey = string;
 export type StoryMediaKind = "image" | "gif" | "video";
 
+export type StorefrontProductMediaAsset = {
+  assetId: string;
+  kind: StoryMediaKind;
+  url: string;
+  poster: string | null;
+  width: number | null;
+  height: number | null;
+  mimeType: string;
+  responsiveSources: Array<{ url: string; width: number }>;
+  alt: Record<Locale, string>;
+  sortOrder: number;
+};
+
 export type ProductContent = {
   name: string;
   tag: string;
@@ -52,6 +65,7 @@ export type StorefrontProduct = {
   region: RegionKey;
   skuId?: string;
   sku: string;
+  mediaAssets?: StorefrontProductMediaAsset[];
   copy: Record<Locale, ProductContent>;
 };
 

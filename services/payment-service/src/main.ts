@@ -1,10 +1,17 @@
 import "reflect-metadata";
-import { BadRequestException, Body, Controller, Get, Headers, HttpException, Module, Post, ServiceUnavailableException } from "@nestjs/common";
+import { BadRequestException, Body, ConflictException, Controller, Get, Headers, HttpCode, HttpException, Inject, Module, NotFoundException, Param, Post, Req, ServiceUnavailableException } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { ERROR_CODES, normalizeErrorPayload } from "@commerce/error-codes";
 import type { IPaymentProvider, ProviderHealth } from "@commerce/provider-contracts";
 import { assertStoreContext, type StoreContext } from "@commerce/store-context";
 import { randomUUID } from "node:crypto";
+import { PayPalProvider, PayPalProviderError } from "./paypal-provider.js";
+import { normalizePaymentProviderName } from "./provider-selection.js";
+import { acceptPayPalWebhook, PayPalWebhookRequestError } from "./paypal-webhook-handler.js";
+import { PaymentWebhookInboxRepository, PaymentWebhookPayloadConflictError } from "./payment-webhook-inbox.js";
+import { PaymentWebhookWorker } from "./payment-webhook-worker.js";
+import { createTrackedPayment, PaymentTransactionPersistenceError, PaymentTransactionRepository } from "./payment-transaction.js";
+import { PaymentRefundConflictError, PaymentRefundRepository, PaymentRefundStateError, processPaymentRefund } from "./payment-refund.js";
 
 type MockPaymentIntentRequest = {
   orderId?: string;
@@ -19,6 +26,8 @@ type MockWebhookRequest = {
   orderId?: string;
   status?: "paid" | "cancelled";
 };
+
+type PaymentRefundRequest = { orderId?: string; amountMinor?: number; currency?: string; reason?: string };
 
 const selfHostedStore = {
   storeId: process.env.DEFAULT_STORE_ID ?? "00000000-0000-4000-8000-000000000001",
@@ -111,38 +120,53 @@ class MockPaymentProvider implements IPaymentProvider {
     };
   }
 
-  async refundPayment() {
-    return { providerRefundId: "mock_refund_local", status: "created" as const };
+  async refundPayment(request: Parameters<IPaymentProvider["refundPayment"]>[0]) {
+    return {
+      providerRefundId: `mock_refund_${request.paymentId}_${request.idempotencyKey}`,
+      status: "completed" as const
+    };
   }
 
   async verifyWebhook(request: { store: StoreContext; rawBody: string }) {
-    const parsed = JSON.parse(request.rawBody || "{}") as { orderId?: string; status?: "paid" | "cancelled" };
+    const parsed = JSON.parse(request.rawBody || "{}") as { orderId?: string; amountMinor?: number; currency?: string };
     return {
       eventId: "mock_evt_local",
+      eventType: "PAYMENT.CAPTURE.COMPLETED" as const,
       providerPaymentId: "mock_pi_local",
+      providerCaptureId: "mock_capture_local",
       orderId: parsed.orderId ?? "mock_order",
-      status: parsed.status ?? "paid" as const
+      status: "paid" as const,
+      amount: { amountMinor: parsed.amountMinor ?? 0, currency: parsed.currency ?? "USD" }
     };
   }
 }
 
-const provider = new MockPaymentProvider();
+type PaymentIntentProvider = Pick<IPaymentProvider, "name" | "healthCheck" | "supports" | "createPayment" | "refundPayment">;
 
-@Controller()
-class PaymentController {
-  @Get("/health")
-  async health() {
-    return { service: "payment-service", status: "ok", provider: provider.name, providerHealth: await provider.healthCheck() };
-  }
+const mockProvider = new MockPaymentProvider();
+const configuredProviderName = normalizePaymentProviderName(process.env.PAYMENT_PROVIDER);
+const paypalProvider = configuredProviderName === "paypal"
+  ? new PayPalProvider({
+      clientId: process.env.PAYPAL_CLIENT_ID ?? "",
+      clientSecret: process.env.PAYPAL_CLIENT_SECRET ?? "",
+      webhookId: process.env.PAYPAL_WEBHOOK_ID,
+      baseUrl: process.env.PAYPAL_BASE_URL ?? "https://api-m.sandbox.paypal.com",
+      timeoutMs: Number(process.env.PAYPAL_TIMEOUT_MS ?? 5000)
+    })
+  : null;
+const provider: PaymentIntentProvider = paypalProvider ?? mockProvider;
 
-  @Post("/payments/mock-intents")
-  async createMockIntent(
-    @Headers("x-correlation-id") correlationId: string | undefined,
-    @Body() body: MockPaymentIntentRequest
-  ) {
-    const input = normalizePaymentIntent(body);
-    const store = createStoreContext(correlationId);
-    return provider.createPayment({
+async function createPaymentIntent(
+  selectedProvider: PaymentIntentProvider,
+  transactions: PaymentTransactionRepository,
+  correlationId: string | undefined,
+  body: MockPaymentIntentRequest
+) {
+  const input = normalizePaymentIntent(body);
+  const store = createStoreContext(correlationId);
+
+  try {
+    return await createTrackedPayment(selectedProvider, transactions, {
       store,
       orderId: input.orderId,
       idempotencyKey: input.idempotencyKey,
@@ -153,6 +177,72 @@ class PaymentController {
       customerEmail: input.customerEmail,
       returnUrl: input.returnUrl
     });
+  } catch (error) {
+    if (error instanceof PayPalProviderError) {
+      throw dependencyUnavailable("Payment provider is unavailable.", {
+        provider: selectedProvider.name,
+        providerCode: error.code,
+        providerStatus: error.status,
+        retryable: error.retryable
+      });
+    }
+    if (error instanceof PaymentTransactionPersistenceError) {
+      console.error(JSON.stringify({
+        event: "payment_transaction_persistence_failed",
+        provider: selectedProvider.name,
+        correlationId: store.correlationId,
+        message: error.message
+      }));
+      throw dependencyUnavailable("Payment transaction storage is unavailable.", {
+        provider: selectedProvider.name,
+        retryable: true
+      });
+    }
+    throw error;
+  }
+}
+
+@Controller()
+class PaymentController {
+  constructor(
+    @Inject(PaymentWebhookInboxRepository)
+    private readonly webhookInbox: PaymentWebhookInboxRepository,
+    @Inject(PaymentTransactionRepository)
+    private readonly transactions: PaymentTransactionRepository,
+    @Inject(PaymentRefundRepository)
+    private readonly refunds: PaymentRefundRepository
+  ) {}
+  @Get("/health")
+  async health() {
+    try {
+      return { service: "payment-service", status: "ok", provider: provider.name, providerHealth: await provider.healthCheck(createStoreContext(undefined)) };
+    } catch (error) {
+      if (error instanceof PayPalProviderError) {
+        throw dependencyUnavailable("Payment provider health check failed.", {
+          provider: provider.name,
+          providerCode: error.code,
+          providerStatus: error.status,
+          retryable: error.retryable
+        });
+      }
+      throw error;
+    }
+  }
+
+  @Post("/payments/intents")
+  createIntent(
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Body() body: MockPaymentIntentRequest
+  ) {
+    return createPaymentIntent(provider, this.transactions, correlationId, body);
+  }
+
+  @Post("/payments/mock-intents")
+  async createMockIntent(
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Body() body: MockPaymentIntentRequest
+  ) {
+    return createPaymentIntent(mockProvider, this.transactions, correlationId, body);
   }
 
   @Post("/webhooks/mock")
@@ -162,7 +252,7 @@ class PaymentController {
   ) {
     const input = normalizeMockWebhook(body);
     const store = createStoreContext(correlationId);
-    const event = await provider.verifyWebhook({
+    const event = await mockProvider.verifyWebhook({
       store,
       rawBody: JSON.stringify(input)
     });
@@ -188,7 +278,7 @@ class PaymentController {
 
       return {
         eventId: event.eventId,
-        provider: provider.name,
+        provider: mockProvider.name,
         orderTransition: payload
       };
     } catch (error) {
@@ -203,13 +293,120 @@ class PaymentController {
       clearTimeout(timeout);
     }
   }
+
+  @Post("/payments/refunds")
+  async refund(
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Headers("idempotency-key") idempotencyKeyHeader: string | undefined,
+    @Headers("x-idempotency-key") alternateIdempotencyKeyHeader: string | undefined,
+    @Headers("x-admin-actor") actorHeader: string | undefined,
+    @Body() body: PaymentRefundRequest
+  ) {
+    const orderId = body.orderId?.trim() ?? "";
+    const amountMinor = Number(body.amountMinor);
+    const currency = body.currency?.trim().toUpperCase() ?? "";
+    const reason = body.reason?.trim() ?? "";
+    const idempotencyKey = (idempotencyKeyHeader ?? alternateIdempotencyKeyHeader)?.trim() ?? "";
+    const actorId = actorHeader?.trim() ?? "";
+    if (!uuidPattern.test(orderId) || !Number.isInteger(amountMinor) || amountMinor <= 0
+      || !/^[A-Z]{3}$/.test(currency) || idempotencyKey.length < 8 || idempotencyKey.length > 200
+      || actorId.length < 1 || actorId.length > 100 || reason.length < 3 || reason.length > 500) {
+      throw validationFailed("Refund requires a valid order, positive amount, currency, idempotency key, actor, and reason.");
+    }
+    const store = createStoreContext(correlationId);
+    try {
+      return await processPaymentRefund({ store, orderId, amountMinor, currency, idempotencyKey, actorId, reason }, {
+        repository: this.refunds,
+        provider
+      });
+    } catch (error) {
+      if (error instanceof PaymentRefundConflictError) {
+        throw new ConflictException({ code: ERROR_CODES.CONFLICT, message: error.message, correlationId: store.correlationId });
+      }
+      if (error instanceof PaymentRefundStateError) throw validationFailed(error.message);
+      if (error instanceof PayPalProviderError) {
+        if (!error.retryable) throw validationFailed("Payment provider rejected the refund.", { providerCode: error.code });
+        throw dependencyUnavailable("Payment refund provider is unavailable.", { providerCode: error.code, retryable: true });
+      }
+      throw error;
+    }
+  }
+
+  @Get("/payments/orders/:orderId/refunds")
+  async refundSummary(
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Param("orderId") orderId: string
+  ) {
+    if (!uuidPattern.test(orderId)) throw validationFailed("orderId must be a UUID");
+    const store = createStoreContext(correlationId);
+    const summary = await this.refunds.getOrderSummary(store.storeId, orderId);
+    if (!summary) {
+      throw new NotFoundException({
+        code: ERROR_CODES.NOT_FOUND,
+        message: "Order does not have a captured payment.",
+        correlationId: store.correlationId
+      });
+    }
+    return summary;
+  }
+
+  @Get("/payments/refunds")
+  recentRefunds(@Headers("x-correlation-id") correlationId: string | undefined) {
+    const store = createStoreContext(correlationId);
+    return this.refunds.listRecent(store.storeId);
+  }
+
+  @Get("/payments/webhooks")
+  recentWebhooks(@Headers("x-correlation-id") correlationId: string | undefined) {
+    const store = createStoreContext(correlationId);
+    return this.webhookInbox.listRecent(store.storeId);
+  }
+
+  @Post("/webhooks/paypal")
+  @HttpCode(202)
+  async paypalWebhook(
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Req() request: { rawBody?: Buffer; headers: Record<string, string | string[] | undefined> }
+  ) {
+    if (!paypalProvider) throw dependencyUnavailable("PayPal provider is not enabled.", { provider: configuredProviderName });
+    const store = createStoreContext(correlationId);
+    try {
+      return await acceptPayPalWebhook({
+        provider: paypalProvider,
+        inbox: this.webhookInbox,
+        store,
+        headers: request.headers,
+        rawBody: request.rawBody
+      });
+    } catch (error) {
+      if (error instanceof PayPalWebhookRequestError) throw validationFailed(error.message, { providerCode: error.code });
+      if (error instanceof PaymentWebhookPayloadConflictError) {
+        throw new ConflictException({ code: ERROR_CODES.IDEMPOTENCY_CONFLICT, message: error.message, correlationId: store.correlationId });
+      }
+      if (error instanceof PayPalProviderError) {
+        const invalid = error.code === "PAYPAL_WEBHOOK_HEADERS_MISSING"
+          || error.code === "PAYPAL_WEBHOOK_INVALID"
+          || error.code === "PAYPAL_WEBHOOK_EVENT_UNSUPPORTED";
+        if (invalid) throw validationFailed("PayPal webhook was rejected.", { providerCode: error.code });
+        throw dependencyUnavailable("PayPal webhook verification is unavailable.", {
+          providerCode: error.code,
+          providerStatus: error.status,
+          retryable: error.retryable
+        });
+      }
+      throw error;
+    }
+  }
 }
 
-@Module({ controllers: [PaymentController] })
+@Module({
+  controllers: [PaymentController],
+  providers: [PaymentWebhookInboxRepository, PaymentTransactionRepository, PaymentRefundRepository, PaymentWebhookWorker]
+})
 class AppModule {}
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   app.enableCors({ origin: true });
   await app.listen(Number(process.env.PORT ?? 4106), "0.0.0.0");
 }

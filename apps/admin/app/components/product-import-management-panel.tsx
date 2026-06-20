@@ -1,5 +1,7 @@
 "use client";
 
+import { createRequestId } from "../lib/request-id.js";
+
 import { localizedErrorMessage } from "@commerce/error-codes";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
@@ -156,8 +158,8 @@ export function ProductImportManagementPanel() {
   async function load() {
     try {
       const [configResponse, tasksResponse] = await Promise.all([
-        fetch(`${adminGatewayUrl}/product-import/config`, { headers: { "x-correlation-id": crypto.randomUUID() } }),
-        fetch(`${adminGatewayUrl}/product-import/imports`, { headers: { "x-correlation-id": crypto.randomUUID() } })
+        fetch(`${adminGatewayUrl}/product-import/config`, { headers: { "x-correlation-id": createRequestId() } }),
+        fetch(`${adminGatewayUrl}/product-import/imports`, { headers: { "x-correlation-id": createRequestId() } })
       ]);
       const configPayload = await configResponse.json();
       const tasksPayload = (await tasksResponse.json()) as ImportListPayload;
@@ -194,7 +196,7 @@ export function ProductImportManagementPanel() {
         headers: {
           "Content-Type": "application/json",
           "x-admin-actor": "local-admin",
-          "x-correlation-id": crypto.randomUUID()
+          "x-correlation-id": createRequestId()
         },
         body: JSON.stringify(config)
       });
@@ -219,7 +221,7 @@ export function ProductImportManagementPanel() {
         headers: {
           "Content-Type": "application/json",
           "x-admin-actor": "local-admin",
-          "x-correlation-id": crypto.randomUUID()
+          "x-correlation-id": createRequestId()
         },
         body: JSON.stringify({ text: importText })
       });
@@ -243,7 +245,7 @@ export function ProductImportManagementPanel() {
         headers: {
           "Content-Type": "application/json",
           "x-admin-actor": "local-admin",
-          "x-correlation-id": crypto.randomUUID()
+          "x-correlation-id": createRequestId()
         },
         body: JSON.stringify(draft)
       });
@@ -266,7 +268,7 @@ export function ProductImportManagementPanel() {
         headers: {
           "Content-Type": "application/json",
           "x-admin-actor": "local-admin",
-          "x-correlation-id": crypto.randomUUID()
+          "x-correlation-id": createRequestId()
         },
         body: "{}"
       });

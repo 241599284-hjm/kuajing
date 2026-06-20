@@ -1,0 +1,11 @@
+"use client";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { X } from "lucide-react";
+import type { ReactNode } from "react";
+import { Button } from "./button.js";
+
+export function ConfirmDialog({ open, onOpenChange, title, description, confirmLabel = "确认", danger, onConfirm }: { open: boolean; onOpenChange: (open: boolean) => void; title: string; description: string; confirmLabel?: string; danger?: boolean; onConfirm: () => void }) {
+  return <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}><DialogPrimitive.Portal><DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/35" /><DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border border-[var(--border)] bg-white p-6 shadow-xl"><DialogPrimitive.Title className="text-base font-semibold">{title}</DialogPrimitive.Title><DialogPrimitive.Description className="mt-2 text-sm leading-6 text-[var(--muted-foreground)]">{description}</DialogPrimitive.Description><div className="mt-6 flex justify-end gap-2"><DialogPrimitive.Close asChild><Button variant="outline">取消</Button></DialogPrimitive.Close><Button variant={danger ? "danger" : "default"} onClick={() => { onConfirm(); onOpenChange(false); }}>{confirmLabel}</Button></div><DialogPrimitive.Close className="absolute right-4 top-4 text-[var(--muted-foreground)]" aria-label="关闭"><X size={18} /></DialogPrimitive.Close></DialogPrimitive.Content></DialogPrimitive.Portal></DialogPrimitive.Root>;
+}
+
+export function Modal({ trigger, title, children }: { trigger: ReactNode; title: string; children: ReactNode }) { return <DialogPrimitive.Root><DialogPrimitive.Trigger asChild>{trigger}</DialogPrimitive.Trigger><DialogPrimitive.Portal><DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/35"/><DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 max-h-[85vh] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-lg bg-white p-6 shadow-xl"><DialogPrimitive.Title className="text-lg font-semibold">{title}</DialogPrimitive.Title><div className="mt-5">{children}</div></DialogPrimitive.Content></DialogPrimitive.Portal></DialogPrimitive.Root>; }

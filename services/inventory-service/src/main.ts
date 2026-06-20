@@ -19,6 +19,7 @@ import { ERROR_CODES } from "@commerce/error-codes";
 import { assertStoreContext, type StoreContext } from "@commerce/store-context";
 import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
+import { assertReservationReplay } from "./reservation-idempotency.js";
 
 type ReservationStatus = "reserved" | "confirmed" | "cancelled";
 type StorageMode = "postgres" | "memory";
@@ -383,6 +384,15 @@ class InventoryMemoryStore {
     const existing = this.reservationsByIdempotencyKey.get(input.idempotencyKey);
 
     if (existing) {
+      assertReservationReplay(input.idempotencyKey, {
+        skuId: existing.skuId,
+        warehouseId: existing.warehouseId,
+        qty: existing.qty
+      }, {
+        skuId: input.skuId,
+        warehouseId: input.warehouseId ?? defaultWarehouseId,
+        qty: input.qty
+      });
       return resultFromMemory(existing, this.ensureItem(existing.skuId, existing.warehouseId), "memory");
     }
 
@@ -639,6 +649,15 @@ class InventoryRepository implements OnApplicationShutdown {
       const existing = await this.findReservation(client, ctx, input.idempotencyKey);
 
       if (existing) {
+        assertReservationReplay(input.idempotencyKey, {
+          skuId: existing.sku_id,
+          warehouseId: existing.warehouse_id,
+          qty: existing.qty
+        }, {
+          skuId: input.skuId,
+          warehouseId: input.warehouseId ?? defaultWarehouseId,
+          qty: input.qty
+        });
         const item = await this.findItemForReservation(client, ctx, existing);
         return resultFromRows(existing, item, "postgres");
       }

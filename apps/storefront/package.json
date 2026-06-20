@@ -11,6 +11,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@commerce/contracts": "workspace:*",
     "@commerce/error-codes": "workspace:*",
     "@commerce/theme-system": "workspace:*",
     "lucide-react": "^1.17.0",

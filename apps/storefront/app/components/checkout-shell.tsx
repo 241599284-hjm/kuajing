@@ -7,6 +7,7 @@ import type { Route } from "next";
 import { useSearchParams } from "next/navigation";
 import { FormEvent, useMemo, useState } from "react";
 import { clearCart, useCart } from "../lib/cart.js";
+import { safePayPalRedirectUrl } from "../lib/paypal-redirect.js";
 import { products, storefrontCopy } from "../lib/storefront-content.js";
 import { PremiumStorefrontHeader } from "./premium-storefront-header.js";
 import { InternationalPhoneField } from "./international-phone-field.js";
@@ -28,7 +29,6 @@ export function CheckoutShell() {
   const searchParams = useSearchParams();
   const buyNowSlug = searchParams.get("buyNow");
   const cart = useCart();
-  const [paymentMethod, setPaymentMethod] = useState("stripe");
   const [message, setMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRegistrationOpen, setIsRegistrationOpen] = useState(false);
@@ -52,24 +52,25 @@ export function CheckoutShell() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsSubmitting(true);
-    setMessage(isZh ? "正在创建模拟订单..." : "Creating mock order...");
+    setMessage(isZh ? "正在创建订单..." : "Creating order...");
 
     const form = new FormData(event.currentTarget);
     const customerEmail = String(form.get("email") ?? "").trim().toLowerCase();
     const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), 2500);
+    const timeoutId = window.setTimeout(() => controller.abort(), 15_000);
+    const idempotencyKey = globalThis.crypto?.randomUUID?.();
 
     try {
       const response = await fetch(`${apiGatewayUrl}/checkout/mock-order`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-idempotency-key": crypto.randomUUID()
+          ...(idempotencyKey ? { "x-idempotency-key": idempotencyKey } : {})
         },
         body: JSON.stringify({
           customerEmail,
           customerPhone: `${String(form.get("phoneDialCode") ?? "")} ${String(form.get("phoneNumber") ?? "")}`.trim(),
-          paymentMethod,
+          paymentMethod: "paypal",
           shippingAddress: {
             country: String(form.get("country") ?? ""),
             province: String(form.get("province") ?? ""),
@@ -108,10 +109,20 @@ export function CheckoutShell() {
       setGuestUsername(customerEmail.split("@")[0] ?? "");
       setGuestPassword("");
       setGuestRegistrationMessage("");
+
+      const paypalRedirectUrl = payload.paymentMode === "provider"
+        ? safePayPalRedirectUrl(payload.paymentRedirectUrl)
+        : null;
+      if (paypalRedirectUrl) {
+        setMessage(isZh ? "正在前往 PayPal..." : "Redirecting to PayPal...");
+        window.location.assign(paypalRedirectUrl);
+        return;
+      }
+
       setMessage(
         isZh
-          ? `模拟订单 ${payload.orderNumber ?? ""} 已创建，库存模式：${payload.inventoryMode ?? "unknown"}，存储模式：${payload.storageMode ?? "unknown"}，支付模式：${payload.paymentMode ?? "unknown"}。`
-          : `Mock order ${payload.orderNumber ?? ""} created with ${payload.inventoryMode ?? "unknown"} inventory, ${payload.storageMode ?? "unknown"} storage, and ${payload.paymentMode ?? "unknown"} payment.`
+          ? `订单 ${payload.orderNumber ?? ""} 已创建，库存模式：${payload.inventoryMode ?? "unknown"}，存储模式：${payload.storageMode ?? "unknown"}，支付模式：${payload.paymentMode ?? "unknown"}。`
+          : `Order ${payload.orderNumber ?? ""} created with ${payload.inventoryMode ?? "unknown"} inventory, ${payload.storageMode ?? "unknown"} storage, and ${payload.paymentMode ?? "unknown"} payment.`
       );
     } catch (error) {
       const unavailableMessage = isZh
@@ -257,21 +268,15 @@ export function CheckoutShell() {
                   <CreditCard size={19} />
                   {isZh ? "支付方式" : "Payment method"}
                 </h2>
-                <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                  {[
-                    { id: "stripe", label: "Stripe" },
-                    { id: "paypal", label: "PayPal" },
-                    { id: "airwallex", label: isZh ? "空中云汇" : "Airwallex" }
-                  ].map((method) => (
-                    <label key={method.id} className="flex cursor-pointer items-center gap-2 border border-[var(--line)] bg-white p-3 text-sm font-semibold">
-                      <input checked={paymentMethod === method.id} name="paymentMethod" onChange={() => setPaymentMethod(method.id)} type="radio" />
-                      {method.label}
-                    </label>
-                  ))}
+                <div className="mt-4">
+                  <label className="flex items-center gap-2 border border-[var(--line)] bg-white p-3 text-sm font-semibold">
+                    <input checked name="paymentMethod" readOnly type="radio" value="paypal" />
+                    PayPal
+                  </label>
                 </div>
                 <p className="mt-3 flex items-start gap-2 text-sm leading-6 text-[var(--ink-soft)]">
                   <ShieldCheck className="mt-0.5 shrink-0" size={16} />
-                  <span>{isZh ? "当前是模拟结算，真实支付会由 payment-service 调用支付通道。" : "This is mock checkout. Real payments will be created by payment-service."}</span>
+                  <span>{isZh ? "付款将在 PayPal 安全页面完成。" : "Payment is completed securely on PayPal."}</span>
                 </p>
               </section>
             </div>
@@ -313,7 +318,7 @@ export function CheckoutShell() {
                 </div>
               </div>
               <button className="premium-btn mt-5 w-full disabled:cursor-not-allowed disabled:opacity-50" disabled={isSubmitting} type="submit">
-                {isSubmitting ? (isZh ? "提交中" : "Submitting") : (isZh ? "提交模拟订单" : "Place mock order")}
+                {isSubmitting ? (isZh ? "正在创建订单" : "Creating order") : (isZh ? "前往 PayPal" : "Continue to PayPal")}
               </button>
               {message ? <p className="mt-3 text-sm text-[var(--ink-soft)]" role="status">{message}</p> : null}
             </aside>

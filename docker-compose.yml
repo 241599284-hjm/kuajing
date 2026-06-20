@@ -11,14 +11,19 @@ services:
     container_name: cbck-storefront
     environment:
       NODE_ENV: development
+      NEXT_ALLOWED_DEV_ORIGINS: ${NEXT_ALLOWED_DEV_ORIGINS:-}
       NEXT_PUBLIC_API_GATEWAY_URL: ${NEXT_PUBLIC_API_GATEWAY_URL:-http://localhost:4000}
       NEXT_PUBLIC_AUTH_SERVICE_URL: ${NEXT_PUBLIC_AUTH_SERVICE_URL:-http://localhost:4102}
+      NEXT_PUBLIC_ADMIN_ORIGIN: ${NEXT_PUBLIC_ADMIN_ORIGIN:-http://localhost:3001}
+      MEDIA_SERVICE_URL: http://media-service:4108
     ports:
       - "3000:3000"
     depends_on:
       api-gateway:
         condition: service_started
       auth-service:
+        condition: service_started
+      media-service:
         condition: service_started
 
   admin:
@@ -31,14 +36,19 @@ services:
     container_name: cbck-admin
     environment:
       NODE_ENV: development
+      NEXT_ALLOWED_DEV_ORIGINS: ${NEXT_ALLOWED_DEV_ORIGINS:-}
       NEXT_PUBLIC_ADMIN_GATEWAY_URL: ${NEXT_PUBLIC_ADMIN_GATEWAY_URL:-http://localhost:4001}
       NEXT_PUBLIC_AUTH_SERVICE_URL: ${NEXT_PUBLIC_AUTH_SERVICE_URL:-http://localhost:4102}
+      NEXT_PUBLIC_STOREFRONT_URL: ${NEXT_PUBLIC_STOREFRONT_URL:-http://localhost:3000}
+      MEDIA_SERVICE_URL: http://media-service:4108
     ports:
       - "3001:3001"
     depends_on:
       admin-gateway:
         condition: service_started
       auth-service:
+        condition: service_started
+      media-service:
         condition: service_started
 
   api-gateway:
@@ -52,10 +62,13 @@ services:
     environment:
       NODE_ENV: development
       CATALOG_SERVICE_URL: http://catalog-service:4103
+      STORE_SERVICE_URL: http://store-service:4101
       ORDER_SERVICE_URL: http://order-service:4105
+      PAYMENT_SERVICE_URL: http://payment-service:4106
       LOGISTICS_SERVICE_URL: http://logistics-service:4110
       NOTIFICATION_SERVICE_URL: http://notification-service:4111
       REVIEW_SERVICE_URL: http://review-service:4112
+      MEDIA_SERVICE_URL: http://media-service:4108
       OPS_SERVICE_URL: http://ops-service:4113
       PRODUCT_IMPORT_SERVICE_URL: http://product-import-service:4114
       DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
@@ -64,13 +77,19 @@ services:
     ports:
       - "4000:4000"
     depends_on:
+      store-service:
+        condition: service_started
       catalog-service:
         condition: service_started
       order-service:
         condition: service_started
+      payment-service:
+        condition: service_started
       logistics-service:
         condition: service_started
       review-service:
+        condition: service_started
+      media-service:
         condition: service_started
       ops-service:
         condition: service_started
@@ -88,7 +107,10 @@ services:
     environment:
       NODE_ENV: development
       CATALOG_SERVICE_URL: http://catalog-service:4103
+      STORE_SERVICE_URL: http://store-service:4101
       ORDER_SERVICE_URL: http://order-service:4105
+      PAYMENT_SERVICE_URL: http://payment-service:4106
+      AUTH_SERVICE_URL: http://auth-service:4102
       INVENTORY_SERVICE_URL: http://inventory-service:4104
       WORKER_SERVICE_URL: http://worker-service:4109
       MEDIA_SERVICE_URL: http://media-service:4108
@@ -103,9 +125,15 @@ services:
     ports:
       - "4001:4001"
     depends_on:
+      store-service:
+        condition: service_started
+      auth-service:
+        condition: service_started
       catalog-service:
         condition: service_started
       order-service:
+        condition: service_started
+      payment-service:
         condition: service_started
       notification-service:
         condition: service_started
@@ -164,7 +192,7 @@ services:
       NOTIFICATION_SERVICE_URL: http://notification-service:4111
       ORDER_SERVICE_URL: http://order-service:4105
       STOREFRONT_PUBLIC_URL: ${STOREFRONT_PUBLIC_URL:-http://localhost:3000}
-      ADMIN_PUBLIC_URL: http://localhost:3001
+      ADMIN_PUBLIC_URL: ${ADMIN_PUBLIC_URL:-http://localhost:3001}
       DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
       DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
       DEFAULT_STORE_TIMEZONE: ${DEFAULT_STORE_TIMEZONE:-Asia/Hong_Kong}
@@ -223,6 +251,28 @@ services:
       catalog-service:
         condition: service_started
 
+  store-service:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: infra/docker/node-app.Dockerfile
+      args:
+        APP_FILTER: "@commerce/store-service"
+    container_name: cbck-store-service
+    environment:
+      NODE_ENV: development
+      PORT: 4101
+      DATABASE_URL: postgresql://${POSTGRES_USER:-commerce}:${POSTGRES_PASSWORD:-commerce}@postgres:5432/app_db
+      DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
+      DEFAULT_STORE_SLUG: ${DEFAULT_STORE_SLUG:-demo-teaware}
+      DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
+      DEFAULT_STORE_TIMEZONE: ${DEFAULT_STORE_TIMEZONE:-Asia/Hong_Kong}
+    ports:
+      - "4101:4101"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   auth-service:
     profiles: ["app"]
     build:
@@ -238,8 +288,10 @@ services:
       MAILPIT_SMTP_HOST: mailpit
       MAILPIT_SMTP_PORT: 1025
       STOREFRONT_PUBLIC_URL: ${STOREFRONT_PUBLIC_URL:-http://localhost:3000}
-      AUTH_VERIFY_BASE_URL: http://localhost:4102
+      AUTH_VERIFY_BASE_URL: ${AUTH_VERIFY_BASE_URL:-http://localhost:4102}
       NOTIFICATION_SERVICE_URL: http://notification-service:4111
+      ADMIN_BOOTSTRAP_EMAIL: ${ADMIN_BOOTSTRAP_EMAIL:-admin@example.com}
+      ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD:-}
       DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
       DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
       DEFAULT_STORE_TIMEZONE: ${DEFAULT_STORE_TIMEZONE:-Asia/Hong_Kong}
@@ -368,11 +420,24 @@ services:
       NODE_ENV: development
       PORT: 4106
       ORDER_SERVICE_URL: http://order-service:4105
+      ORDER_DATABASE_URL: postgresql://${POSTGRES_USER:-commerce}:${POSTGRES_PASSWORD:-commerce}@postgres:5432/order_db
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-mock}
+      PAYPAL_BASE_URL: ${PAYPAL_BASE_URL:-https://api-m.sandbox.paypal.com}
+      PAYPAL_CLIENT_ID: ${PAYPAL_CLIENT_ID:-}
+      PAYPAL_CLIENT_SECRET: ${PAYPAL_CLIENT_SECRET:-}
+      PAYPAL_WEBHOOK_ID: ${PAYPAL_WEBHOOK_ID:-}
+      PAYPAL_TIMEOUT_MS: ${PAYPAL_TIMEOUT_MS:-5000}
+      PAYMENT_WEBHOOK_POLL_INTERVAL_MS: ${PAYMENT_WEBHOOK_POLL_INTERVAL_MS:-1000}
+      PAYMENT_WEBHOOK_BATCH_SIZE: ${PAYMENT_WEBHOOK_BATCH_SIZE:-5}
+      PAYMENT_WEBHOOK_LEASE_MS: ${PAYMENT_WEBHOOK_LEASE_MS:-30000}
       DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
       DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
       DEFAULT_STORE_TIMEZONE: ${DEFAULT_STORE_TIMEZONE:-Asia/Hong_Kong}
     ports:
       - "4106:4106"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   support-service:
     profiles: ["app"]
@@ -400,14 +465,19 @@ services:
       NODE_ENV: development
       PORT: 4108
       MEDIA_DATABASE_URL: postgresql://${POSTGRES_USER:-commerce}:${POSTGRES_PASSWORD:-commerce}@postgres:5432/media_db
+      CATALOG_SERVICE_URL: http://catalog-service:4103
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       OBJECT_STORAGE_PROVIDER: ${OBJECT_STORAGE_PROVIDER:-minio}
       OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-demo-teaware-media}
       OBJECT_STORAGE_CDN_URL: ${OBJECT_STORAGE_CDN_URL:-http://localhost:9000/demo-teaware-media}
-      MEDIA_PUBLIC_BASE_URL: ${MEDIA_PUBLIC_BASE_URL:-http://localhost:4108/files}
       MEDIA_MAX_UPLOAD_BYTES: ${MEDIA_MAX_UPLOAD_BYTES:-8388608}
+      MEDIA_RECONCILIATION_POLL_INTERVAL_MS: ${MEDIA_RECONCILIATION_POLL_INTERVAL_MS:-5000}
+      MEDIA_RECONCILIATION_INITIAL_DELAY_MS: ${MEDIA_RECONCILIATION_INITIAL_DELAY_MS:-30000}
+      MEDIA_RECONCILIATION_CONFIRM_DELAY_MS: ${MEDIA_RECONCILIATION_CONFIRM_DELAY_MS:-30000}
+      MEDIA_RECONCILIATION_BATCH_SIZE: ${MEDIA_RECONCILIATION_BATCH_SIZE:-10}
+      MEDIA_RECONCILIATION_MAX_ATTEMPTS: ${MEDIA_RECONCILIATION_MAX_ATTEMPTS:-8}
       DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
       DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
       DEFAULT_STORE_TIMEZONE: ${DEFAULT_STORE_TIMEZONE:-Asia/Hong_Kong}
@@ -478,6 +548,21 @@ services:
       - ./infra/db/migrations/026-notification-email-accounts.sql:/docker-entrypoint-initdb.d/23-notification-email-accounts.sql:ro
       - ./infra/db/migrations/027-order-shipping-address-snapshot.sql:/docker-entrypoint-initdb.d/24-order-shipping-address-snapshot.sql:ro
       - ./infra/db/migrations/028-notification-provider-template-id.sql:/docker-entrypoint-initdb.d/25-notification-provider-template-id.sql:ro
+      - ./infra/db/migrations/029-order-idempotency-fingerprint.sql:/docker-entrypoint-initdb.d/26-order-idempotency-fingerprint.sql:ro
+      - ./infra/db/migrations/030-media-reconciliation-tasks.sql:/docker-entrypoint-initdb.d/27-media-reconciliation-tasks.sql:ro
+      - ./infra/db/migrations/031-media-reconciliation-manual-actions.sql:/docker-entrypoint-initdb.d/28-media-reconciliation-manual-actions.sql:ro
+      - ./infra/db/migrations/032-payment-webhook-inbox.sql:/docker-entrypoint-initdb.d/29-payment-webhook-inbox.sql:ro
+      - ./infra/db/migrations/033-payment-webhook-worker.sql:/docker-entrypoint-initdb.d/30-payment-webhook-worker.sql:ro
+      - ./infra/db/migrations/034-payment-transactions.sql:/docker-entrypoint-initdb.d/31-payment-transactions.sql:ro
+      - ./infra/db/migrations/035-payment-capture-id.sql:/docker-entrypoint-initdb.d/32-payment-capture-id.sql:ro
+      - ./infra/db/migrations/036-payment-refunds.sql:/docker-entrypoint-initdb.d/33-payment-refunds.sql:ro
+      - ./infra/db/migrations/037-relative-media-references.sql:/docker-entrypoint-initdb.d/34-relative-media-references.sql:ro
+      - ./infra/db/migrations/038-payment-refund-webhooks.sql:/docker-entrypoint-initdb.d/35-payment-refund-webhooks.sql:ro
+      - ./infra/db/migrations/039-admin-refund-authorization.sql:/docker-entrypoint-initdb.d/36-admin-refund-authorization.sql:ro
+      - ./infra/db/migrations/040-homepage-layouts.sql:/docker-entrypoint-initdb.d/37-homepage-layouts.sql:ro
+      - ./infra/db/migrations/041-newsletter-subscriptions.sql:/docker-entrypoint-initdb.d/38-newsletter-subscriptions.sql:ro
+      - ./infra/db/migrations/042-homepage-catalog-collection.sql:/docker-entrypoint-initdb.d/39-homepage-catalog-collection.sql:ro
+      - ./infra/db/migrations/043-newsletter-operations.sql:/docker-entrypoint-initdb.d/40-newsletter-operations.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U commerce -d postgres"]
       interval: 5s

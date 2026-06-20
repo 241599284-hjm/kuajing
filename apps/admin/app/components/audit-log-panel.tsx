@@ -1,5 +1,7 @@
 "use client";
 
+import { createRequestId } from "../lib/request-id.js";
+
 import { useEffect, useMemo, useState } from "react";
 import {
   AdminInlineStatus,
@@ -146,7 +148,7 @@ export function AuditLogPanel() {
 
   async function load() {
     setStatus("正在读取审计日志...");
-    const headers = { "x-correlation-id": crypto.randomUUID() };
+    const headers = { "x-correlation-id": createRequestId() };
     const nextEvents: UnifiedAuditEvent[] = [];
     const failures: string[] = [];
 

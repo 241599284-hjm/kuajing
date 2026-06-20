@@ -1,0 +1,374 @@
+# $茶具站继续开发
+
+新开对话时，把下面这一段复制进去即可继续当前项目。
+
+```text
+$茶具站继续开发
+
+项目路径：D:\crossborder-commerce-kit
+前台地址：http://localhost:3000
+后台地址：http://localhost:3001
+
+这是一个自营跨境茶具独立站底座。
+没有租户概念，不做 tenant-service，不做 tenant_id，不做运行时多租户 SaaS。
+可复制交付的方式是：同一套源码给不同客户独立部署，每个客户独立域名、独立数据库、独立缓存、独立对象存储、独立密钥、独立后台配置。
+
+当前重点：
+不要继续优先堆页面细节。下一步必须回到微服务主线：
+1. catalog-service
+2. media-service
+3. admin-gateway
+4. api-gateway
+5. 前台从 catalog API 读取商品、分类、地域
+6. 后台商品、分类、地域、图文详情、图片真实保存
+
+第一条真正闭环：
+后台创建商品 → 录入库存 → 前台浏览 → 加购物车 → Guest Checkout → 创建订单 → 预留库存 → Mock 支付成功 → 确认扣库存 → 后台查看订单。
+
+硬规则：
+- 前台展示必须有后台支撑。
+- 能选择的字段必须后台可维护。
+- 买家侧内容必须中英文。
+- 手机、iPad、电脑都要自适应。
+- 一个业务模块一个微服务边界。
+- 支付、物流、税费、汇率、风控必须 Provider 插件化。
+- 金额必须用整数最小货币单位，不能用浮点。
+- 时间统一 UTC。
+- Saga/TCC 补偿必须真实改数据，不能只写日志。
+- DLQ 必须有后台人工处理入口。
+- 不允许假保存、假上传、假支付不说明。
+- 不允许把业务内容长期写死在前台代码里。
+- 前台内容不得长期写死代码，商品、分类、地域、详情图文、SEO、图片媒体必须优先走 catalog/media 动态接口。
+- 金额、库存、数量必须使用整数最小单位，禁止 float/double 存钱或库存。
+- 全链路时间统一 UTC 存储，前台只在展示层按店铺/用户时区转换。
+- Saga/TCC 补偿必须真实反向改数据、释放库存、删除或解绑已上传文件，禁止只写日志。
+- DLQ 必须有后台人工处理入口，支持查看、重试、作废和记录处理人。
+- 所有写操作失败必须显性提示，不允许“看起来保存成功”的假成功。
+- 能后台维护的业务字段都要后台维护，不能把客户业务资料、分类、地域、折扣、支付物流配置写死。
+- 对外买家侧内容必须中英文双语，后台默认中文。
+- 前台错误提示必须严格跟随当前全站显示语言：默认英文时显示英文，切换中文后立即显示中文；禁止直接展示第三方或后端原始错误文案造成语言混杂。
+- PC、iPad、手机必须响应式验收，移动端触控区域不小于 44px。
+- 一个业务模块对应一个微服务边界，前台/后台不直连数据库。
+- 全站视觉必须遵守 `docs/premium-minimal-visual-system.md`：景德镇手工陶瓷 / 侘寂东方极简 / 跨境高信任电商，白底、大量留白、浅陶土米色区块、哑光墨黑主按钮、暗朱红少量强调、统一 Header、统一卡片/表单/弹窗/状态。
+- 后续所有模块页面必须先选择 `docs/module-visual-templates.md` 里的模板，再写页面。
+- 后续所有微服务模块必须先查 `docs/module-visual-templates.md` 的“模块到模板映射表”：前台模板、后台模板、状态/异常模板、关键公共组件都明确后才能开发。
+- 新页面必须先复用或补公共组件，禁止页面各自写一套按钮、输入框、卡片、错误提示和弹窗样式。
+- 普通视觉禁止行内样式；媒体宽高、性能提示等有明确原因的例外必须保持局部且可解释。
+- 支付、物流、税费、汇率、风控必须统一 Provider 接口，禁止把某个渠道硬编码进订单主流程。
+- 邮箱验证、注册成功、订单确认、发货通知、退款通知、订单取消、评价邀请等邮件发送点必须统一走 `notification-service` 模板和发送日志，后台中文维护，邮件英文输出；禁止各业务服务硬编码最终邮件 HTML。
+- 事务邮件模板必须按场景分层：验证码/安全类邮件使用极简结构、验证码大框、少图少按钮；订单确认/发货/退款/取消邮件可包含订单摘要和 1 个主 CTA；评价邀请可带轻量商品信息；营销邮件才允许大图 Banner 和商品推荐，禁止把注册验证邮件做成广告邮件。
+- 正式邮件统一使用静态 PNG Logo，不使用 SVG、动图、Lottie 或脚本动画；邮件 Logo URL、品牌名、品牌副标题、客服邮箱、官网 URL 必须由后台配置或环境配置提供，邮件模板通过 `{{logoUrl}}` 等变量引用 HTTPS CDN 图片。
+- 用户注册邮箱验证必须用有时效的安全链接，未验证账号限制关键功能；验证链接时效、安全策略和模板必须后台可维护。
+- 评价收集必须绑定已购订单/订单行，订单签收后按后台配置延时发送英文邀评邮件；评价文字和图片进入后台审核，通过后才同步前台商品页。
+- 企业资质资料必须后台可维护：营业执照、进出口权、海关备案、企业对公账户、附件照片、截止日期；到期前 1 个月必须通过通知服务提醒管理员。
+- 商品详情大图、GIF、短视频只在 catalog JSON 中保存 URL 与轻量元数据，禁止 base64/大文本入 JSON；前台必须懒加载，视频只预加载 metadata。
+- catalog 首页/分类/地域/热门商品等高频读接口必须接 Redis 缓存；后台写入后先写 DB，再删除缓存。
+- 所有列表接口必须分页，禁止商品、订单、日志、DLQ 全量返回。
+- 生产/交付环境不得依赖静态兜底数据，静态数据只允许本地开发演示。
+- 后台写接口、图片上传、订单创建、退款、库存预留必须有幂等 Key。
+- 必须有统一业务错误码和明确错误文案。
+- 必须有 404/商品不存在/商品下架友好页。
+- 商品图片、静态资源必须走海外 CDN；对象存储域名、Bucket、Endpoint 只能从环境变量或后台配置读取。
+- 后台所有写操作必须记录审计日志：操作人、时间、IP、请求 ID、变更内容。
+- 每个独立客户部署必须有数据库、对象存储、配置和密钥备份/恢复方案。
+- OpenAPI/契约/数据库/服务 DTO/后台表单/前台字段必须全链路对齐，联调前先做契约自检。
+- catalog 缓存要按维度拆 Key：storefront 聚合、分类、地域、商品摘要、商品详情/投影；写入后删对应维度和聚合缓存。
+- 静态兜底数据不得写入缓存，生产必须关闭静态兜底业务依赖。
+- `PUT` 全量更新和 `PATCH` 增量更新语义必须分开，禁止混用导致字段被误清空。
+- 媒体上传必须闭环：上传成功、catalog 绑定、失败补偿删除或隔离对象；多图必须按 sort_order 展示。
+- 后台列表必须分页，跨境核心字段必须可维护，不能隐藏 HS Code、材质、原产地、容量。
+- 网关必须透传 traceId、语言、客户端类型、鉴权和幂等头；路由必须前后台隔离。
+- 健康检查要区分进程存活和依赖可用。
+- 后台登录要有防暴力破解；生产后台 IP 白名单/VPN 是强化项，非本地开发阻塞项。
+- 私有化交付分三阶段：阶段一只用 Docker Compose 跑本地和第一台测试服务器；阶段二上云时 PostgreSQL 用 RDS、Redis 用托管 Redis、对象存储用 R2/S3/OSS，K8s 只跑无状态 Node.js 服务；阶段三业务闭环稳定后再做 Helm。
+- 当前阶段禁止提前做裸机 K8s，禁止把生产数据库或 Redis 放进 K8s。
+- 本地和测试服务器必须有集中日志路径，默认使用 Docker Compose `observability` profile 的 Loki + Grafana，并能按 `x-correlation-id` 查跨服务日志。
+- TCC confirm/cancel 失败不能只靠一次同步 HTTP，必须落入 durable compensation task，由 worker 重试，超过次数进入 DLQ。
+
+Codex 技能与上下文规则：
+- 全局技能保持最小集合；禁止为了“能力更全”批量启用技能，Codex 的基础编码能力不依赖技能数量。
+- 当前技能归档清单在 `C:\Users\xx\Documents\CodexSkillsArchive\20260618-103037\skill-manifest.csv`；缺少专用流程时，由活跃的 `skill-router` 自动检索归档，最多按需读取两个明确匹配的 `SKILL.md`。
+- 自动按需加载只读取归档技能，不把它移回全局目录，不增加后续上下文，也不需要重启；只有明确要求长期启用时才使用归档目录中的 `restore-skill.ps1`。
+- 精简技能不得替代项目验证；代码改动仍按范围执行 typecheck、test、Playwright、Docker 配置或真实环境 smoke check。
+- 新线程只提供本代码块和当前任务所需文件，不粘贴整份历史、日志或生成产物；长历史按需读取本文件对应章节。
+
+完整后续计划在：
+D:\crossborder-commerce-kit\docs\dollar-teaware-continuation-plan.md
+生产缺口登记在：
+D:\crossborder-commerce-kit\docs\production-gap-register.md
+
+请先读取这个计划文档，再继续开发。
+```
+
+## 当前真实状态
+
+- 前台商城页面已经做了很多：首页、全商品页、分类、地域、商品详情、购物车、结账、登录、注册、个人中心。
+- 前台首页视觉方向已从旧的 CERAFAN/Serif 精品画册方向切换为“景德镇手工陶瓷 / 侘寂东方极简 / 跨境高信任电商”：公告条、固定导航、单张实景 Hero、爆款商品、四大分类、信任与工艺、新品、评价、促销、订阅、黑底四栏 Footer。
+- 视觉规范文档已新增：`docs/premium-minimal-visual-system.md`；后续页面必须按规范先复用公共组件再改业务页。
+- 全模块视觉模板文档已新增：`docs/module-visual-templates.md`；覆盖后台基础资料、商品、配置、订单库存、详情审核、Provider、DLQ、报表，以及前台首页、列表、详情、购物车/结账、用户中心、状态页。
+- `docs/module-visual-templates.md` 的首页模板已更新为新主页 11 模块顺序：Announcement bar → Header → Single-image Hero → Best Sellers → Four category image navigation → Why Choose Us → Craft story → New Arrivals → Reviews → Promotion banners → Newsletter → Footer。地域分类不再默认插入首页长列表，保留在菜单和 `/regions` 独立页。
+- `docs/module-visual-templates.md` 已补充模块到模板映射表，覆盖 catalog、media、inventory、cart、order、payment、logistics、aftersales、auth、support、promotion、risk、finance、tax、fx、notification、content、search、theme、reporting，后续模块不能临时自造页面结构。
+- 首页、全商品页、分类页、地域页、全部地域页、商品详情页、购物车、结账页、个人中心已经共用同一套前台 Header。
+- 后台管理页面已有中文壳：商品、分类、地域、折扣、邮箱、外贸设置。
+- 后台公共 UI primitives 已新增：`apps/admin/app/components/admin-ui.tsx`。
+- 后台商品、商品分类、地域分类、折扣管理、邮箱设置、外贸设置已迁入公共组件。
+- 后台商品管理已补第一版跨境核心字段维护：HS Code、中文/英文材质、中文/英文产地、原产国代码、中文/英文容量规格、包装长宽高、重量、中文/英文海关说明。
+- 微服务目录已经存在：`store-service`、`catalog-service`、`inventory-service`、`order-service`、`payment-service`、`auth-service`、`api-gateway`、`admin-gateway`、`support-service`。
+- `catalog-service` 已扩展出前台快照接口：`GET /storefront`、`GET /categories`、`GET /regions`。
+- `api-gateway` 和 `admin-gateway` 已增加 catalog 读取转发：`/catalog/storefront`、`/catalog/categories`、`/catalog/regions`、`/catalog/products`。
+- `api-gateway` 和 `admin-gateway` 已增加 `/catalog/ready` 转发，并透传 `x-correlation-id`、`accept-language`、`x-client-type`、`authorization`、`idempotency-key`、`x-idempotency-key`、`user-agent`。
+- `media-service` 已从骨架升级为第一版真实上传：`POST /media/product-assets` 支持 multipart 上传、MIME/文件头/大小校验、local 或 MinIO/R2/S3 兼容存储，并返回 URL、objectKey、mime、大小、宽高等轻量元数据；`admin-gateway` 已转发 `/media/product-assets`；后台商品页会先压缩 WebP，再上传到 media-service，并把返回 URL 写入商品表单。
+- `media-service` 已补媒体生命周期护栏：上传/删除审计、对象删除补偿、480/960/1600 WebP 变体、Catalog 中英文 alt/sortOrder/变体持久化、确定性 4xx 全对象补偿和 Catalog 成功解绑后的全对象清理。不确定 5xx 已新增 PostgreSQL durable reconciliation：`030-media-reconciliation-tasks.sql`、`POST/GET /media/reconciliation-tasks`、Catalog `GET /media-bindings/:assetId` 和轮询 worker；绑定对象保留，连续两次未绑定才删除，失败指数退避并进入 `failed`。仍未完成 failed 任务后台人工重试/作废、GIF 转视频和视频 poster/时长提取。
+- `inventory-service` 已实现库存 TCC 接口：`POST /reservations/try`、`POST /reservations/confirm`、`POST /reservations/cancel`；PostgreSQL 可用时锁行更新 `inventory_items` / `inventory_reservations`，数据库不可用时明确返回 `storageMode: "memory"`。
+- `inventory-service` 已新增 `GET /inventory/items`，可读取库存快照：可用、预留、安全库存、可售、库存版本和存储模式。
+- `inventory-service` 已在后台库存快照中补充 `lockedQty`，后台按“可用库存、预留库存、锁定库存、可售库存”运营口径展示；当前锁定库存由后续售后/盘点服务写入，现阶段默认为 0。
+- `inventory-service` 已新增 `GET /inventory/reservations`，后台可读取库存预留流水，包含订单、SKU、仓库、数量、状态、幂等 Key、创建时间和存储模式。
+- `inventory-service` 已新增 `POST /inventory/reservations/:id/release`，后台可人工释放 reserved 预留；confirmed 预留不能被人工反向释放，避免破坏已支付扣减。
+- `inventory-service` 已新增 `POST /inventory/items/:id/adjust` 和 `GET /inventory/audit-events`，后台库存管理可做可用库存增减、盘点后可用库存设定、安全库存更新，并记录库存审计事件：操作人、原因、旧值、新值、correlation ID、时间。
+- `order-service` 已新增服务端 Mock 订单接口：`POST /checkout/mock-order`，支持幂等 key、订单号、Mock payment redirect；创建订单前会先调用 `inventory-service` 预留库存，建单失败会取消 PostgreSQL 库存预留，订单行保存 `skuId` 和 `inventory_version` 快照；优先写 PostgreSQL `order_db.orders/order_lines`，数据库不可用且库存也是内存模式时才返回 `storageMode: "memory"`。
+- Guest Checkout 补注册已有第一版闭环：未注册买家下单成功后，结算页会用下单邮箱展示补注册表单，提交后调用 `auth-service /register` 发送邮箱验证；邮箱激活并登录后，个人主页按该邮箱从 `api-gateway -> order-service /orders/customer-history` 读取真实历史订单。
+- `order-service` 已新增 `GET /orders`，可供后台读取最新订单；PostgreSQL 不可用时只返回当前进程内存订单。
+- `order-service GET /orders` 已返回异常订单字段：`isException`、`failureCount`、`lastFailureReason`，后台订单列表会显示红色异常标签并可悬停查看最近失败原因。
+- `order-service` 已新增 `GET /orders/:id`，后台可读取单笔订单详情、订单行快照、HS Code/材质快照、库存版本快照和库存预留幂等 Key；PostgreSQL 不可用时可读取当前进程内存订单详情。
+- `order-service` 已新增 `POST /orders/:id/manual-compensation`，后台可对异常订单人工重排库存 confirm/cancel 补偿任务；该接口强制幂等 Key、操作原因和操作人，要求 PostgreSQL durable task，不在内存模式伪造入队。
+- `order-service` 已新增订单操作审计：`order_audit_events` 记录人工补偿动作、操作人、原因、旧状态、新状态、correlation ID 和时间；订单详情会返回最近审计轨迹。
+- `order-service`、`inventory-service`、`catalog-service` 已加入结构化慢请求日志：订单创建默认 2000ms、库存预留默认 1000ms、catalog 读取默认 500ms，阈值由 `.env` 配置。
+- `payment-service` 已新增 `POST /payments/mock-intents`，`order-service` 创建订单后会调用 Mock Payment Provider；支付服务不可用时订单响应显式降级为 `paymentMode: "local-fallback"`。
+- `payment-service` 已新增 `POST /webhooks/mock`，Mock 支付回调会调用 `order-service /payments/mock-confirm` 或 `/payments/mock-cancel`。
+- `order-service` 已新增 `POST /payments/mock-confirm` 和 `POST /payments/mock-cancel`，支付成功后触发库存 confirm，支付取消后触发库存 cancel，并更新订单状态。
+- 新增 `worker-service`，用于轮询 `compensation_tasks`，执行库存 confirm/cancel 补偿，失败退避重试，超过次数写入 `dead_letter_tasks`。
+- `worker-service` 已新增 `GET /dead-letter-tasks`、`POST /dead-letter-tasks/:id/retry`、`POST /dead-letter-tasks/:id/discard`，支持读取 DLQ、人工重试、人工作废。
+- `worker-service` 已新增 DLQ 人工处理审计写入：`dead_letter_audit_events` 记录 retry/discard、处理人、处理意见、状态变化、correlation ID、IP 和时间；`GET /dead-letter-tasks` 会返回最近审计轨迹。
+- `admin-gateway` 已转发 DLQ 读取、重试、作废接口。
+- 后台“死信队列”已从占位改为真实面板，显示失败次数、最后错误摘要、来源任务、correlation ID，并支持人工处理意见、重试和作废；页面已展示最近审计记录。仍需在 PostgreSQL 故障演练中验证 worker 重试和 DLQ 入库。
+- `notification-service` 已在误删后恢复第一版事务邮件服务：支持注册验证、注册成功、忘记密码、付款成功、物流状态、评价邀请、评价待审核管理员提醒等模板；模板含中英文 subject/html/text、启用开关和变量渲染，支持 PostgreSQL 持久化，数据库不可用时显式降级为内存模式。
+- 后台“邮箱设置”已补事务邮件模板维护区，可通过 `admin-gateway -> notification-service` 读取和保存模板，后续注册、付款、物流、评价等发送点统一套模板，不在业务代码里写死最终文案。
+- `notification-service` 已新增腾讯云邮件推送 API Provider：账号池 provider 选择 `tencent_ses` 时会调用 `SendEmail`，支持中国香港配置 `TENCENT_SES_HOST=ses.tencentcloudapi.com`、`TENCENT_SES_REGION=ap-hongkong`，SecretId/SecretKey 只从 `env:` 引用读取，不允许把真实密钥写进后台或 Git；当前使用 `Simple.Html/Text` base64 发送，如果腾讯账号返回 `FailedOperation.WithOutPermission`，说明该账号仅允许腾讯云审核模板发送，需要在腾讯控制台创建/审核模板或申请特殊配置。
+- 正式线上邮件模板规则已确定：注册验证/忘记密码等验证码类邮件采用类似 ChatGPT 的极简大验证码框，保证识别、复制和送达稳定；正式模板后续需要改成腾讯云审核模板 `TemplateID + TemplateData` 发送，后台模板负责变量、预览和映射管理。
+- 正式线上邮件品牌规则已确定：邮件顶部使用统一 PNG Logo，建议透明底、源文件宽度不超过 320px、邮件显示宽度 140-180px；网站前台/后台/等待动画仍可用 SVG 矢量，邮件不使用 SVG。
+- `notification-service` 已支持腾讯云审核模板发送：事务模板可保存 `providerTemplateId`，账号池选择 `tencent_ses` 且模板填写 TemplateID 后，会用 `TemplateID + TemplateData` 发送；未填 TemplateID 时才尝试 Simple.Html/Text。后台邮箱模板页已增加“腾讯云 TemplateID”和“下载英文 HTML”按钮，运营可直接下载当前英文 HTML 去腾讯云审核。
+- `auth-service` 已默认通过 `notification-service` 发送注册验证、忘记密码邮件；邮箱验证成功后会尝试发送注册成功邮件，但该欢迎邮件失败不回滚已完成的邮箱验证。
+- `order-service` 已在 Mock 支付成功确认后触发付款成功邮件和评价邀请邮件；评价邀请会基于订单行商品 slug 生成每个已购商品的评价链接，订单行新增 `product_slug_snapshot` 快照字段。
+- 自动化邮件新增硬需求已开始落地：注册验证、注册成功、订单确认、发货通知、退款通知、订单取消 6 类场景已进入 `notification-service` 默认模板；后台事务邮件模板页已支持英文 HTML 预览、保存/启停和发送日志查看；订单创建已触发 `order_confirmation`，物流发货通知入口已改用标准 `shipping_notice` 模板，企业资质到期提醒已新增 `company_credential_expiry` 模板；注册验证链接有效期已从 30 分钟硬编码改为后台邮箱设置可维护，并写入 `email_settings.verification_token_ttl_minutes`；邮件 API 账号池已新增 PostgreSQL 持久化、每日额度、已用次数、启用/禁用/额度耗尽状态和后台维护面板。真实 Tencent SES API 发送、退款/取消真实业务触发、模板发布审计仍需继续。
+- `logistics-service` 已在误删后恢复第一版物流轨迹底座：支持 API 账号池、额度字段、轨迹缓存、调用日志、Mock Provider、本地/PG 存储降级、标准化轨迹 JSON 和物流更新邮件发送入口。当前真实 17TRACK/TrackingMore/Ship24 Provider 仍未接入，服务会明确返回 Mock 或 Provider 未配置，不伪装真实查询。
+- 前台已恢复 `/track-order` 自研物流查询页，复用 premium minimal Header、双语切换、移动端自适应和本地缓存/Provider 状态提示；移动端菜单的“Track order/物流追踪”已指向该页面。
+- 后台已恢复“物流管理”入口，可维护物流 Provider 账号池、查询轨迹、查看 API 调用日志；密钥只显示脱敏值，真实外部 Provider 适配仍列为生产缺口。
+- `review-service` 已在误删后恢复第一版商品评价底座：支持商品评价读取、评价提交、待审核/已通过/隐藏/删除状态、置顶、商家回复、PG/内存存储降级和评价待审核管理员邮件提醒；提交评价前会调用 `order-service` 校验订单邮箱匹配、订单已付款且订单行包含该商品；当前图片只接收已上传 URL，不做假上传。
+- 前台商品详情页已接入评价模块，展示综合评分、评价数量、已审核评价、图片 URL 预览和提交表单；未连接服务时显示明确提示，不伪造评价成功。
+- 后台已恢复“评价管理”入口，可按状态/商品/关键词筛选评价，执行通过、隐藏、删除、置顶和商家回复；当前仍缺 IP 限流持久化、违规词过滤、CSRF/reCAPTCHA、批量审核和完整审计日志。
+- 评价收集新增硬需求已登记：订单签收后按后台延时策略发送英文邀评邮件，邮件入口可对已购商品逐个打分、写文字、上传多图；后台审核通过才前台展示，驳回必须留存记录。
+- `packages/error-codes` 已从空目录恢复为真实 workspace 包，提供标准业务错误码、默认文案、HTTP 状态到错误码映射和错误 payload 归一化。
+- `api-gateway` 和 `admin-gateway` 已接入 `@commerce/error-codes`，下游服务报错会统一补齐 `code/message/details/correlationId` 结构；下游已经返回标准 `code` 时会保留原码，不吞掉业务原因。
+- 前台合规审核页已恢复为统一风格路由：`/privacy-policy`、`/refund-return-policy`、`/terms-of-service`、`/contact-us`。页面复用 premium minimal Header/Footer、双语切换、响应式布局和统一占位符，不再维护四份割裂 HTML。
+- 前台支付结果页已恢复：`/payment-result` 支持 `status=success|paid|failed|cancelled|pending` 和 `order/orderNumber` 查询参数，展示付款成功、处理中、失败三种统一状态页。
+- 前台已新增统一 Footer，包含商城、物流追踪、联系我们、隐私政策、退款退货政策、服务条款等 PayPal 审核常见入口；后续品牌信息和联系方式仍需接入后台站点配置。
+- 前台已新增 `/products` 全商品页，复用 ProductCollection 搜索、分页、排序、分类筛选；Header 的 Shop All、Footer 的 All Products、购物车/结账空态、付款结果页继续购物、商品详情返回商城等入口已统一挂接到真实路由，不再只依赖首页锚点。
+- 前台 Cookie 提醒已恢复并接入全局 layout，支持中英文、隐私政策入口和本地 consent 持久化；当前仍需后台 Cookie 偏好分类和第三方脚本开关联动。
+- 前台国际电话字段已恢复并接入结账页，国家/地区与区号分框展示，支持常用跨境市场和中英文国家名；当前仍需地址/电话校验 Provider。
+- 前台市场偏好选择器已挂接到桌面端 Header 轻量下拉和移动端菜单，支持国家、语言、货币偏好本地持久化；当前仍需后台市场配置、IP 自动识别和真实汇率/币种换算联动。
+- 前台茶壶倒水等待层已恢复并接入结账提交过程，使用简洁线条 SVG 和循环倒水/蒸汽动画，替代粗糙重叠图标。
+- 前台语言切换按钮已去掉圆形框体，改为与 Header 其它元素一致的极简文字按钮。
+- `ops-service` 已恢复第一版运维配置底座：支持 EdgeOne 免费 SSL 证书、Let's Encrypt、Cloudflare/EdgeOne 免费 CDN、GA4/GSC 统计配置、企业资质资料读取/保存、运维动作记录、真实 EdgeOne HTTPS/DNS/证书/混合内容检测和审计事件；PostgreSQL 可用时持久化，数据库不可用时明确内存降级。
+- 后台已恢复“运维配置”入口，可维护 EdgeOne 免费证书/Let's Encrypt 证书来源、域名、强制 HTTPS、自动续期、Cloudflare/EdgeOne CDN Provider、CDN 不缓存白名单、真实 IP、基础防护、GA4/GSC/电商事件开关、企业资质资料和提醒邮箱，并可记录 EdgeOne 免费证书申请、检测 EdgeOne HTTPS、手动续签、HTTP 检测、CDN 刷新、统计检测、资质到期扫描等操作。EdgeOne HTTPS 检测会真实检查 DNS、HTTPS 首页、证书到期时间和 HTTP 混合资源；真实 EdgeOne 证书申请/部署、Let's Encrypt 自动续签、Cloudflare/EdgeOne 缓存规则 API、GA4/GSC API 执行器仍未接入，不伪造云端成功。
+- 企业资质维护新增硬需求已有第一版：后台可维护营业执照、进出口权、海关备案、企业对公账户的编号/机构/主体/截止日期/附件 URL/备注；`ops-service` 可扫描 1-365 天内到期资质并通过 `notification-service` 发送 `company_credential_expiry` 英文提醒。真实附件上传绑定、每日自动扫描任务、提醒投递沙箱验证和更细权限审计仍需继续。
+- 结账页已从纯页面内 mock 改为调用 `api-gateway -> order-service`；成功时显示库存模式、订单存储模式和支付模式；服务不可用时明确提示“订单 API 未连接”，不假装下单成功。
+- `admin-gateway` 已转发 `/orders`、`/orders/:id`、`/payments/mock-confirm`、`/payments/mock-cancel`、`/inventory/items`、`/inventory/reservations` 和 `/inventory/reservations/:id/release`。
+- 后台“订单管理”和“库存管理”已从占位改为真实面板，API 未连接时明确提示，不展示假数据；订单列表已有异常红标，库存列表已有运营口径展示。
+- 后台“订单管理”已新增订单详情区，可从订单列表查看订单详情，并能触发 Mock 支付确认/取消；操作失败时显示失败状态，不伪造成功。异常订单人工补偿入口和订单操作审计已有第一版；仍需 PostgreSQL 故障演练验证 worker 后续消费。
+- 后台“库存管理”已新增库存预留流水区，可读取 reservation 状态并对 reserved 预留执行人工释放；释放失败时显性提示，不伪造成功。库存操作审计、盘点/调整和低库存提示已有第一版；批量盘点、正式告警规则和售后锁定库存仍未完成。
+- Docker Compose 已新增 `app` profile，可一键拉起当前 Node.js 应用服务；新增 `observability` profile，提供 Loki、Promtail、Grafana。
+- 根目录 `pnpm dev` 已明确 `--concurrency=18`，避免 18 个长期运行服务被 Turbo 默认并发卡住，导致 storefront、gateway、media、order、payment、product-import 等后半批服务无法启动，E2E 等待 3000 超时。
+- 新增私有化交付运行手册：`docs/private-deployment-runbook.md`。
+- Docker Compose fresh PostgreSQL 初始化已补齐挂载 `014`-`024` 迁移，并修复这些迁移的目标数据库连接；新环境会创建 media/logistics/notification/review/ops/product-import/order-line-slug 等恢复模块所需表。已有旧 volume 仍需手工迁移或重建测试库。
+- 新增补偿故障演练脚本：`scripts/run-compensation-drill.ps1`。脚本会创建订单、停止 inventory-service、触发支付确认导致库存 confirm 失败、强制 worker 快速打入 DLQ，并通过 `admin-gateway /dead-letter-tasks` 验证后台可见。当前本机 Docker daemon 不可用，脚本尚未在本机实际跑通。
+- 新增补偿任务和死信任务迁移：`infra/db/migrations/007-compensation-tasks-dlq.sql`；首次初始化脚本 `infra/db/init/01-create-and-seed.sql` 也已包含 `compensation_tasks` 和 `dead_letter_tasks`，避免新环境缺表。
+- 新增订单行库存预留键迁移：`infra/db/migrations/008-order-line-reservation-key.sql`。
+- catalog 数据库迁移已新增：`infra/db/migrations/005-catalog-storefront-content.sql`。
+- 第二步契约文档已新增：`docs/catalog-media-contract.md`。
+- 前台已新增 `StorefrontCatalogProvider`，首页、商品搜索、手机菜单、地域模块会优先尝试读取 `api-gateway /catalog/storefront`，失败时才用静态数据兜底。
+- `catalog-service` 已新增后台写入接口：`PUT /categories`、`PUT /regions`、`PUT /products`。
+- `catalog-service` 已新增 `catalog_audit_events` 写入和 `GET /audit-events` 读取：后台保存商品、分类、地域会记录 actor、old/new、summary、correlation ID，并通过 `admin-gateway /catalog/audit-events` 汇入后台统一审计页。
+- `catalog-service PUT /products` 已从硬编码默认值改为校验并保存跨境商品字段：HS Code、材质、产地、原产国代码、容量、包装尺寸、重量、海关说明；`skus` 和 `product_translations` 都已落地相关字段。
+- `catalog-service` 已新增后台专用商品读取接口：`GET /admin/products?page=1&size=100`，会返回 active/draft 商品和跨境字段，避免后台用前台 active-only 商品摘要凑数。
+- 新增 catalog 跨境字段迁移：`infra/db/migrations/010-catalog-crossborder-product-fields.sql`。
+- `catalog-service` 已开始加入 Redis 缓存：storefront 聚合、分类、地域、商品摘要、商品前台投影分维度缓存；后台写分类/地域/商品后精准删除相关缓存；分类/地域写入现在会同步删除依赖它们的商品摘要、商品前台投影和 storefront 聚合缓存；Redis 不可用时读 PostgreSQL。
+- `catalog-service` 已新增 `/ready` 业务就绪检查：PostgreSQL 不可用返回 503，Redis 不可用显示 degraded 但不阻断 catalog 读取。
+- 商品详情图文媒体契约已扩展为轻量媒体模型：`image/gif/video`、poster、宽高、mime、大小、时长；JSON 只放 URL 和元数据。
+- 商品详情页已开始使用懒加载媒体渲染：详情图片 lazy load，短视频只 preload metadata，长详情块延迟渲染。
+- `admin-gateway` 已新增后台写入转发：`PUT /catalog/categories`、`PUT /catalog/regions`、`PUT /catalog/products`。
+- 后台商品分类、地域分类、商品管理保存按钮已改为调用 `admin-gateway`；PostgreSQL 未启动时会明确显示“API 未连接，本地已保留修改”，不假装真实保存。
+- 后台商品、分类、地域页面已从 `admin-gateway -> catalog-service` 初始化读取真实数据；API 未连接时只作为本地演示兜底，不写缓存、不假装生产数据。
+- 现在还没有完全打穿“后台保存 → catalog-service → 前台读取”的真实主线。
+- 支付 webhook 后的库存 confirm/cancel 已有 Mock 链路；后台订单已有列表、异常红标、详情和 Mock 支付确认/取消操作；后台库存已有快照、预留流水和人工释放 reserved 预留；还缺库存操作审计、盘点/调整、安全库存告警；DLQ 后台人工入口已有列表、重试、作废和审计轨迹，还缺真实 PostgreSQL 故障演练。
+- 个人主页历史订单已从静态假数据改为通过 `api-gateway -> order-service /orders/customer-history` 按登录邮箱读取真实订单；用户地址和支付方式仍是前台结构壳，后续需要接 auth/customer profile 服务。
+- 项目目录 `D:\crossborder-commerce-kit` 已是 Git 仓库；大块可验证改动必须提交到本地 Git，避免再次因未跟踪文件误删丢失。
+- 第一台测试服务器信息已开始纳入部署流程：Ubuntu Server 24.04 LTS、公网 IP `170.106.136.169`、默认用户 `ubuntu`；已在本机生成新 SSH 密钥 `C:\Users\xx\.ssh\hlandteaware_tencent_rsa`，并已把对应公钥追加到服务器 `/home/ubuntu/.ssh/authorized_keys`，后续可 SSH 部署。
+- 新增 Ubuntu 单机部署脚本：`infra/deploy/ubuntu-bootstrap.sh` 和 `scripts/deploy-to-server.ps1`。脚本会安装 Docker/Compose、放通基础端口、用 `git archive` 上传当前提交、在服务器启动 `docker compose --profile app up -d --build`，用于先上线一版测试站，再继续补 P0 缺口；HTTP smoke check 已改为重试等待，避免 Next.js 刚启动时误报失败。
+- 服务器部署已加入版本化发布机制：每次发布解包到 `/opt/crossborder-commerce-kit/releases/<UTC时间>-<git短hash>`，`current` 指向当前版本，`previous` 指向上一版，客户配置固定在 `/opt/crossborder-commerce-kit/shared/.env`；新增 `scripts/rollback-server.ps1`，可一键切回上一版或指定版本并重新拉起 Compose。
+- GitHub 备份节奏：每天开工先检查当天是否已经推送到 GitHub；当天未推送时，完成并验证一批改动后再统一推送。除非明确要求，不需要每个小改动都单独推送。
+- 公网部署时 `NEXT_PUBLIC_API_GATEWAY_URL`、`NEXT_PUBLIC_ADMIN_GATEWAY_URL`、`NEXT_PUBLIC_AUTH_SERVICE_URL`、`STOREFRONT_PUBLIC_URL` 必须从 `.env` 注入真实公网/域名地址，不能硬编码 `localhost`，否则浏览器端会访问用户自己电脑的 localhost，导致数据接口失效、页面走静态兜底，看起来像样式或版本不对。
+- 新增无 SSH 备用部署包流程：`scripts/build-server-package.ps1` 会生成 `artifacts/deploy/crossborder-commerce-kit-deploy.tar.gz`、`ubuntu-bootstrap.sh`、`server-install-from-package.sh`，可通过腾讯云文件管理/OrcaTerm 上传到 `/tmp` 后执行安装。
+- 腾讯云测试服务器已完成 Docker Compose 部署验证：Docker `29.5.3`、Docker Compose `v5.1.4` 已安装；`docker compose --profile app up -d --build` 能启动 PostgreSQL、Redis、MinIO、OpenSearch、前台、后台、网关和当前全部 Node 微服务；公网测试地址为前台 `http://170.106.136.169:3000`、后台 `http://170.106.136.169:3001`、API Gateway `http://170.106.136.169:4000`、Admin Gateway `http://170.106.136.169:4001`。2026-06-17 最新部署版本为 `/opt/crossborder-commerce-kit/releases/20260617142213-1b82adc44375`，上一版为 `/opt/crossborder-commerce-kit/releases/20260617135756-0a55d1280b49`；公网 smoke check 已通过前台、后台、API Gateway `/health`、Admin Gateway `/health`。这是测试版部署，不代表生产 SSL/CDN/域名/真实支付/真实物流已完成。
+
+## 下一步只做这一组事
+
+继续开发订单、库存、后台运营闭环，同时保持 catalog/media 主线不偏离。
+
+## 最近验证
+
+- 2026-06-11：后台商品真实初始化、`catalog-service GET /admin/products`、`admin-gateway /catalog/admin-products`、后台商品初始化竞态修复已完成。
+- 2026-06-11：`pnpm --filter @commerce/catalog-service -s typecheck` 通过。
+- 2026-06-11：`pnpm --filter @commerce/admin-gateway -s typecheck` 通过。
+- 2026-06-11：`pnpm --filter @commerce/admin -s typecheck` 通过。
+- 2026-06-11：`docker compose config --quiet` 通过。
+- 2026-06-11：`pnpm -s typecheck` 通过，22 个包全部成功。
+- 2026-06-11：`pnpm -s e2e` 通过，36 条 Playwright 用例全部成功。
+- 2026-06-11：后台订单详情、`order-service GET /orders/:id`、`admin-gateway /orders/:id`、后台 Mock 支付确认/取消操作第一版已完成。
+- 2026-06-11：本轮订单详情/支付操作后，`pnpm -s typecheck` 通过，22 个包全部成功。
+- 2026-06-11：本轮订单详情/支付操作后，`pnpm -s e2e` 通过，36 条 Playwright 用例全部成功。
+- 2026-06-11：本轮订单详情/支付操作后，`docker compose config --quiet` 通过。
+- 2026-06-11：后台库存预留流水、`inventory-service GET /inventory/reservations`、`POST /inventory/reservations/:id/release`、`admin-gateway` 转发和后台人工释放第一版已完成。
+- 2026-06-11：本轮库存预留流水/人工释放后，`pnpm -s typecheck` 通过，22 个包全部成功。
+- 2026-06-11：本轮库存预留流水/人工释放后，`pnpm -s e2e` 通过，36 条 Playwright 用例全部成功。
+- 2026-06-11：本轮库存预留流水/人工释放后，`docker compose config --quiet` 通过。
+- 2026-06-11：DLQ 人工重试/作废审计日志第一版已完成，新增 `dead_letter_audit_events` 迁移和初始化脚本，后台死信队列展示最近审计记录。
+- 2026-06-11：本轮 DLQ 审计后，`pnpm -s typecheck` 通过，22 个包全部成功。
+- 2026-06-11：本轮 DLQ 审计后，`pnpm -s e2e` 通过，37 条 Playwright 用例全部成功。
+- 2026-06-11：本轮 DLQ 审计后，`docker compose config --quiet` 通过。
+- 2026-06-12：后台库存操作审计、库存增减、盘点式可用库存设定、安全库存更新、低库存提示第一版已完成，新增 `inventory_audit_events` 迁移和初始化脚本。
+- 2026-06-12：本轮库存操作审计后，`pnpm -s typecheck` 通过，22 个包全部成功。
+- 2026-06-12：后台订单异常人工补偿入口和订单操作审计第一版已完成，新增 `order_audit_events` 迁移和初始化脚本；人工补偿只重排 durable compensation task，不直接伪造完成态。
+- 2026-06-12：本轮订单人工补偿/审计后，`pnpm -s typecheck` 通过，22 个包全部成功。
+- 2026-06-12：本轮订单人工补偿/审计后，`docker compose config --quiet` 通过。
+- 2026-06-12：本轮订单人工补偿/审计后，`pnpm -s e2e` 通过，37 条 Playwright 用例全部成功。
+- 2026-06-12：新增 `scripts/run-compensation-drill.ps1` 和 Runbook 演练说明；本机 Docker daemon 当前不可用，未执行真实 Docker 演练。
+- 2026-06-12：本轮补偿演练脚本后，PowerShell 脚本语法解析通过。
+- 2026-06-12：本轮补偿演练脚本后，`docker compose config --quiet` 通过。
+- 2026-06-12：本轮补偿演练脚本后，`pnpm -s typecheck` 通过，22 个包全部成功。
+- 2026-06-12：本轮补偿演练脚本后，`pnpm -s e2e` 通过，37 条 Playwright 用例全部成功。
+- 2026-06-15：误删恢复第一块完成：恢复 `notification-service`、通知数据库迁移、后台邮件模板维护、auth 注册/找回密码/注册成功发送点、order 付款成功/评价邀请发送点、gateway 转发和 Docker Compose 接入。
+- 2026-06-15：本轮事务邮件恢复后，`pnpm -s typecheck` 通过，23 个包全部成功。
+- 2026-06-15：本轮事务邮件恢复后，`pnpm -s test` 通过，23 个包全部成功。
+- 2026-06-15：本轮事务邮件恢复后，`docker compose config --quiet` 通过。
+- 2026-06-15：本轮事务邮件恢复后，`git diff --check` 通过。
+- 2026-06-15：误删恢复第二块完成：恢复 `logistics-service`、物流数据库迁移、前台 `/track-order` 查询页、后台物流管理面板、api/admin gateway 转发、Docker Compose 接入和 lockfile。
+- 2026-06-15：本轮物流恢复后，`pnpm -s typecheck` 通过，24 个包全部成功。
+- 2026-06-15：本轮物流恢复后，`pnpm -s test` 通过，24 个包全部成功。
+- 2026-06-15：本轮物流恢复后，`docker compose config --quiet` 通过。
+- 2026-06-15：本轮物流恢复后，`git diff --check` 通过。
+- 2026-06-15：误删恢复第三块完成：恢复 `review-service`、商品评价数据库迁移、前台商品详情评价模块、后台评价管理面板、api/admin gateway 转发、Docker Compose 接入和 lockfile。
+- 2026-06-15：本轮评价恢复后，`pnpm -s typecheck` 通过，25 个包全部成功。
+- 2026-06-15：本轮评价恢复后，`pnpm -s test` 通过，25 个包全部成功。
+- 2026-06-15：本轮评价恢复后，`docker compose config --quiet` 通过。
+- 2026-06-15：本轮评价恢复后，`git diff --check` 通过。
+- 2026-06-15：误删恢复第四块完成：恢复 `@commerce/error-codes` 包，新增标准错误码、默认文案、HTTP 状态映射和网关错误 payload 归一化。
+- 2026-06-15：误删恢复第五块完成：恢复前台 PayPal 审核合规页、统一 Footer 和支付结果页；`pnpm --filter @commerce/storefront -s build` 通过，新增路由已完成 Next 静态生成。
+- 2026-06-15：误删恢复第六块完成：恢复 Cookie 提醒、国际电话字段、市场偏好选择器、茶壶倒水等待层，并接入全局 layout/结账页；`pnpm --filter @commerce/storefront -s build` 通过。
+- 2026-06-15：误删恢复第七块完成：恢复 `ops-service`、运维配置数据库迁移、后台运维配置页、admin-gateway 转发、Docker Compose 接入和 lockfile；真实云 API 执行器仍列为生产缺口。
+- 2026-06-15：误删恢复第八块完成：恢复 `product-import-service`、商品导入/AI 工作流数据库迁移、后台商品导入管理页、admin-gateway 转发、Docker Compose 接入和 lockfile；真实抓取器、AI Provider、媒体本地化、队列 worker、正式 Catalog 发布适配器仍列为生产缺口，当前不会假装 AI 生成成功。
+- 2026-06-15：误删恢复第九块完成：恢复后台统一审计日志页，聚合库存、运维、商品导入的真实审计接口；订单和 DLQ 审计仍保留在各自详情页，catalog/media/product 写审计还需继续扩面。
+- 2026-06-15：误删恢复第十块完成：恢复本地验证脚本、部署配置校验脚本、商品导入 AI 工作流说明和 UI 交互模板文档；后续每个客户交付前必须用真实 `.env.prod` 跑配置校验。
+- 2026-06-15：误删恢复第十一块完成：恢复独立 `customer-service-menu.tsx` 模板组件；补齐 Playwright smoke 覆盖到合规页、支付结果页、物流查询页、评价区、物流/评价/运维/商品导入/邮箱模板/审计后台面板；补回 `014`-`017` 迁移并把 `014`-`024` 挂入 Docker fresh DB 初始化；`media-service` 新增上传/删除审计、对象删除补偿入口和 `/ready`。
+- 2026-06-15：本轮恢复页面和 E2E 覆盖后，`pnpm exec playwright test tests/responsive-smoke.spec.ts --project=edge --workers=1 -g "storefront support widget opens on mobile|admin email settings can be saved on mobile|storefront legal pages use the shared premium shell|storefront payment result page covers success and language switch|storefront tracking page is self-hosted and does not fake provider success|storefront product reviews section exposes moderated review flow|admin restored logistics, review, ops, product import, email template, and audit panels"` 通过，7 条恢复范围 E2E 全部成功。
+- 2026-06-15：catalog 写操作审计第一版完成：`catalog-service` 保存分类、地域、商品时写入 `catalog_audit_events`，记录 actor、old/new、summary、correlation ID；`admin-gateway /catalog/audit-events` 已转发，后台统一审计页已增加“商品资料”来源。
+- 2026-06-15：本轮 catalog 审计和新增需求登记后，`pnpm -s typecheck` 通过，28 个包全部成功。
+- 2026-06-15：本轮 catalog 审计和新增需求登记后，`pnpm -s test` 通过，28 个包全部成功。
+- 2026-06-15：本轮 catalog 审计和新增需求登记后，`docker compose config --quiet` 通过。
+- 2026-06-15：本轮 catalog 审计和新增需求登记后，`git diff --check` 通过，仅有 Windows CRLF 工作区警告。
+- 2026-06-15：本轮 catalog 审计和新增需求登记后，`pnpm exec playwright test tests/responsive-smoke.spec.ts --project=edge --workers=1 -g "admin restored logistics, review, ops, product import, email template, and audit panels"` 通过，1 条后台恢复面板 E2E 成功。
+- 2026-06-15：自动化邮件第一轮补强完成：新增 `order_confirmation`、`shipping_notice`、`refund_notice`、`order_cancelled` 标准模板；订单创建触发订单确认邮件；物流邮件改用发货通知模板；后台邮箱页新增英文 HTML 预览和邮件发送日志。
+- 2026-06-15：本轮自动化邮件补强后，`pnpm -s typecheck` 通过，28 个包全部成功。
+- 2026-06-15：本轮自动化邮件补强后，`pnpm -s test` 通过，28 个包全部成功。
+- 2026-06-15：本轮自动化邮件补强后，`docker compose config --quiet` 通过。
+- 2026-06-15：本轮自动化邮件补强后，`git diff --check` 通过，仅有 Windows CRLF 工作区警告。
+- 2026-06-16：腾讯云 SES API Provider 第一版完成：新增 TC3-HMAC-SHA256 签名发送器、`tencent_ses` 账号池真实发送分支、环境变量占位和单元测试；真实 Secret 不写入仓库。
+- 2026-06-16：腾讯云 SES 审核模板通道完成：新增 `provider_template_id` 迁移、`TemplateID + TemplateData` 发送分支、后台 TemplateID 维护和英文 HTML 下载按钮；`pnpm --filter @commerce/notification-service -s typecheck/test` 与 `pnpm --filter @commerce/admin -s typecheck` 通过。
+- 2026-06-15：本轮自动化邮件补强后，`pnpm exec playwright test tests/responsive-smoke.spec.ts --project=edge --workers=1 -g "admin restored logistics, review, ops, product import, email template, and audit panels"` 通过，1 条后台恢复面板 E2E 成功；Playwright webServer 收尾输出过 `product-import-service#dev exited (1)`，单独启动该服务为长驻命令未复现失败，端口无残留占用。
+- 2026-06-15：企业资质维护第一版完成：`ops-service` 新增营业执照、进出口权、海关备案、企业对公账户资料模型和到期扫描动作；后台运维配置页新增企业资质资料表单；`notification-service` 新增 `company_credential_expiry` 英文提醒模板。
+- 2026-06-15：本轮企业资质维护后，`pnpm --filter @commerce/ops-service -s typecheck`、`pnpm --filter @commerce/notification-service -s typecheck`、`pnpm --filter @commerce/admin -s typecheck` 通过。
+- 2026-06-15：本轮企业资质维护后，`pnpm -s typecheck` 通过，28 个包全部成功。
+- 2026-06-15：本轮企业资质维护后，`pnpm -s test` 通过，28 个包全部成功。
+- 2026-06-15：本轮企业资质维护后，`docker compose config --quiet` 通过。
+- 2026-06-17：EdgeOne 免费 SSL 运维闭环补强：`ops-service` 新增 `edgeone-free-cert-check`，真实检测域名 DNS、HTTPS 首页、证书到期时间和 HTTP 混合资源，并回写最近检测时间/证书到期时间；后台运维页新增“检测 EdgeOne HTTPS”按钮；新增 `scripts/check-edgeone-free-ssl.ps1` 本地复查脚本；部署 Runbook 已补充 EdgeOne 免费证书接入、验收和失败处理步骤。真实 EdgeOne 控制台申请/部署仍需人工或后续 API 执行器接入，不假完成。
+- 2026-06-17：服务器 smoke 发现 `ops-service` 运维接口运行时 repository 注入为空导致 `/ops/settings` 和 `/ops/actions/*` 返回 500；已补 fallback repository，避免运维配置页在 DI 失败时整体不可用；重新部署 `20260617055015-ca225cdbd1fb` 后，`/ops/settings` 返回 200，`edgeone-free-cert-check` 返回 201 并在未填写真实域名时显性提示。后续仍需补服务级集成测试覆盖 ops settings/action 路由。
+- 2026-06-17：补偿任务 / DLQ PostgreSQL 故障演练已在测试服务器通过。新增 `scripts/run-server-compensation-drill.ps1`，通过 SSH 在 `170.106.136.169` 上创建 PostgreSQL-backed 订单，停止 `inventory-service`，触发 `payments/mock-confirm` 库存 confirm 失败，验证订单进入 `compensation_pending`、`compensation_tasks` 到期重试、worker 写入 `dead_letter_tasks`，并通过 `admin-gateway /dead-letter-tasks` 查到该任务；演练订单 `ef3a0586-7da9-458c-a219-6d9b1d7dfbdb`，correlation ID `server-drill-7200ffbe-f201-4e19-a11c-5fc5b5087b56`，open DLQ 行数 1。当前只证明库存补偿故障链路，真实支付/物流/邮件 Provider 故障演练仍需继续。
+- 2026-06-17：Catalog Redis 缓存失效策略完成代码级加固：新增 `services/catalog-service/src/cache-policy.ts` 和 `cache-policy.test.ts`，分类写入会清 `categories + productSummaries + storefrontProducts + storefront`，地域写入会清 `regions + productSummaries + storefrontProducts + storefront`，商品写入会清 `productSummaries + storefrontProducts + storefront`；`pnpm --filter @commerce/catalog-service test` 通过 3 个测试，`pnpm --filter @commerce/catalog-service typecheck` 通过。真实 PostgreSQL/Redis 端到端写后失效演练仍需在服务器跑。
+- 2026-06-17：Catalog PostgreSQL/Redis 端到端缓存演练已在测试服务器通过。新增 `scripts/run-server-catalog-cache-drill.ps1`，通过 SSH 预热 `api-gateway /catalog/storefront` 和 `/catalog/products`，验证 Redis 中 `local:store:<storeId>:catalog:*` 五类 key 存在；随后分别通过 `admin-gateway PUT /catalog/categories` 临时更新/恢复 `teapot` 分类、`PUT /catalog/regions` 临时更新/恢复 `beijing` 地域、`PUT /catalog/products` 临时更新/恢复 SKU `TEA-PORCELAIN-SET-001`，验证相关依赖 key 被删除、对应维度 key 被刷新、`api-gateway /catalog/storefront` 返回新值，最后确认临时值消失；完整脚本通过，correlation ID `cache-drill-1781696871`。后续需要把该脚本纳入周期性演练和告警，不再把 Catalog Redis 维度演练列为未验证。
+- 2026-06-17：统一业务错误码第一批服务级迁移完成：`inventory-service` 增加 `@commerce/error-codes` 依赖，库存参数校验、库存不足、库存项/预留不存在、库存状态冲突统一返回标准 `{ code, message, details }` payload；`pnpm --filter @commerce/inventory-service typecheck` 通过，`pnpm --filter @commerce/inventory-service test` 通过（当前无库存测试文件）。
+- 2026-06-17：统一业务错误码第二批服务级迁移完成：`order-service` 增加 `@commerce/error-codes` 依赖，结账/地址/订单 ID/手工补偿输入校验、订单/订单行不存在、订单状态冲突、库存不足、库存服务不可用统一返回标准 `{ code, message, details }` payload；`pnpm --filter @commerce/order-service typecheck` 通过，`pnpm --filter @commerce/order-service test` 通过（当前无订单测试文件）。
+- 2026-06-17：统一业务错误码第三批服务级迁移完成：`catalog-service` 增加 `@commerce/error-codes` 依赖，分类/地域/商品输入校验、商品保存时分类/地域不存在、catalog 数据库 readiness 不可用统一返回标准 `{ code, message, details }` payload；`pnpm --filter @commerce/catalog-service typecheck` 通过，`pnpm --filter @commerce/catalog-service test` 通过 3 个测试。
+- 2026-06-17：统一业务错误码第四批服务级迁移完成：`review-service` 增加 `@commerce/error-codes` 依赖，评价文本/邮箱/评分输入校验、重复评价、评价不存在、订单验证依赖不可用统一返回标准 `{ code, message, details }` payload；`pnpm --filter @commerce/review-service typecheck` 通过，`pnpm --filter @commerce/review-service test` 通过（当前无评价测试文件）。
+- 2026-06-17：统一业务错误码第五批服务级迁移完成：`logistics-service` 增加 `@commerce/error-codes` 依赖，物流单号/账号配置/刷新请求校验、无可用物流 Provider、物流邮件通知依赖失败统一返回标准 `{ code, message, details }` payload；`pnpm --filter @commerce/logistics-service typecheck` 通过，`pnpm --filter @commerce/logistics-service test` 通过（当前无物流测试文件）。
+- 2026-06-17：统一业务错误码第六批服务级迁移完成：`notification-service` 增加 `@commerce/error-codes` 依赖，邮件发送/模板/账号池输入校验、模板不存在、密钥环境依赖缺失、未知邮件 Provider 统一返回标准 `{ code, message, details }` payload；`pnpm --filter @commerce/notification-service typecheck` 通过，`pnpm --filter @commerce/notification-service test` 通过 3 个腾讯云 SES 单元测试。
+- 2026-06-17：统一业务错误码第七批服务级迁移完成：`media-service` 增加 `@commerce/error-codes` 依赖，文件缺失/过大/类型或 MIME 不匹配统一为 `UPLOAD_REJECTED`，对象键/路径问题统一为 `VALIDATION_FAILED`，文件不存在统一为 `NOT_FOUND`，对象存储配置缺失统一为 `DEPENDENCY_UNAVAILABLE`；`pnpm --filter @commerce/media-service typecheck` 通过，`pnpm --filter @commerce/media-service test` 通过（当前无媒体测试文件）。
+- 2026-06-17：统一业务错误码第八批前后台迁移完成：`@commerce/error-codes` 新增中英文标准文案和 `localizedErrorMessage`，并新增 3 个单元测试；前台结账、账号/密码、注册、评价，后台订单、库存、物流、评价、商品媒体上传已统一解析 `code/message/details`。`pnpm --filter @commerce/error-codes test/typecheck/build`、`pnpm --filter @commerce/storefront typecheck/build`、`pnpm --filter @commerce/admin typecheck/build` 全部通过。
+- 2026-06-17：统一业务错误码第九批界面迁移完成：前台注册弹窗显式继承父页面 `locale`，物流查询改用共享本地化错误；前台默认英文时错误显示英文，切换中文后立即显示中文。后台邮箱设置和 DLQ 列表/重试/作废改用共享中文错误文案；`pnpm --filter @commerce/storefront typecheck/build`、`pnpm --filter @commerce/admin typecheck` 通过。
+- 2026-06-17：统一业务错误码第十批后台迁移完成：运维配置、商品导入、分类和地域管理页已统一使用共享中文错误文案，网络断开仍显示明确的 API 未连接提示，不再直接展示后端原始 `message` 或 `HTTP` 状态字符串；`pnpm --filter @commerce/admin typecheck` 通过。
+- 2026-06-18：统一业务错误码第十一批服务级迁移完成：`payment-service` 的支付意图/Mock webhook 参数校验统一返回 `VALIDATION_FAILED`，调用订单服务失败时保留下游标准错误状态和 correlation ID，网络/超时统一返回 `DEPENDENCY_UNAVAILABLE`；`worker-service` 的 DLQ ID 校验、任务不存在、状态冲突统一返回标准 payload，库存补偿失败日志改为稳定的 `code: message` 格式。`pnpm --filter @commerce/payment-service typecheck/test/build`、`pnpm --filter @commerce/worker-service typecheck/test/build` 全部通过。
+- 2026-06-18：统一业务错误码第十二批服务级迁移完成：`auth-service` 的注册/登录/验证/重置密码/邮箱配置校验统一返回标准 payload；错误账号密码改为 `UNAUTHORIZED`，未激活账号改为 `FORBIDDEN`，重复注册/重复使用 token 改为 `CONFLICT`，邮件关闭或通知服务失败改为 `PROVIDER_UNAVAILABLE` / `DEPENDENCY_UNAVAILABLE`。`pnpm --filter @commerce/auth-service typecheck/test/build` 全部通过。
+- 2026-06-18：商品导入发布假完成已移除：`product-import-service` 发布前校验草稿，通过 `CATALOG_SERVICE_URL -> catalog-service PUT /products` 真实写入正式商品库，Catalog 确认返回对应 SKU 后才把任务标记为 `published`；Catalog 拒绝或不可达时保持原任务状态并返回标准错误。Catalog 商品写入新增整数 `priceMinor` 服务间契约，避免导入金额经过浮点换算。新增 3 个发布适配器测试和 3 个金额契约测试，覆盖成功、业务拒绝、网络故障、整数原样保存、旧字段兼容及非法小数拒绝；两项服务 typecheck/test/build、后台 typecheck/build 和 `docker compose config --quiet` 通过。
+- 2026-06-18：前后台网关下游故障标准化完成：`api-gateway` 和 `admin-gateway` 所有 JSON/媒体转发统一经过请求封装；下游业务错误保留原 HTTP 状态和标准 payload，下游进程宕机、连接拒绝、DNS/网络异常统一返回 `503 DEPENDENCY_UNAVAILABLE`，并返回实际转发使用的 correlation ID。两项网关 typecheck/build 通过；临时运行实例分别请求不可达 Catalog，实测均返回 503 标准 JSON，correlation ID 为 `gateway-runtime-check` / `admin-gateway-runtime-check`。
+- 2026-06-18：统一业务错误码第十三批服务级迁移完成：`ops-service` 未知运维动作不再以 HTTP 成功响应返回 `accepted: false`，改为标准 `400 VALIDATION_FAILED`；新增动作归一化与拒绝分支测试，共 3 条通过，`ops-service` typecheck/build 通过。`support-service` 和 `store-service` 已扫描，当前只有健康检查和默认店铺读取，没有需要迁移的失败业务分支。
+- 2026-06-18：幂等冲突第一轮完成：`order-service` 新增下单请求 SHA-256 指纹和迁移 `029-order-idempotency-fingerprint.sql`，同键同请求允许重放，同键变更邮箱、地址、商品或数量返回 `409 IDEMPOTENCY_CONFLICT`；`inventory-service` 同键重放会核对 SKU、仓库和数量；订单冲突清理只取消本次新建的预留，不反向释放原订单预留。订单 5 条、库存 4 条单元测试及两个服务 typecheck 通过。Docker Desktop 当时未运行，PostgreSQL 并发/运行时演练仍待执行。
+- 2026-06-18：测试服务器已发布工作区 release `20260618024005-d5841ce8163d-worktree`；服务器 HTTP smoke 通过，PostgreSQL 幂等演练验证同键同请求重放、变更请求 `409 IDEMPOTENCY_CONFLICT`、请求指纹落库和库存预留冲突，correlation ID 为 `idempotency-drill-e000dc73-a0bc-4858-816f-e8c5526e9221`。
+- 2026-06-18：商品媒体服务器闭环第一轮完成：真实 MinIO 上传 2000×1200 PNG 后生成 480/960/1600 WebP，Catalog 绑定并回读中英文 alt、sortOrder 和响应式元数据成功；服务器演练发现 Catalog 4xx 补偿只删除原图、遗留三个变体，已用回归测试修复为删除原图及全部 `responsiveSources`。修复后 4 个对象均由 MinIO `statObject` 验证为不存在，correlation ID 为 `media-compensation-29505f31-affc-4f70-8d46-411037dbec84`；成功绑定/回读演练 correlation ID 为 `media-binding-649c4872-da6e-4060-a971-9bc16c3dbdf3`。
+- 2026-06-18：已绑定商品媒体删除闭环完成：后台保留显式 `removedMediaAssets` 清理列表，`admin-gateway` 先完成 Catalog 解绑，成功后才删除原图及全部响应式变体；Catalog 4xx 拒绝时对象保持存在，避免误删仍绑定资源。后台上传对象现完整保留 `variants` / `responsiveSources`，不再在 UI 到 Catalog 链路丢失变体元数据。服务器真实演练验证拒绝后 4 个对象仍存在、绑定成功、解绑成功、解绑后 4 个对象均不存在，correlation ID 为 `bound-media-cleanup-resume-26e6d8a7-6fcb-4a25-80cd-82fbbf72e2a3`。
+- 2026-06-18：Catalog 资源不存在状态码修正：分类/地域引用不存在时不再用 HTTP 400 包装 `NOT_FOUND`，统一改为 HTTP 404 + `code: NOT_FOUND`；新增错误映射回归测试，Catalog 共 11 条测试通过。服务器经 `admin-gateway` 真实保存无效分类请求验证状态为 404，correlation ID 为 `catalog-not-found-d698edf3-8b25-4291-aeb6-fa8badb3d256`。
+- 2026-06-18：媒体不确定 5xx 持久化对账完成第一版：新增迁移 `030-media-reconciliation-tasks.sql`、ADR `docs/architecture/adr-001-durable-media-reconciliation.md`、Catalog 权威绑定查询、Media durable enqueue/list API、`FOR UPDATE SKIP LOCKED` worker、两次未绑定确认、指数退避和 `failed` 终态；`admin-gateway` 仅对 5xx/依赖故障入队，4xx 保持立即补偿。服务器真实停止 Catalog 后验证：已绑定资产任务经 1 次失败重试后为 `resolved_bound` 且原图/3 个变体全部保留；未绑定资产经两次观察后为 `cleaned` 且 4 个对象全部删除，correlation ID 为 `media-reconciliation-drill-b6a7d5ee-14e9-4cfa-9fec-662f76da2223`。另以 `maxAttempts=2` 验证 Catalog 持续不可用时任务进入 `failed`、`attemptCount=2`，correlation ID 为 `media-reconciliation-failed-890efa95-66cc-42cb-8160-fcb426b05051`；演练后服务器已恢复默认 5 秒轮询、30 秒首次/二次确认、8 次最大尝试。
+- 2026-06-15：本轮企业资质维护后，`git diff --check` 通过，仅有 Windows CRLF 工作区警告。
+- 2026-06-15：本轮企业资质维护后，清理了占用 4114 的旧 Node 进程；随后 `pnpm exec playwright test tests/responsive-smoke.spec.ts --project=edge --workers=1 -g "admin restored logistics, review, ops, product import, email template, and audit panels"` 通过，1 条后台恢复面板 E2E 成功。
+- 2026-06-15：Guest Checkout 补注册第一版完成：结算成功后按下单邮箱显示注册表单，提交走 `auth-service /register` 并复用验证邮件；个人主页订单历史改为通过 `api-gateway -> order-service /orders/customer-history` 按登录邮箱读取真实订单，移除静态假订单。
+- 2026-06-15：本轮 Guest Checkout 补注册后，`pnpm --filter @commerce/order-service -s typecheck`、`pnpm --filter @commerce/api-gateway -s typecheck`、`pnpm --filter @commerce/storefront -s typecheck` 通过。
+- 2026-06-15：本轮 Guest Checkout 补注册后，`pnpm -s typecheck` 通过，28 个包全部成功。
+- 2026-06-15：本轮 Guest Checkout 补注册后，`pnpm -s test` 通过，28 个包全部成功。
+- 2026-06-15：本轮 Guest Checkout 补注册后，`docker compose config --quiet` 通过。
+- 2026-06-15：本轮 Guest Checkout 补注册后，`git diff --check` 通过，仅有 Windows CRLF 工作区警告。
+- 2026-06-15：本轮 Guest Checkout 补注册后，`pnpm exec playwright test tests/responsive-smoke.spec.ts --project=edge --workers=1 -g "storefront add to cart opens cart and checkout pages|storefront account order history reads real orders without static fallback"` 通过，2 条前台闭环 E2E 成功。
+- 2026-06-15：注册验证链接时效策略后台化第一版完成：`email_settings.verification_token_ttl_minutes` 已入库，后台邮箱设置页可维护 5-1440 分钟；`auth-service` 创建验证 token 时使用该配置，`notification-service` 注册验证模板可使用 `{{expiresInMinutes}}`。
+- 2026-06-15：本轮验证链接时效策略后，`pnpm --filter @commerce/auth-service -s typecheck`、`pnpm --filter @commerce/notification-service -s typecheck`、`pnpm --filter @commerce/admin -s typecheck` 通过。
+- 2026-06-15：本轮验证链接时效策略后，`pnpm -s typecheck` 通过，28 个包全部成功。
+- 2026-06-15：本轮验证链接时效策略后，`pnpm -s test` 通过，28 个包全部成功。
+- 2026-06-15：本轮验证链接时效策略后，`docker compose config --quiet` 通过。
+- 2026-06-15：本轮验证链接时效策略后，`pnpm exec playwright test tests/responsive-smoke.spec.ts --project=edge --workers=1 -g "admin email settings can be saved on mobile|admin restored logistics, review, ops, product import, email template, and audit panels"` 通过，2 条后台邮箱/恢复面板 E2E 成功；Playwright webServer 收尾仍输出已知 `product-import-service#dev exited (1)` 噪声，测试结果为通过。
+- 2026-06-15：评价已购订单校验第一版完成：`review-service` 提交评价前调用 `order-service /orders/:id`，校验订单邮箱匹配、`paymentStatus = paid` 且订单行包含当前商品；校验不可用或不通过时拒绝提交，不假装评价成功。
+- 2026-06-15：本轮评价订单校验后，`pnpm --filter @commerce/review-service -s typecheck`、`pnpm --filter @commerce/api-gateway -s typecheck`、`pnpm --filter @commerce/storefront -s typecheck` 通过。
+- 2026-06-15：本轮评价订单校验后，`pnpm -s typecheck` 通过，28 个包全部成功。
+- 2026-06-15：本轮评价订单校验后，`pnpm -s test` 通过，28 个包全部成功。
+- 2026-06-15：本轮评价订单校验后，`docker compose config --quiet` 通过。
+- 2026-06-15：本轮评价订单校验后，`pnpm exec playwright test tests/responsive-smoke.spec.ts --project=edge --workers=1 -g "storefront product reviews section exposes moderated review flow|admin restored logistics, review, ops, product import, email template, and audit panels"` 通过，2 条评价/后台面板 E2E 成功；Playwright webServer 收尾输出过 `admin#dev exited (1)`，测试结果为通过。
+- 2026-06-15：邮件 API 账号池持久化第一版完成：`notification_email_accounts` 已新增，`notification-service` 可读取/保存账号池、按 active 且未超日额度的账号发送并消费额度，额度耗尽时返回限流；后台邮箱页新增账号池维护面板；真实 Tencent SES API 调用仍未接入。
+- 2026-06-15：本轮邮件账号池后，`pnpm --filter @commerce/notification-service -s typecheck`、`pnpm --filter @commerce/admin-gateway -s typecheck`、`pnpm --filter @commerce/admin -s typecheck` 通过。
+- 2026-06-15：本轮邮件账号池后，`pnpm -s typecheck` 通过，28 个包全部成功。
+- 2026-06-15：本轮邮件账号池后，`pnpm -s test` 通过，28 个包全部成功。
+- 2026-06-15：本轮邮件账号池后，`docker compose config --quiet` 通过。
+- 2026-06-15：本轮邮件账号池后，`pnpm exec playwright test tests/responsive-smoke.spec.ts --project=edge --workers=1 -g "admin email settings can be saved on mobile|admin restored logistics, review, ops, product import, email template, and audit panels"` 通过，2 条后台邮箱面板 E2E 成功。
+- 2026-06-16：订单收货地址快照第一版完成：`order-service` 创建订单时强制校验并保存国家、省/州、城市、邮编、详细地址到订单级快照；PostgreSQL 迁移 `027-order-shipping-address-snapshot.sql` 已新增；后台订单详情新增“收货地址快照”展示；内存降级订单也返回同一结构。
+- 2026-06-16：本轮订单地址快照后，`pnpm --filter @commerce/order-service -s typecheck`、`pnpm --filter @commerce/admin -s typecheck` 通过；`pnpm exec playwright test tests/responsive-smoke.spec.ts --project=edge --workers=1 -g "admin order detail shows the checkout shipping address snapshot"` 通过，确认后台可读取创建订单时的地址快照。
+- 2026-06-16：本轮订单地址快照后，`pnpm -s typecheck` 通过，28 个包全部成功；`docker compose config --quiet` 通过；`pnpm -s e2e` 通过，45 个 Playwright 测试全部成功。
+- 2026-06-16：腾讯云 Ubuntu 24.04 测试服务器首版部署完成：已通过 SSH 密钥连接 `170.106.136.169`，安装 Docker/Compose，修复 fresh PostgreSQL 初始化挂载和迁移目标库问题，执行 `scripts/deploy-to-server.ps1 -HostName 170.106.136.169 -User ubuntu -SkipBootstrap` 成功；远端 `docker compose ps` 显示 app profile 全部服务 Up，HTTP smoke check 通过 `storefront/admin/api-gateway/admin-gateway ready`。
+- 2026-06-16：服务器版本化发布和回滚脚本第一版完成：`deploy-to-server.ps1` 会创建 release 目录、维护 `current/previous` 指针和共享 `.env`；`rollback-server.ps1` 支持回滚上一版或指定版本，回滚后执行 Compose 启动和 HTTP smoke check。
+- 2026-06-16：修复公网部署前台地址配置：`docker-compose.yml` 的 `NEXT_PUBLIC_*` 和 `STOREFRONT_PUBLIC_URL` 已改为从 `.env` 注入，避免服务器页面在浏览器中继续访问 `localhost`。
+- 2026-06-16：首页首屏视觉收敛：移除 Hero 内重复的大 Logo/红印章分隔线，仅保留 Header 小品牌标识，避免首屏显得像品牌稿堆叠而不是欧美极简电商首页；`pnpm --filter @commerce/storefront -s typecheck` 和 `pnpm --filter @commerce/storefront -s build` 通过。
+- 2026-06-16：服务器已部署视觉修正版 release `20260616125636-e1dde0a4cce8`，`current` 指向该版本，`previous` 指向 `20260616124837-c6bf48fb1fed`；公网截图 `artifacts/server-homepage-refined.png` 确认 Hero 大 Logo 已移除。执行 `scripts/rollback-server.ps1 -HostName 170.106.136.169 -User ubuntu -Version "20260616125636-e1dde0a4cce8"` 通过，验证回滚脚本可切换版本、重新启动 Compose 并完成 storefront/admin/api-gateway/admin-gateway smoke check。
+- 2026-06-17：首页新视觉方向已确定并开始落地：按“手工景德镇陶瓷、茶具、单杯、陶瓷花瓶、礼品瓷”定位重做首页结构；新基准为白底、浅陶土米色、哑光墨黑、暗朱红强调、移动端优先；旧 CERAFAN/Serif 画册式首页方向不再作为后续开发默认。PayPal 审核四大页面继续保留并挂入黑底 Footer。
+- 2026-06-17：新首页视觉已提交并部署到腾讯云测试服务器，release `20260617045217-955a8d17d17c`；公网地址 `http://170.106.136.169:3000` 已显示新首页，`storefront/admin/api-gateway/admin-gateway` HTTP smoke check 全部通过。上一个可回滚版本仍由部署脚本维护在 `previous` 指针。
+
+已完成：
+
+1. 数据库 Schema
+2. OpenAPI 契约
+3. 后台保存流程
+4. 前台读取流程
+5. 测试清单
+
+下一步：
+
+1. 后台商品管理继续补 image alt、多图排序和批量校验；HS Code、材质、原产地、容量、包装尺寸、重量、海关说明第一版已落地。
+2. 继续完善 `media-service`：图片响应式变体、Catalog 多图排序/alt、4xx 补偿、解绑清理和不确定 5xx durable reconciliation 已有第一版；下一步给 `failed` 对账任务补后台人工重试/作废及审计，再补 GIF 转视频、视频 poster/时长提取。
+3. 服务端统一业务错误码第一轮已覆盖存在失败业务分支的核心服务、`ops-service`、`product-import-service` 和前后台网关；`support-service`、`store-service` 当前没有失败业务分支。下单与库存预留幂等冲突已通过测试服务器 PostgreSQL 运行时演练。前台交易/账号/注册/评价/物流页和后台订单/库存/物流/评价/商品媒体/邮箱/DLQ/运维配置/商品导入/分类/地域已接入共享文案。下一步补真正并发竞态演练、真实 Provider 和剩余补偿场景的标准错误码测试。
+4. 继续补后台列表/详情/弹窗/分页 primitives，给后续订单、库存、Provider、DLQ 页面复用。
+5. 按 `docs/production-gap-register.md` 继续推进 P0：统一错误码、catalog/media/product 写审计扩面、对象存储绑定补偿、真实支付/物流/邮件 Provider 故障演练、Catalog 缓存周期性演练和告警。
+6. 继续恢复和打磨误删模块：商品导入 AI 工作流已有第一版，真实 Catalog 发布适配器已接入；物流轨迹服务、`/track-order` 页面、评价服务、后台审核、统一错误码包、合规页、支付结果页、Cookie 提醒、国际电话字段、市场偏好组件、茶壶等待层、订单收货地址快照和运维 SSL/CDN/统计后台已有第一版；评价提交的订单校验已接入 `order-service`，但真实聚合物流 Provider、评论图片上传联动、站点配置动态化、后台 Cookie/市场配置、真实云 API 执行器、商品导入真实抓取/AI/媒体本地化/队列执行和剩余服务错误码替换仍需接入。
+7. 补齐自动化邮件真实闭环：注册验证时效策略后台化和邮件 API 账号池持久化第一版已完成；继续补真实 Tencent SES API 发送、注册成功/订单确认/发货/退款/取消/评价邀请的真实业务触发、模板发布审计、失败记录治理；所有发送点统一走 `notification-service`。
+8. 补齐评价收集真实闭环：一单一评订单校验第一版已接入；继续补订单签收延时邀评、评价图片走 media-service、审核通过同步前台、驳回留存、审核审计和邮件通知。
+9. 继续补齐企业资质生产闭环：真实附件照片上传/绑定、每日自动到期扫描、提醒邮件真实 Provider 验证、资质操作权限和审计硬化。

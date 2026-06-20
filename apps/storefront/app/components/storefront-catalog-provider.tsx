@@ -15,6 +15,7 @@ import type {
   StorefrontProduct,
   StorefrontRegion
 } from "../lib/storefront-content.js";
+import { mapCatalogProductMediaAssets } from "../lib/product-media.js";
 
 type StorefrontCatalogData = {
   products: StorefrontProduct[];
@@ -32,6 +33,10 @@ const fallbackCatalog: StorefrontCatalogData = {
 
 const CatalogContext = createContext<StorefrontCatalogData>(fallbackCatalog);
 const apiGatewayUrl = process.env.NEXT_PUBLIC_API_GATEWAY_URL ?? "http://localhost:4000";
+
+function correlationId() {
+  return globalThis.crypto?.randomUUID?.() ?? `catalog-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
 
 function formatPrice(amountMinor: number) {
   return `$${Math.round(amountMinor / 100)}`;
@@ -104,6 +109,7 @@ function mapSnapshot(snapshot: CatalogStorefrontSnapshot): StorefrontCatalogData
     region: product.regionSlug,
     skuId: product.skuId,
     sku: product.skuCode,
+    mediaAssets: mapCatalogProductMediaAssets(product.mediaAssets ?? []),
     copy: {
       en: mapProductCopy(localeCopy(product.copy, "en")),
       zh: mapProductCopy(localeCopy(product.copy, "zh"))
@@ -122,7 +128,7 @@ export function StorefrontCatalogProvider({ children }: { children: ReactNode })
     async function loadCatalog() {
       try {
         const response = await fetch(`${apiGatewayUrl}/catalog/storefront`, {
-          headers: { "x-correlation-id": crypto.randomUUID() }
+          headers: { "x-correlation-id": correlationId() }
         });
 
         if (!response.ok) return;

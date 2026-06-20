@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import { assertTemplateContentIsHttpsSafe } from "./template-content.js";
 import { BadRequestException, Body, Controller, Get, Headers, Injectable, Module, Param, Post, Put, ServiceUnavailableException } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { ERROR_CODES } from "@commerce/error-codes";
@@ -632,6 +633,16 @@ class EmailStore {
       key,
       updatedAt: new Date().toISOString()
     };
+    try {
+      assertTemplateContentIsHttpsSafe({
+        htmlZh: next.htmlZh,
+        htmlEn: next.htmlEn,
+        textZh: next.textZh,
+        textEn: next.textEn
+      });
+    } catch (error) {
+      throw validationFailed(error instanceof Error ? error.message : "template contains an insecure URL", { field: "template" });
+    }
 
     try {
       const result = await this.pool.query<{ updated_at: Date }>(

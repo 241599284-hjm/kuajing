@@ -22,6 +22,7 @@ import { assertStoreContext, type StoreContext } from "@commerce/store-context";
 import { nextRetryAt } from "@commerce/outbox-inbox";
 import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
+import { assertCheckoutReplay, checkoutFingerprint } from "./checkout-idempotency.js";
 
 type MockCheckoutLine = {
   slug?: string;
@@ -137,6 +138,7 @@ type InventoryReservationResult = {
   qty: number;
   inventoryVersion: number;
   idempotencyKey: string;
+  orderId?: string;
   storageMode: "postgres" | "memory";
 };
 
@@ -207,6 +209,7 @@ type OrderAuditRow = {
 };
 
 const mockOrdersByIdempotencyKey = new Map<string, MockCheckoutOrder>();
+const mockOrderFingerprintsByIdempotencyKey = new Map<string, string>();
 const paymentServiceUrl = process.env.PAYMENT_SERVICE_URL ?? "http://localhost:4106";
 const inventoryServiceUrl = process.env.INVENTORY_SERVICE_URL ?? "http://localhost:4104";
 const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL ?? "http://localhost:4111";
@@ -257,6 +260,15 @@ function dependencyUnavailable(message: string, details?: unknown): ServiceUnava
     message,
     ...(details === undefined ? {} : { details })
   });
+}
+
+function isIdempotencyConflict(error: unknown): error is HttpException {
+  if (!(error instanceof HttpException)) return false;
+  const response = error.getResponse();
+  return typeof response === "object"
+    && response !== null
+    && "code" in response
+    && response.code === ERROR_CODES.IDEMPOTENCY_CONFLICT;
 }
 
 function createStoreContext(correlationId: string | undefined): StoreContext {
@@ -541,11 +553,17 @@ function mockMemoryOrder(
   const existingOrder = mockOrdersByIdempotencyKey.get(idempotencyKey);
 
   if (existingOrder) {
+    assertCheckoutReplay(
+      idempotencyKey,
+      mockOrderFingerprintsByIdempotencyKey.get(idempotencyKey),
+      checkoutFingerprint(checkout)
+    );
     return existingOrder;
   }
 
   const order = buildMockOrder(checkout, idempotencyKey, "memory", inventoryMode, inventoryReservations, orderId);
   mockOrdersByIdempotencyKey.set(idempotencyKey, order);
+  mockOrderFingerprintsByIdempotencyKey.set(idempotencyKey, checkoutFingerprint(checkout));
   return order;
 }
 
@@ -689,6 +707,22 @@ class OrderRepository implements OnApplicationShutdown {
     connectionTimeoutMillis: 800
   });
 
+  async assertIdempotencyReplay(
+    ctx: StoreContext,
+    checkout: ReturnType<typeof normalizeCheckout>,
+    idempotencyKey: string
+  ): Promise<void> {
+    const result = await this.pool.query<{ request_fingerprint: string | null }>(
+      `SELECT request_fingerprint FROM orders WHERE store_id = $1 AND idempotency_key = $2`,
+      [ctx.storeId, idempotencyKey]
+    );
+    const existing = result.rows[0];
+
+    if (existing) {
+      assertCheckoutReplay(idempotencyKey, existing.request_fingerprint, checkoutFingerprint(checkout));
+    }
+  }
+
   async createMockOrder(
     ctx: StoreContext,
     checkout: ReturnType<typeof normalizeCheckout>,
@@ -717,6 +751,7 @@ class OrderRepository implements OnApplicationShutdown {
         total_minor: number;
         currency: string;
         idempotency_key: string;
+        request_fingerprint: string | null;
         created_at: Date;
       }>(
         `
@@ -735,6 +770,7 @@ class OrderRepository implements OnApplicationShutdown {
             total_minor,
             currency,
             idempotency_key,
+            request_fingerprint,
             created_at
           FROM orders
           WHERE store_id = $1 AND idempotency_key = $2
@@ -745,6 +781,7 @@ class OrderRepository implements OnApplicationShutdown {
       const existingRow = existing.rows[0];
 
       if (existingRow) {
+        assertCheckoutReplay(idempotencyKey, existingRow.request_fingerprint, checkoutFingerprint(checkout));
         await client.query("COMMIT");
         return {
           orderId: existingRow.id,
@@ -1457,9 +1494,10 @@ class OrderRepository implements OnApplicationShutdown {
           inventory_status,
           currency,
           total_minor,
-          idempotency_key
+          idempotency_key,
+          request_fingerprint
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
       `,
       [
         order.orderId,
@@ -1476,7 +1514,8 @@ class OrderRepository implements OnApplicationShutdown {
         order.inventoryStatus,
         order.currency,
         order.totalMinor,
-        order.idempotencyKey
+        order.idempotencyKey,
+        checkoutFingerprint(checkout)
       ]
     );
 
@@ -1678,6 +1717,23 @@ class OrderController {
     const ctx = createStoreContext(correlationId);
     const startedAt = Date.now();
     try {
+      try {
+        await this.orderRepository.assertIdempotencyReplay(ctx, checkout, idempotencyKey);
+      } catch (error) {
+        if (error instanceof HttpException) {
+          throw error;
+        }
+
+        const existingMemoryOrder = mockOrdersByIdempotencyKey.get(idempotencyKey);
+        if (existingMemoryOrder) {
+          assertCheckoutReplay(
+            idempotencyKey,
+            mockOrderFingerprintsByIdempotencyKey.get(idempotencyKey),
+            checkoutFingerprint(checkout)
+          );
+        }
+      }
+
       const orderId = randomUUID();
       const reservations = await this.reserveInventory(ctx, checkout, idempotencyKey, orderId);
       const inventoryMode = reservations.some((reservation) => reservation.storageMode === "postgres") ? "postgres" : "memory";
@@ -1694,12 +1750,24 @@ class OrderController {
           inventoryVersionSnapshots
         );
         await this.notifyOrderCreatedIfNeeded(ctx, order.orderId);
-        return this.attachMockPayment(ctx, checkout, order);
+        return this.attachPayment(ctx, checkout, order);
       } catch (error) {
+        if (isIdempotencyConflict(error)) {
+          await this.cancelInventory(ctx, reservations.filter((reservation) => reservation.orderId === orderId));
+          throw error;
+        }
+
         if (inventoryMode === "memory") {
-          const order = mockMemoryOrder(checkout, idempotencyKey, inventoryMode, reservations, orderId);
-          await this.notifyOrderCreatedIfNeeded(ctx, order.orderId);
-          return this.attachMockPayment(ctx, checkout, order);
+          try {
+            const order = mockMemoryOrder(checkout, idempotencyKey, inventoryMode, reservations, orderId);
+            await this.notifyOrderCreatedIfNeeded(ctx, order.orderId);
+            return this.attachPayment(ctx, checkout, order);
+          } catch (memoryError) {
+            if (isIdempotencyConflict(memoryError)) {
+              await this.cancelInventory(ctx, reservations.filter((reservation) => reservation.orderId === orderId));
+            }
+            throw memoryError;
+          }
         }
 
         await this.cancelInventory(ctx, reservations);
@@ -1829,6 +1897,16 @@ class OrderController {
     );
     await this.notifyOrderPaidIfNeeded(ctx, orderId, action, transition);
     return transition;
+  }
+
+  @Post("/payments/confirm")
+  async confirmPayment(
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Body() body: PaymentTransitionRequest
+  ): Promise<PaymentTransitionResult> {
+    const ctx = createStoreContext(correlationId);
+    const orderId = normalizeOrderId(body.orderId);
+    return this.transitionPayment(ctx, orderId, "confirm");
   }
 
   private async notifyOrderCreatedIfNeeded(ctx: StoreContext, orderId: string) {
@@ -2103,11 +2181,16 @@ class OrderController {
         signal: controller.signal
       });
       const payload = (await response.json().catch(() => ({}))) as Partial<InventoryReservationResult> & {
+        code?: string;
         message?: string;
       };
 
       if (!response.ok) {
         if (response.status === 409) {
+          if (payload.code === ERROR_CODES.IDEMPOTENCY_CONFLICT) {
+            throw new HttpException(payload, 409);
+          }
+
           throw inventoryShortage(payload.message ?? "insufficient inventory", {
             path,
             skuId: body.skuId,
@@ -2138,7 +2221,7 @@ class OrderController {
     }
   }
 
-  private async attachMockPayment(
+  private async attachPayment(
     ctx: StoreContext,
     checkout: ReturnType<typeof normalizeCheckout>,
     order: MockCheckoutOrder
@@ -2147,7 +2230,7 @@ class OrderController {
     const timeout = setTimeout(() => controller.abort(), 900);
 
     try {
-      const response = await fetch(`${paymentServiceUrl}/payments/mock-intents`, {
+      const response = await fetch(`${paymentServiceUrl}/payments/intents`, {
         method: "POST",
         headers: {
           "content-type": "application/json",

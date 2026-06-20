@@ -30,13 +30,26 @@ export type PaymentIntentResult = {
   status: "created" | "requires_action" | "failed";
 };
 
-export type PaymentWebhookResult = {
+export type PaymentCaptureWebhookResult = {
   eventId: string;
+  eventType: "PAYMENT.CAPTURE.COMPLETED";
   providerPaymentId: string;
+  providerCaptureId: string;
   orderId: string;
-  status: "paid" | "failed" | "cancelled" | "chargeback_opened";
-  amount?: Money;
+  status: "paid";
+  amount: Money;
 };
+
+export type PaymentRefundWebhookResult = {
+  eventId: string;
+  eventType: "PAYMENT.CAPTURE.REFUNDED" | "PAYMENT.REFUND.PENDING" | "PAYMENT.REFUND.FAILED";
+  providerPaymentId: string;
+  providerRefundId: string;
+  status: "refund_completed" | "refund_pending" | "refund_failed";
+  amount: Money;
+};
+
+export type PaymentWebhookResult = PaymentCaptureWebhookResult | PaymentRefundWebhookResult;
 
 export interface IPaymentProvider {
   name: string;
@@ -48,7 +61,7 @@ export interface IPaymentProvider {
     paymentId: string;
     amount: Money;
     idempotencyKey: string;
-  }): Promise<{ providerRefundId: string; status: "created" | "failed" }>;
+  }): Promise<{ providerRefundId: string; status: "completed" | "pending" | "failed" }>;
   verifyWebhook(request: {
     store: StoreContext;
     headers: Record<string, string | string[] | undefined>;

@@ -26,6 +26,8 @@ CREATE TABLE admin_users (
   store_id uuid NOT NULL REFERENCES stores(id),
   email text NOT NULL,
   role text NOT NULL,
+  password_hash text,
+  status text NOT NULL DEFAULT 'active',
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (store_id, email)
 );
@@ -82,6 +84,53 @@ CREATE TABLE email_settings (
   CHECK (smtp_port > 0 AND smtp_port <= 65535),
   CHECK (verification_token_ttl_minutes >= 5 AND verification_token_ttl_minutes <= 1440)
 );
+
+CREATE TABLE homepage_layouts (
+  store_id uuid PRIMARY KEY REFERENCES stores(id),
+  layout jsonb NOT NULL,
+  updated_by text NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE newsletter_subscriptions (
+  store_id uuid NOT NULL REFERENCES stores(id),
+  email text NOT NULL,
+  locale text NOT NULL DEFAULT 'en',
+  status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'unsubscribed')),
+  consent_at timestamptz NOT NULL DEFAULT now(),
+  unsubscribed_at timestamptz,
+  status_updated_at timestamptz NOT NULL DEFAULT now(),
+  status_updated_by text NOT NULL DEFAULT 'storefront',
+  PRIMARY KEY (store_id, email)
+);
+
+CREATE INDEX newsletter_subscriptions_status_idx
+  ON newsletter_subscriptions (store_id, status, consent_at DESC);
+
+CREATE TABLE newsletter_subscription_events (
+  id uuid PRIMARY KEY,
+  store_id uuid NOT NULL,
+  email text NOT NULL,
+  action text NOT NULL CHECK (action IN ('subscribed', 'reactivated', 'unsubscribed')),
+  actor text NOT NULL,
+  occurred_at timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (store_id, email)
+    REFERENCES newsletter_subscriptions (store_id, email)
+    ON DELETE CASCADE
+);
+
+CREATE INDEX newsletter_subscription_events_lookup_idx
+  ON newsletter_subscription_events (store_id, email, occurred_at DESC);
+
+CREATE TABLE admin_sessions (
+  token_hash text PRIMARY KEY,
+  admin_user_id uuid NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
+  store_id uuid NOT NULL REFERENCES stores(id),
+  expires_at timestamptz NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX admin_sessions_expiry_idx ON admin_sessions (expires_at);
 
 CREATE TABLE products (
   id uuid PRIMARY KEY,
@@ -267,6 +316,7 @@ CREATE TABLE orders (
   currency text NOT NULL,
   total_minor integer NOT NULL,
   idempotency_key text NOT NULL,
+  request_fingerprint text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (store_id, order_number),
   UNIQUE (store_id, idempotency_key)

@@ -1,5 +1,6 @@
 "use client";
 
+import { createRequestId } from "../lib/request-id.js";
 import { localizedErrorMessage } from "@commerce/error-codes";
 import { FormEvent, useEffect, useState } from "react";
 import {
@@ -291,7 +292,7 @@ export function EmailSettingsPanel() {
     setEmailAccounts((accounts) => [
       ...accounts,
       {
-        id: crypto.randomUUID(),
+        id: createRequestId(),
         provider: "tencent_ses",
         label: "Tencent SES",
         fromEmailAddress: settings.fromEmail,

@@ -6,6 +6,7 @@ import { resolve4, resolve6, resolveCname } from "node:dns/promises";
 import { randomUUID } from "node:crypto";
 import tls from "node:tls";
 import pg from "pg";
+import { normalizeOpsAction } from "./ops-actions.js";
 
 const { Pool } = pg;
 
@@ -606,11 +607,8 @@ class OpsController {
   @Post("/actions/:action")
   async action(@Headers() headers: HeaderBag, @Param("action") action: string, @Body() body: unknown) {
     const context = createContext(headers);
-    const allowedActions = new Set(["ssl-renew", "edgeone-free-cert-apply", "edgeone-free-cert-check", "http-scan", "cdn-purge-all", "cdn-purge-path", "analytics-test", "credential-expiry-scan"]);
-    const normalizedAction = action.trim().toLowerCase();
-    let summary = allowedActions.has(normalizedAction)
-      ? `已记录 ${normalizedAction} 运维动作，真实云 API 执行器待接入。`
-      : `拒绝未知运维动作：${normalizedAction}`;
+    const normalizedAction = normalizeOpsAction(action);
+    let summary = `已记录 ${normalizedAction} 运维动作，真实云 API 执行器待接入。`;
     let details = body;
 
     if (normalizedAction === "credential-expiry-scan") {
@@ -656,7 +654,7 @@ class OpsController {
 
     return {
       action: normalizedAction,
-      accepted: allowedActions.has(normalizedAction),
+      accepted: true,
       message: summary,
       storageMode
     };

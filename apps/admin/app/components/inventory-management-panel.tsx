@@ -1,5 +1,6 @@
 "use client";
 
+import { createRequestId } from "../lib/request-id.js";
 import { localizedErrorMessage } from "@commerce/error-codes";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -129,7 +130,7 @@ export function InventoryManagementPanel() {
     try {
       const response = await fetch(`${adminGatewayUrl}/inventory/items`, {
         headers: {
-          "x-correlation-id": crypto.randomUUID()
+          "x-correlation-id": createRequestId()
         }
       });
       const payload = (await response.json().catch(() => [])) as AdminInventoryItem[] | { message?: string };
@@ -155,7 +156,7 @@ export function InventoryManagementPanel() {
     try {
       const response = await fetch(`${adminGatewayUrl}/inventory/reservations`, {
         headers: {
-          "x-correlation-id": crypto.randomUUID()
+          "x-correlation-id": createRequestId()
         }
       });
       const payload = (await response.json().catch(() => [])) as AdminInventoryReservation[] | { message?: string };
@@ -181,7 +182,7 @@ export function InventoryManagementPanel() {
     try {
       const response = await fetch(`${adminGatewayUrl}/inventory/audit-events`, {
         headers: {
-          "x-correlation-id": crypto.randomUUID()
+          "x-correlation-id": createRequestId()
         }
       });
       const payload = (await response.json().catch(() => [])) as AdminInventoryAuditEvent[] | { message?: string };
@@ -241,7 +242,7 @@ export function InventoryManagementPanel() {
         headers: {
           "Content-Type": "application/json",
           "x-admin-actor": "local-admin",
-          "x-correlation-id": crypto.randomUUID()
+          "x-correlation-id": createRequestId()
         },
         body: JSON.stringify(payload)
       });
@@ -270,7 +271,7 @@ export function InventoryManagementPanel() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-correlation-id": crypto.randomUUID()
+          "x-correlation-id": createRequestId()
         },
         body: JSON.stringify({ reason: "manual release from admin UI" })
       });

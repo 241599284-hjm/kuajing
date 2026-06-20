@@ -6,6 +6,7 @@ ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 
 RUN corepack enable
+RUN apk add --no-cache ffmpeg
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json ./
 COPY apps ./apps

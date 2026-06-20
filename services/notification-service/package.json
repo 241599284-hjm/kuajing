@@ -11,6 +11,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@commerce/contracts": "workspace:*",
     "@commerce/error-codes": "workspace:*",
     "@commerce/store-context": "workspace:*",
     "@nestjs/common": "^11.0.0",

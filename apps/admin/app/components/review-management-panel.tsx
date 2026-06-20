@@ -1,5 +1,7 @@
 "use client";
 
+import { createRequestId } from "../lib/request-id.js";
+
 import { localizedErrorMessage } from "@commerce/error-codes";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -70,7 +72,7 @@ export function ReviewManagementPanel() {
 
     try {
       const response = await fetch(`${adminGatewayUrl}/reviews`, {
-        headers: { "x-correlation-id": crypto.randomUUID() }
+        headers: { "x-correlation-id": createRequestId() }
       });
       const payload = (await response.json().catch(() => ({}))) as { reviews?: ProductReview[]; storageMode?: string; message?: string };
 
@@ -107,7 +109,7 @@ export function ReviewManagementPanel() {
         method: "PUT",
         headers: {
           "content-type": "application/json",
-          "x-correlation-id": crypto.randomUUID()
+          "x-correlation-id": createRequestId()
         },
         body: JSON.stringify(draft)
       });

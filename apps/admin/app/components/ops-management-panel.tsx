@@ -1,5 +1,7 @@
 "use client";
 
+import { createRequestId } from "../lib/request-id.js";
+
 import { localizedErrorMessage } from "@commerce/error-codes";
 import { FormEvent, useEffect, useState } from "react";
 import {
@@ -115,8 +117,8 @@ export function OpsManagementPanel() {
   async function load() {
     try {
       const [settingsResponse, auditResponse] = await Promise.all([
-        fetch(`${adminGatewayUrl}/ops/settings`, { headers: { "x-correlation-id": crypto.randomUUID() } }),
-        fetch(`${adminGatewayUrl}/ops/audit-events`, { headers: { "x-correlation-id": crypto.randomUUID() } })
+        fetch(`${adminGatewayUrl}/ops/settings`, { headers: { "x-correlation-id": createRequestId() } }),
+        fetch(`${adminGatewayUrl}/ops/audit-events`, { headers: { "x-correlation-id": createRequestId() } })
       ]);
       const settingsPayload = await settingsResponse.json();
       const auditPayload = await auditResponse.json();
@@ -165,7 +167,7 @@ export function OpsManagementPanel() {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          "x-correlation-id": crypto.randomUUID(),
+          "x-correlation-id": createRequestId(),
           "x-admin-actor": "local-admin"
         },
         body: JSON.stringify(settings)
@@ -192,7 +194,7 @@ export function OpsManagementPanel() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-correlation-id": crypto.randomUUID(),
+          "x-correlation-id": createRequestId(),
           "x-admin-actor": "local-admin"
         },
         body: JSON.stringify({ requestedAt: new Date().toISOString() })

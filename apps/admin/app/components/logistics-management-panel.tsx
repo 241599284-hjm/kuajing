@@ -1,5 +1,7 @@
 "use client";
 
+import { createRequestId } from "../lib/request-id.js";
+
 import { localizedErrorMessage } from "@commerce/error-codes";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -86,7 +88,7 @@ function shortId(value: string) {
 
 function createMockAccount(): LogisticsAccount {
   return {
-    id: crypto.randomUUID(),
+    id: createRequestId(),
     provider: "mock",
     accountName: "Local Mock Logistics",
     apiEndpoint: null,
@@ -114,10 +116,10 @@ export function LogisticsManagementPanel() {
     try {
       const [accountsResponse, logsResponse] = await Promise.all([
         fetch(`${adminGatewayUrl}/logistics/api-accounts`, {
-          headers: { "x-correlation-id": crypto.randomUUID() }
+          headers: { "x-correlation-id": createRequestId() }
         }),
         fetch(`${adminGatewayUrl}/logistics/api-call-logs`, {
-          headers: { "x-correlation-id": crypto.randomUUID() }
+          headers: { "x-correlation-id": createRequestId() }
         })
       ]);
       const accountsPayload = (await accountsResponse.json().catch(() => ({}))) as { accounts?: LogisticsAccount[]; storageMode?: string; message?: string };
@@ -147,7 +149,7 @@ export function LogisticsManagementPanel() {
         method: "PUT",
         headers: {
           "content-type": "application/json",
-          "x-correlation-id": crypto.randomUUID()
+          "x-correlation-id": createRequestId()
         },
         body: JSON.stringify({ accounts: nextAccounts })
       });
@@ -174,7 +176,7 @@ export function LogisticsManagementPanel() {
           method: forceRefresh ? "POST" : "GET",
           headers: {
             "content-type": "application/json",
-            "x-correlation-id": crypto.randomUUID()
+            "x-correlation-id": createRequestId()
           },
           body: forceRefresh ? JSON.stringify({ trackingNumber }) : undefined
         }

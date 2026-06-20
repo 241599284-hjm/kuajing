@@ -15,6 +15,7 @@ import {
   Post,
   Put,
   Query,
+  Res,
   ServiceUnavailableException,
   UnauthorizedException
 } from "@nestjs/common";
@@ -24,6 +25,12 @@ import { assertStoreContext, type StoreContext } from "@commerce/store-context";
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import nodemailer, { type Transporter } from "nodemailer";
+import {
+  adminSessionCookie,
+  expiredAdminSessionCookie,
+  hashAdminSessionToken,
+  parseAdminSessionToken
+} from "./admin-session.js";
 
 type RegisterRequest = {
   username?: string;
@@ -65,6 +72,8 @@ type EmailSettingsRequest = {
   enabled?: boolean;
   verificationTokenTtlMinutes?: number;
 };
+
+type AdminLoginRequest = LoginRequest;
 
 type EmailSettings = {
   provider: "smtp";
@@ -387,6 +396,74 @@ class AuthRepository implements OnApplicationShutdown {
     connectionString:
       process.env.APP_DATABASE_URL ?? "postgres://commerce:commerce@localhost:5432/app_db"
   });
+
+  async loginAdmin(ctx: StoreContext, input: ReturnType<typeof normalizeLoginRequest>) {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const admin = (await client.query<{
+        id: string; email: string; role: string; password_hash: string | null; status: string;
+      }>(
+        `SELECT id, email, role, password_hash, status FROM admin_users
+         WHERE store_id = $1 AND lower(email) = $2 FOR UPDATE`,
+        [ctx.storeId, input.email]
+      )).rows[0];
+      if (!admin || admin.status !== "active") throw unauthorized("invalid admin credentials");
+
+      let passwordHash = admin.password_hash;
+      if (!passwordHash) {
+        const bootstrapEmail = process.env.ADMIN_BOOTSTRAP_EMAIL?.trim().toLowerCase();
+        const bootstrapPassword = process.env.ADMIN_BOOTSTRAP_PASSWORD;
+        if (!bootstrapEmail || !bootstrapPassword || admin.email.toLowerCase() !== bootstrapEmail
+          || input.password !== bootstrapPassword) throw unauthorized("invalid admin credentials");
+        passwordHash = hashPassword(input.password);
+        await client.query("UPDATE admin_users SET password_hash = $2 WHERE id = $1", [admin.id, passwordHash]);
+      } else if (!verifyPassword(input.password, passwordHash)) {
+        throw unauthorized("invalid admin credentials");
+      }
+
+      const token = randomBytes(32).toString("base64url");
+      await client.query(
+        `INSERT INTO admin_sessions (token_hash, admin_user_id, store_id, expires_at)
+         VALUES ($1, $2, $3, now() + interval '8 hours')`,
+        [hashAdminSessionToken(token), admin.id, ctx.storeId]
+      );
+      await client.query("COMMIT");
+      return { token, adminId: admin.id, email: admin.email, role: admin.role };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getAdminSession(ctx: StoreContext, token: string) {
+    const result = await this.pool.query<{ admin_id: string; email: string; role: string }>(
+      `SELECT admin.id AS admin_id, admin.email, admin.role
+       FROM admin_sessions session
+       JOIN admin_users admin ON admin.id = session.admin_user_id AND admin.store_id = session.store_id
+       WHERE session.store_id = $1 AND session.token_hash = $2
+         AND session.expires_at > now() AND admin.status = 'active'`,
+      [ctx.storeId, hashAdminSessionToken(token)]
+    );
+    const session = result.rows[0];
+    if (!session) throw unauthorized("admin session is invalid or expired");
+    return { adminId: session.admin_id, email: session.email, role: session.role };
+  }
+
+  async logoutAdmin(ctx: StoreContext, token: string) {
+    await this.pool.query("DELETE FROM admin_sessions WHERE store_id = $1 AND token_hash = $2", [ctx.storeId, hashAdminSessionToken(token)]);
+  }
+
+  async listCustomers(storeId: string) {
+    const result = await this.pool.query<{ id: string; username: string; email: string; status: string; created_at: Date }>(
+      `SELECT id, username, email, status, created_at
+       FROM customers WHERE store_id = $1 ORDER BY created_at DESC LIMIT 100`,
+      [storeId]
+    );
+    return result.rows.map((row) => ({ customerId: row.id, name: row.username, email: row.email, status: row.status, createdAt: row.created_at.toISOString() }));
+  }
 
   async createPendingCustomer(
     ctx: StoreContext,
@@ -976,6 +1053,27 @@ class AuthService {
     return this.authRepository.login(ctx, normalizeLoginRequest(body));
   }
 
+  async loginAdmin(ctx: StoreContext, body: AdminLoginRequest) {
+    return this.authRepository.loginAdmin(ctx, normalizeLoginRequest(body));
+  }
+
+  async getAdminSession(ctx: StoreContext, cookie: string | undefined) {
+    const token = parseAdminSessionToken(cookie);
+    if (!token) throw unauthorized("admin authentication is required");
+    return this.authRepository.getAdminSession(ctx, token);
+  }
+
+  async logoutAdmin(ctx: StoreContext, cookie: string | undefined) {
+    const token = parseAdminSessionToken(cookie);
+    if (token) await this.authRepository.logoutAdmin(ctx, token);
+    return { status: "logged_out" };
+  }
+
+  async listCustomers(ctx: StoreContext, cookie: string | undefined) {
+    await this.getAdminSession(ctx, cookie);
+    return this.authRepository.listCustomers(ctx.storeId);
+  }
+
   async forgotPassword(ctx: StoreContext, body: ForgotPasswordRequest) {
     const input = normalizeForgotPasswordRequest(body);
     const emailSettings = await this.authRepository.getEmailSettings(ctx);
@@ -1012,7 +1110,46 @@ class AuthController {
 
   @Get("/health")
   health() {
-    return { service: "auth-service", status: "ok", rbac: "planned", twoFactor: "reserved" };
+    return { service: "auth-service", status: "ok", rbac: "refund_roles", twoFactor: "reserved" };
+  }
+
+  @Post("/admin/login")
+  async adminLogin(
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Body() body: AdminLoginRequest,
+    @Res({ passthrough: true }) response: { setHeader(name: string, value: string): void }
+  ) {
+    const result = await this.authService.loginAdmin(createStoreContext(correlationId), body);
+    response.setHeader("set-cookie", adminSessionCookie(result.token, process.env.NODE_ENV === "production"));
+    return { adminId: result.adminId, email: result.email, role: result.role };
+  }
+
+  @Get("/admin/session")
+  adminSession(
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Headers("cookie") cookie: string | undefined
+  ) {
+    return this.authService.getAdminSession(createStoreContext(correlationId), cookie);
+  }
+
+  @Post("/admin/logout")
+  async adminLogout(
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Headers("cookie") cookie: string | undefined,
+    @Res({ passthrough: true }) response: { setHeader(name: string, value: string): void }
+  ) {
+    const result = await this.authService.logoutAdmin(createStoreContext(correlationId), cookie);
+    response.setHeader("set-cookie", expiredAdminSessionCookie(process.env.NODE_ENV === "production"));
+    return result;
+  }
+
+  @Get("/admin/customers")
+  adminCustomers(
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Headers("cookie") cookie: string | undefined
+  ) {
+    const ctx = createStoreContext(correlationId);
+    return this.authService.listCustomers(ctx, cookie);
   }
 
   @Post("/register")
@@ -1104,7 +1241,7 @@ class AppModule {}
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  app.enableCors({ origin: true });
+  app.enableCors({ origin: true, credentials: true });
   await app.listen(Number(process.env.PORT ?? 4102), "0.0.0.0");
 }
 

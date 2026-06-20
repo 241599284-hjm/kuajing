@@ -1,16 +1,18 @@
 import "reflect-metadata";
-import { Body, Controller, Get, Headers, HttpException, Module, Param, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, Headers, HttpException, Module, Param, Post, Query, Res, StreamableFile } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { assertStoreContext } from "@commerce/store-context";
-import { normalizeErrorPayload } from "@commerce/error-codes";
+import { ERROR_CODES, normalizeErrorPayload } from "@commerce/error-codes";
 import { randomUUID } from "node:crypto";
 
 const serviceName = "api-gateway";
+const storeServiceUrl = process.env.STORE_SERVICE_URL ?? "http://localhost:4101";
 const catalogServiceUrl = process.env.CATALOG_SERVICE_URL ?? "http://localhost:4103";
 const orderServiceUrl = process.env.ORDER_SERVICE_URL ?? "http://localhost:4105";
 const logisticsServiceUrl = process.env.LOGISTICS_SERVICE_URL ?? "http://localhost:4110";
 const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL ?? "http://localhost:4111";
 const reviewServiceUrl = process.env.REVIEW_SERVICE_URL ?? "http://localhost:4112";
+const mediaServiceUrl = process.env.MEDIA_SERVICE_URL ?? "http://localhost:4108";
 const forwardedHeaderNames = [
   "x-correlation-id",
   "accept-language",
@@ -22,6 +24,7 @@ const forwardedHeaderNames = [
 ] as const;
 
 type HeaderBag = Record<string, string | string[] | undefined>;
+type HeaderResponse = { setHeader(name: string, value: string): void };
 
 function headerValue(headers: HeaderBag, name: string): string | undefined {
   const value = headers[name] ?? headers[name.toLowerCase()];
@@ -44,59 +47,64 @@ function buildForwardHeaders(headers: HeaderBag): Record<string, string> {
   return nextHeaders;
 }
 
-function throwForwardedError(payload: unknown, status: number, headers: HeaderBag): never {
-  throw new HttpException(normalizeErrorPayload(payload, status, headerValue(headers, "x-correlation-id")), status);
+function throwForwardedError(payload: unknown, status: number, correlationId: string): never {
+  throw new HttpException(normalizeErrorPayload(payload, status, correlationId), status);
+}
+
+async function requestJson<T>(url: string, init: RequestInit, headers: HeaderBag): Promise<T> {
+  const requestHeaders = init.headers as Record<string, string> | undefined;
+  const correlationId = requestHeaders?.["x-correlation-id"]
+    ?? headerValue(headers, "x-correlation-id")
+    ?? randomUUID();
+
+  try {
+    const response = await fetch(url, init);
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throwForwardedError(payload, response.status, correlationId);
+    }
+
+    return payload as T;
+  } catch (error) {
+    if (error instanceof HttpException) {
+      throw error;
+    }
+
+    throw new HttpException({
+      code: ERROR_CODES.DEPENDENCY_UNAVAILABLE,
+      message: "A required downstream service is unavailable.",
+      correlationId
+    }, 503);
+  }
 }
 
 async function forwardJson<T>(path: string, headers: HeaderBag): Promise<T> {
-  const response = await fetch(`${catalogServiceUrl}${path}`, {
+  return requestJson(`${catalogServiceUrl}${path}`, {
     headers: buildForwardHeaders(headers)
-  });
-
-  const payload = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    throwForwardedError(payload, response.status, headers);
-  }
-
-  return payload as T;
+  }, headers);
 }
 
 async function forwardOrderJson<T>(path: string, headers: HeaderBag, body?: unknown): Promise<T> {
-  const response = await fetch(`${orderServiceUrl}${path}`, {
+  return requestJson(`${orderServiceUrl}${path}`, {
     method: body === undefined ? "GET" : "POST",
     headers: {
       ...buildForwardHeaders(headers),
       ...(body === undefined ? {} : { "content-type": "application/json" })
     },
     body: body === undefined ? undefined : JSON.stringify(body)
-  });
-
-  const payload = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    throwForwardedError(payload, response.status, headers);
-  }
-
-  return payload as T;
+  }, headers);
 }
 
 async function forwardServiceJson<T>(baseUrl: string, path: string, headers: HeaderBag, body?: unknown): Promise<T> {
-  const response = await fetch(`${baseUrl}${path}`, {
+  return requestJson(`${baseUrl}${path}`, {
     method: body === undefined ? "GET" : "POST",
     headers: {
       ...buildForwardHeaders(headers),
       ...(body === undefined ? {} : { "content-type": "application/json" })
     },
     body: body === undefined ? undefined : JSON.stringify(body)
-  });
-  const payload = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    throwForwardedError(payload, response.status, headers);
-  }
-
-  return payload as T;
+  }, headers);
 }
 
 @Controller()
@@ -144,6 +152,46 @@ class HealthController {
   @Post("/checkout/mock-order")
   createMockOrder(@Headers() headers: HeaderBag, @Body() body: unknown) {
     return forwardOrderJson("/checkout/mock-order", headers, body);
+  }
+
+  @Get("/storefront/homepage")
+  homepageLayout(@Headers() headers: HeaderBag) {
+    return forwardServiceJson(storeServiceUrl, "/homepage-layout", headers);
+  }
+
+  @Post("/storefront/newsletter-subscriptions")
+  newsletterSubscription(@Headers() headers: HeaderBag, @Body() body: unknown) {
+    return forwardServiceJson(storeServiceUrl, "/newsletter-subscriptions", headers, body);
+  }
+
+  @Get("/media/public/:storeId/:scope/:kind/:yyyyMm/:fileName")
+  async publicMedia(
+    @Headers() headers: HeaderBag,
+    @Param("storeId") storeId: string,
+    @Param("scope") scope: string,
+    @Param("kind") kind: string,
+    @Param("yyyyMm") yyyyMm: string,
+    @Param("fileName") fileName: string,
+    @Res({ passthrough: true }) response: HeaderResponse
+  ) {
+    const correlationId = headerValue(headers, "x-correlation-id") ?? randomUUID();
+    const segments = [storeId, scope, kind, yyyyMm, fileName].map(encodeURIComponent).join("/");
+    let upstream: Response;
+    try {
+      upstream = await fetch(`${mediaServiceUrl}/media/public/${segments}`, {
+        headers: { "x-correlation-id": correlationId }
+      });
+    } catch {
+      throw new HttpException({ code: ERROR_CODES.DEPENDENCY_UNAVAILABLE, message: "Media storage is unavailable.", correlationId }, 503);
+    }
+    if (!upstream.ok) {
+      throwForwardedError(await upstream.json().catch(() => ({})), upstream.status, correlationId);
+    }
+    response.setHeader("Cache-Control", upstream.headers.get("cache-control") ?? "public, max-age=31536000, immutable");
+    response.setHeader("Content-Type", upstream.headers.get("content-type") ?? "application/octet-stream");
+    const contentLength = upstream.headers.get("content-length");
+    if (contentLength) response.setHeader("Content-Length", contentLength);
+    return new StreamableFile(Buffer.from(await upstream.arrayBuffer()));
   }
 
   @Get("/orders/customer-history")

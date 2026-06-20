@@ -1,5 +1,6 @@
 "use client";
 
+import { createRequestId } from "../lib/request-id.js";
 import { localizedErrorMessage } from "@commerce/error-codes";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -99,7 +100,7 @@ export function DeadLetterManagementPanel() {
     try {
       const response = await fetch(`${adminGatewayUrl}/dead-letter-tasks`, {
         headers: {
-          "x-correlation-id": crypto.randomUUID()
+          "x-correlation-id": createRequestId()
         }
       });
       const payload = (await response.json().catch(() => [])) as DeadLetterTask[] | { message?: string };
@@ -127,7 +128,7 @@ export function DeadLetterManagementPanel() {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x-correlation-id": crypto.randomUUID()
+          "x-correlation-id": createRequestId()
         },
         body: JSON.stringify({
           handlerId: "admin",
@@ -158,7 +159,7 @@ export function DeadLetterManagementPanel() {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x-correlation-id": crypto.randomUUID()
+          "x-correlation-id": createRequestId()
         },
         body: JSON.stringify({
           handlerId: "admin",

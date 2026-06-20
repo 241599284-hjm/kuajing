@@ -5,11 +5,12 @@ import Link from "next/link";
 import type { Route } from "next";
 import { useState, type CSSProperties } from "react";
 import { addCartItem } from "../lib/cart.js";
-import type { ProductContent, StorefrontProduct } from "../lib/storefront-content.js";
+import type { ProductContent, StorefrontProduct, StorefrontProductMediaAsset } from "../lib/storefront-content.js";
 import { storefrontCopy } from "../lib/storefront-content.js";
 import { PremiumStorefrontHeader } from "./premium-storefront-header.js";
 import { ProductReviews } from "./product-reviews.js";
 import { RegistrationDialog } from "./registration-dialog.js";
+import { StorefrontCatalogProvider, useStorefrontCatalog } from "./storefront-catalog-provider.js";
 import { useStorefrontLocale } from "./use-storefront-locale.js";
 
 type ProductDetailShellProps = {
@@ -74,10 +75,70 @@ function ProductStoryMedia({
   );
 }
 
+function ProductGalleryMedia({
+  asset,
+  alt,
+  className,
+  priority = false
+}: {
+  asset: StorefrontProductMediaAsset;
+  alt: string;
+  className: string;
+  priority?: boolean;
+}) {
+  const style = asset.width && asset.height ? { aspectRatio: `${asset.width} / ${asset.height}` } : undefined;
+
+  if (asset.kind === "video") {
+    return (
+      <video
+        aria-label={alt}
+        className={className}
+        controls
+        playsInline
+        poster={asset.poster ?? undefined}
+        preload="metadata"
+        style={style}
+      >
+        <source src={asset.url} type={asset.mimeType || "video/mp4"} />
+      </video>
+    );
+  }
+
+  const srcSet = asset.responsiveSources
+    .slice()
+    .sort((left, right) => left.width - right.width)
+    .map((source) => `${source.url} ${source.width}w`)
+    .join(", ");
+
+  return (
+    <img
+      alt={alt}
+      className={className}
+      decoding="async"
+      loading={priority ? "eager" : "lazy"}
+      sizes="(min-width: 768px) 45vw, 100vw"
+      src={asset.url}
+      srcSet={srcSet || undefined}
+      style={style}
+    />
+  );
+}
+
 export function ProductDetailShell({ product }: ProductDetailShellProps) {
+  return (
+    <StorefrontCatalogProvider>
+      <ProductDetailContent fallbackProduct={product} />
+    </StorefrontCatalogProvider>
+  );
+}
+
+function ProductDetailContent({ fallbackProduct }: { fallbackProduct: StorefrontProduct }) {
+  const catalog = useStorefrontCatalog();
+  const product = catalog.products.find((item) => item.slug === fallbackProduct.slug) ?? fallbackProduct;
   const [locale, setLocale] = useStorefrontLocale();
   const [isRegistrationOpen, setIsRegistrationOpen] = useState(false);
   const [cartMessage, setCartMessage] = useState("");
+  const [selectedMediaIndex, setSelectedMediaIndex] = useState(0);
   const copy = storefrontCopy[locale];
   const productCopy = product.copy[locale];
   const storyBlocks = productCopy.storyBlocks ?? [
@@ -89,6 +150,19 @@ export function ProductDetailShell({ product }: ProductDetailShellProps) {
       imageAlt: productCopy.name
     }
   ];
+  const gallery = product.mediaAssets?.length ? product.mediaAssets : [{
+    assetId: "primary-image",
+    kind: "image" as const,
+    url: product.image,
+    poster: null,
+    width: null,
+    height: null,
+    mimeType: "image/webp",
+    responsiveSources: [],
+    alt: { en: product.copy.en.name, zh: product.copy.zh.name },
+    sortOrder: 0
+  }];
+  const selectedMedia = gallery[Math.min(selectedMediaIndex, gallery.length - 1)];
 
   function handleAddToCart() {
     addCartItem(product.slug, 1);
@@ -111,25 +185,42 @@ export function ProductDetailShell({ product }: ProductDetailShellProps) {
             {copy.detail.back}
           </Link>
           <div className="mt-5 hidden gap-3 md:grid">
-            {storyBlocks.slice(0, 4).map((block, index) => (
-              <ProductStoryMedia
-                key={`${block.image}-${index}`}
-                block={block}
-                className="aspect-square border border-[var(--line)]"
-                fallbackImage={product.image}
-              />
+            {gallery.slice(0, 6).map((asset, index) => (
+              <button
+                aria-label={locale === "zh" ? `查看${asset.alt.zh}` : `View ${asset.alt.en}`}
+                className={`aspect-square overflow-hidden border bg-[var(--surface)] ${index === selectedMediaIndex ? "border-black" : "border-[var(--line)]"}`}
+                key={asset.assetId}
+                onClick={() => setSelectedMediaIndex(index)}
+                type="button"
+              >
+                <img alt="" className="h-full w-full object-cover" src={asset.kind === "video" ? asset.poster ?? product.image : asset.url} />
+              </button>
             ))}
           </div>
         </div>
 
         <div>
-          <img
-            alt={productCopy.name}
+          <ProductGalleryMedia
+            alt={selectedMedia.alt[locale]}
+            asset={selectedMedia}
             className="aspect-[4/5] w-full bg-[var(--surface)] object-cover md:aspect-square"
-            decoding="async"
-            loading="eager"
-            src={product.image}
+            priority
           />
+          {gallery.length > 1 ? (
+            <div className="mt-3 flex gap-3 overflow-x-auto pb-1 md:hidden">
+              {gallery.map((asset, index) => (
+                <button
+                  aria-label={locale === "zh" ? `查看${asset.alt.zh}` : `View ${asset.alt.en}`}
+                  className={`h-16 w-16 shrink-0 overflow-hidden border bg-[var(--surface)] ${index === selectedMediaIndex ? "border-black" : "border-[var(--line)]"}`}
+                  key={asset.assetId}
+                  onClick={() => setSelectedMediaIndex(index)}
+                  type="button"
+                >
+                  <img alt="" className="h-full w-full object-cover" src={asset.kind === "video" ? asset.poster ?? product.image : asset.url} />
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
 
         <article className="md:pt-9">

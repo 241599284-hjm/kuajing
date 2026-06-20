@@ -1,3 +1,4 @@
+@import url("//fonts.googleapis.com/css2?family=Inter:wght@500&family=Lato:wght@400;700&family=Montserrat:wght@400;500&family=Playfair+Display:wght@400;500;600&display=swap");
 @import "tailwindcss";
 
 :root {
@@ -21,6 +22,15 @@ body {
   font-family: Inter, Arial, sans-serif;
   font-weight: 800;
   letter-spacing: 0;
+}
+
+:root {
+  --ferncliff-paper: #f8f5ef;
+  --ferncliff-ink: #252521;
+  --ferncliff-charcoal: #2a2a2a;
+  --ferncliff-olive: #73806c;
+  --ferncliff-brass: #bfa88a;
+  --ferncliff-line: #d8d0c4;
 }
 
 .premium-shell {
@@ -109,4 +119,223 @@ body {
   100% {
     transform: translateX(-16%);
   }
+}
+
+.ferncliff-shell {
+  background: var(--ferncliff-paper);
+  color: var(--ferncliff-ink);
+  font-family: Lato, Arial, sans-serif;
+  overflow-x: clip;
+}
+
+.ferncliff-shell h1,
+.ferncliff-shell h2,
+.ferncliff-shell h3,
+.ferncliff-wordmark {
+  font-family: "Playfair Display", Georgia, serif;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.ferncliff-shell a,
+.ferncliff-shell button,
+.ferncliff-shell input,
+.ferncliff-shell summary {
+  font-family: Inter, Arial, sans-serif;
+  letter-spacing: 0;
+}
+
+.ferncliff-announcement {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  background: var(--ferncliff-olive);
+  color: #fff;
+  padding: 0.6rem 1rem;
+  text-align: center;
+  font: 500 0.75rem/1.4 Inter, sans-serif;
+}
+
+.ferncliff-announcement a { border-bottom: 1px solid rgba(255,255,255,.75); }
+
+.ferncliff-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: grid;
+  min-height: 104px;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 2rem;
+  border-bottom: 1px solid var(--ferncliff-line);
+  background: rgba(248,245,239,.96);
+  padding: 0 3rem;
+  backdrop-filter: blur(14px);
+}
+
+.ferncliff-wordmark {
+  display: inline-flex;
+  flex-direction: column;
+  color: var(--ferncliff-ink);
+  font-size: clamp(1.65rem, 2.5vw, 2.35rem);
+  line-height: 1;
+}
+
+.ferncliff-wordmark span {
+  margin-top: .45rem;
+  font: 500 .55rem/1 Montserrat, sans-serif;
+  letter-spacing: .2em;
+}
+
+.ferncliff-desktop-nav { display: flex; justify-content: center; gap: clamp(1.5rem,3vw,3.75rem); }
+.ferncliff-desktop-nav a { font-size: .78rem; text-transform: uppercase; }
+.ferncliff-desktop-nav a:hover { color: var(--ferncliff-olive); }
+.ferncliff-header-actions { display: flex; align-items: center; gap: .4rem; }
+.ferncliff-icon-button { display: grid; width: 44px; height: 44px; place-items: center; color: var(--ferncliff-ink); }
+.ferncliff-menu-button { display:none !important; }
+.ferncliff-account-button { display:grid; }
+.ferncliff-icon-button svg { width: 21px; height: 21px; stroke-width: 1.6; }
+.ferncliff-cart-count { position:absolute; right:0; top:0; display:grid; width:17px; height:17px; place-items:center; border-radius:50%; background:var(--ferncliff-ink); color:#fff; font-size:.6rem; }
+.ferncliff-market { position: relative; }
+.ferncliff-market summary { cursor:pointer; list-style:none; padding:.8rem .4rem; font-size:.7rem; }
+.ferncliff-market > div { position:absolute; right:0; top:100%; width:18rem; border:1px solid var(--ferncliff-line); background:var(--ferncliff-paper); padding:1rem; box-shadow:0 12px 32px rgba(33,31,27,.12); }
+.ferncliff-search-panel { position:absolute; left:0; right:0; top:100%; border-bottom:1px solid var(--ferncliff-line); background:var(--ferncliff-paper); padding:1.1rem 2rem; box-shadow:0 12px 32px rgba(33,31,27,.09); }
+.ferncliff-mobile-drawer { position:fixed; inset:0 0 0 auto; z-index:60; width:min(88vw,25rem); background:var(--ferncliff-paper); padding:1.5rem; box-shadow:-14px 0 40px rgba(33,31,27,.18); }
+.ferncliff-mobile-drawer nav { margin-top:2rem; border-top:1px solid var(--ferncliff-line); }
+.ferncliff-mobile-drawer nav a { display:flex; min-height:58px; align-items:center; justify-content:space-between; border-bottom:1px solid var(--ferncliff-line); font-family:"Playfair Display",serif; font-size:1.4rem; }
+.ferncliff-language { margin-top:2rem; min-height:44px; color:var(--ferncliff-olive); }
+
+.ferncliff-hero {
+  min-height: min(72rem, calc(100svh - 146px));
+  background-color: #e8e1d6;
+  background-position: center;
+  background-size: cover;
+  display: flex;
+  align-items: center;
+  padding: clamp(3rem, 8vw, 8rem);
+}
+
+.ferncliff-hero-content { width:min(44rem, 48%); }
+.ferncliff-eyebrow { margin:0 0 1rem; color:var(--ferncliff-olive); font:500 .7rem/1.4 Montserrat,sans-serif; text-transform:uppercase; }
+.ferncliff-hero h1 { max-width:10ch; font-size:clamp(4rem,7.1vw,8.3rem); line-height:.92; }
+.ferncliff-hero-content > p:not(.ferncliff-eyebrow) { max-width:30rem; margin-top:2rem; font-size:1.1rem; line-height:1.75; }
+.ferncliff-primary-button { display:inline-flex; min-width:12rem; min-height:54px; align-items:center; justify-content:center; margin-top:2.25rem; background:var(--ferncliff-olive); color:#fff; padding:0 1.5rem; font-size:.85rem; transition:background .2s ease, transform .2s ease; }
+.ferncliff-primary-button:hover { background:var(--ferncliff-charcoal); transform:translateY(-2px); }
+
+.ferncliff-section { width:min(100% - 3rem, 86rem); margin:0 auto; padding:clamp(5rem,9vw,9rem) 0; }
+.ferncliff-section h2,.ferncliff-material h2,.ferncliff-newsletter h2 { font-size:clamp(2.7rem,5vw,5.5rem); line-height:1; }
+.ferncliff-story { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.08fr); align-items:center; gap:clamp(3rem,8vw,8rem); }
+.ferncliff-story-copy > p:not(.ferncliff-eyebrow) { max-width:34rem; margin-top:1.5rem; font-size:1.05rem; line-height:1.75; }
+.ferncliff-story img { width:100%; aspect-ratio:4/3; border-radius:8px; object-fit:cover; }
+.ferncliff-text-link { display:inline-flex; min-height:44px; align-items:center; gap:.75rem; margin-top:1.5rem; border-bottom:1px solid var(--ferncliff-brass); color:var(--ferncliff-olive); font-size:.85rem; }
+.ferncliff-text-link svg { width:18px; }
+
+.ferncliff-categories { padding-top:2rem; }
+.ferncliff-categories > h2 { margin-bottom:2.5rem; }
+.ferncliff-category-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); border:1px solid var(--ferncliff-line); border-radius:8px; overflow:hidden; }
+.ferncliff-category-grid a { display:grid; min-width:0; grid-template-columns:9rem minmax(0,1fr) auto; align-items:center; gap:1.2rem; border-right:1px solid var(--ferncliff-line); background:rgba(255,255,255,.28); padding:1rem; }
+.ferncliff-category-grid a:last-child { border-right:0; }
+.ferncliff-category-grid img { width:100%; aspect-ratio:4/3; object-fit:cover; }
+.ferncliff-category-grid strong { display:block; font-family:"Playfair Display",serif; font-size:1.45rem; font-weight:400; }
+.ferncliff-category-grid small { display:block; margin-top:.3rem; color:#77736d; line-height:1.4; }
+.ferncliff-category-grid svg { color:var(--ferncliff-olive); }
+
+.ferncliff-collection { border-top:1px solid var(--ferncliff-brass); }
+.ferncliff-section-heading { display:flex; align-items:end; justify-content:space-between; gap:2rem; margin-bottom:3rem; }
+.ferncliff-product-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1.5rem; }
+.ferncliff-product-image { position:relative; display:block; overflow:hidden; border-radius:8px; background:#e7e1d7; }
+.ferncliff-product-image img { width:100%; aspect-ratio:4/3; object-fit:cover; transition:transform .45s ease; }
+.ferncliff-product-image:hover img { transform:scale(1.025); }
+.ferncliff-product-image span { position:absolute; left:1rem; top:1rem; border:1px solid var(--ferncliff-brass); background:rgba(248,245,239,.9); color:#8b744f; padding:.4rem .6rem; font:500 .62rem/1 Montserrat,sans-serif; }
+.ferncliff-product-meta { display:flex; align-items:end; justify-content:space-between; gap:1rem; padding-top:1rem; }
+.ferncliff-product-meta h3 { font-size:1.55rem; }
+.ferncliff-product-meta p { margin:.35rem 0; color:#77736d; }
+.ferncliff-product-meta strong { font-size:1rem; font-weight:400; }
+.ferncliff-product-meta button { display:grid; width:48px; height:48px; flex:none; place-items:center; border-radius:6px; background:var(--ferncliff-olive); color:#fff; }
+.ferncliff-product-meta button svg { width:20px; }
+
+.ferncliff-material { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(20rem,.85fr); align-items:center; background:var(--ferncliff-charcoal); color:#f8f5ef; }
+.ferncliff-material img { width:100%; min-height:38rem; height:100%; object-fit:cover; }
+.ferncliff-material > div { padding:clamp(3rem,8vw,8rem); }
+.ferncliff-material > div > p:not(.ferncliff-eyebrow) { margin-top:2rem; color:#d7d3cb; font-size:1.05rem; line-height:1.8; }
+.ferncliff-material ul { margin-top:2rem; border-top:1px solid rgba(191,168,138,.5); }
+.ferncliff-material li { display:flex; min-height:52px; align-items:center; gap:.8rem; border-bottom:1px solid rgba(191,168,138,.35); }
+.ferncliff-material li svg { width:17px; color:var(--ferncliff-brass); }
+
+.ferncliff-testimonials > h2 { text-align:center; }
+.ferncliff-testimonials > div { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1.5rem; margin-top:3rem; }
+.ferncliff-testimonials blockquote { border:1px solid var(--ferncliff-line); border-radius:8px; padding:clamp(2rem,4vw,4rem); }
+.ferncliff-testimonials blockquote > span { color:#9f8357; letter-spacing:.18em; }
+.ferncliff-testimonials h3 { margin-top:1.4rem; font-size:2rem; }
+.ferncliff-testimonials blockquote p { margin-top:1rem; color:#625f59; line-height:1.75; }
+.ferncliff-testimonials cite { display:block; margin-top:1.5rem; color:var(--ferncliff-olive); font-style:normal; font-size:.8rem; }
+
+.ferncliff-newsletter { min-height:34rem; display:flex; align-items:center; justify-content:flex-end; background-size:cover; background-position:center; padding:clamp(2rem,8vw,8rem); }
+.ferncliff-newsletter > div { width:min(100%,36rem); border-radius:8px; background:rgba(248,245,239,.94); padding:clamp(2rem,5vw,4.5rem); }
+.ferncliff-newsletter > div > p:not(.ferncliff-eyebrow) { margin-top:1.5rem; color:#625f59; line-height:1.7; }
+.ferncliff-newsletter form { display:grid; grid-template-columns:1fr auto; margin-top:2rem; border-bottom:1px solid var(--ferncliff-ink); }
+.ferncliff-newsletter input { min-width:0; height:50px; background:transparent; outline:none; }
+.ferncliff-newsletter button { display:flex; min-height:50px; align-items:center; gap:.5rem; color:var(--ferncliff-olive); }
+.ferncliff-newsletter button svg { width:17px; }
+.ferncliff-newsletter small { display:block; min-height:1.2rem; margin-top:1rem; color:var(--ferncliff-olive); }
+
+.ferncliff-footer { display:grid; grid-template-columns:1.2fr 1fr auto; align-items:start; gap:4rem; background:var(--ferncliff-charcoal); color:#f8f5ef; padding:4rem max(1.5rem,calc((100vw - 86rem)/2)); }
+.ferncliff-footer .ferncliff-wordmark { color:#f8f5ef; }
+.ferncliff-footer > div > p { max-width:25rem; margin-top:1.5rem; color:#c9c5bd; line-height:1.7; }
+.ferncliff-footer nav { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem 3rem; }
+.ferncliff-footer nav a { font-size:.78rem; }
+.ferncliff-footer > p { color:#aaa59d; font-size:.7rem; }
+
+@media (max-width: 1023px) {
+  .ferncliff-header { min-height:82px; grid-template-columns:auto 1fr auto; padding:0 1.25rem; }
+  .ferncliff-menu-button { display:grid !important; }
+  .ferncliff-wordmark { justify-self:center; }
+  .ferncliff-desktop-nav,.ferncliff-market { display:none; }
+  .ferncliff-header-actions { gap:0; }
+  .ferncliff-hero { min-height:720px; align-items:flex-start; background-position:59% center; padding:5rem 2rem; }
+  .ferncliff-hero-content { width:min(100%,31rem); }
+  .ferncliff-hero h1 { font-size:clamp(3.5rem,10vw,6rem); }
+  .ferncliff-category-grid { grid-template-columns:1fr; }
+  .ferncliff-category-grid a { border-right:0; border-bottom:1px solid var(--ferncliff-line); }
+  .ferncliff-category-grid a:last-child { border-bottom:0; }
+}
+
+@media (max-width: 767px) {
+  .ferncliff-announcement { min-height:50px; gap:.75rem; font-size:.72rem; }
+  .ferncliff-header { min-height:88px; gap:.5rem; }
+  .ferncliff-header .ferncliff-wordmark { font-size:1.85rem; }
+  .ferncliff-header .ferncliff-wordmark span { display:none; }
+  .ferncliff-account-button { display:none; }
+  .ferncliff-hero { min-height:620px; background-position:left center; padding:4rem 1.5rem; }
+  .ferncliff-hero { background-image: var(--ferncliff-mobile-hero) !important; }
+  .ferncliff-hero-content { width:78%; }
+  .ferncliff-hero h1 { max-width:9ch; font-size:3.35rem; }
+  .ferncliff-hero-content > p:not(.ferncliff-eyebrow) { max-width:18rem; margin-top:1.5rem; font-size:1rem; line-height:1.55; }
+  .ferncliff-primary-button { min-height:52px; margin-top:1.75rem; }
+  .ferncliff-section { width:min(100% - 2rem,86rem); padding:4.5rem 0; }
+  .ferncliff-section h2,.ferncliff-material h2,.ferncliff-newsletter h2 { font-size:2.7rem; }
+  .ferncliff-story { grid-template-columns:1fr; gap:2.5rem; }
+  .ferncliff-story img { order:-1; }
+  .ferncliff-categories { padding-top:0; }
+  .ferncliff-category-grid a { grid-template-columns:6.5rem minmax(0,1fr) auto; padding:.4rem; }
+  .ferncliff-category-grid strong { font-size:1.25rem; }
+  .ferncliff-section-heading { align-items:center; }
+  .ferncliff-product-grid { display:grid; grid-template-columns:1fr; }
+  .ferncliff-product-grid article { display:grid; grid-template-columns:42% minmax(0,1fr); gap:1rem; border-bottom:1px solid var(--ferncliff-line); padding-bottom:1rem; }
+  .ferncliff-product-image img { aspect-ratio:4/3; }
+  .ferncliff-product-meta { align-items:center; padding-top:0; }
+  .ferncliff-product-meta h3 { font-size:1.3rem; }
+  .ferncliff-material { grid-template-columns:1fr; }
+  .ferncliff-material img { min-height:22rem; }
+  .ferncliff-material > div { padding:4rem 1.5rem; }
+  .ferncliff-testimonials > div { grid-auto-columns:88%; grid-template-columns:none; grid-auto-flow:column; overflow-x:auto; }
+  .ferncliff-newsletter { min-height:38rem; align-items:flex-end; padding:1rem; }
+  .ferncliff-newsletter > div { padding:2rem; }
+  .ferncliff-footer { grid-template-columns:1fr; gap:2.5rem; padding:3.5rem 1.5rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ferncliff-shell *, .ferncliff-shell *::before, .ferncliff-shell *::after { scroll-behavior:auto !important; transition:none !important; }
 }

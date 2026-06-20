@@ -5,6 +5,7 @@ import { ERROR_CODES } from "@commerce/error-codes";
 import { assertStoreContext } from "@commerce/store-context";
 import { createHash, randomUUID } from "node:crypto";
 import pg from "pg";
+import { normalizeReviewImages } from "./review-images.js";
 
 const { Pool } = pg;
 
@@ -105,11 +106,6 @@ function normalizeRating(value: unknown) {
   return rating;
 }
 
-function normalizeImages(value: unknown) {
-  if (!Array.isArray(value)) return [];
-  return value.filter((item): item is string => typeof item === "string" && /^https?:\/\//.test(item)).slice(0, 6);
-}
-
 function normalizeEmail(value: unknown) {
   const email = sanitizeText(value, "customerEmail", 5, 180).toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -206,6 +202,12 @@ class ReviewRepository {
   async create(headers: HeaderBag, productSlug: string, body: Record<string, unknown>) {
     const now = new Date().toISOString();
     const email = normalizeEmail(body.customerEmail);
+    let imageUrls: string[];
+    try {
+      imageUrls = normalizeReviewImages(body.imageUrls);
+    } catch (error) {
+      throw validationFailed(error instanceof Error ? error.message : "review image URL is invalid", { field: "imageUrls" });
+    }
     const review: ProductReview = {
       id: randomUUID(),
       productSlug,
@@ -214,7 +216,7 @@ class ReviewRepository {
       nickname: sanitizeText(body.nickname, "nickname", 1, 80),
       rating: normalizeRating(body.rating),
       content: sanitizeText(body.content, "content", 8, 2000),
-      imageUrls: normalizeImages(body.imageUrls),
+      imageUrls,
       status: "pending",
       merchantReply: null,
       pinned: false,

@@ -1,5 +1,6 @@
 "use client";
 
+import { createRequestId } from "../lib/request-id.js";
 import { localizedErrorMessage } from "@commerce/error-codes";
 import { FormEvent, useEffect, useState } from "react";
 import {
@@ -132,7 +133,7 @@ export function RegionManagementPanel() {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          "x-correlation-id": crypto.randomUUID()
+          "x-correlation-id": createRequestId()
         },
         body: JSON.stringify({ regions })
       });

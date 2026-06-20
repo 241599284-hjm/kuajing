@@ -1,8 +1,10 @@
 import "reflect-metadata";
+import { publicMediaPath } from "@commerce/contracts";
 import {
   BadRequestException,
   Body,
   Controller,
+  ConflictException,
   Delete,
   Get,
   Headers,
@@ -10,6 +12,8 @@ import {
   Injectable,
   Module,
   NotFoundException,
+  OnApplicationShutdown,
+  OnModuleInit,
   Param,
   Post,
   Res,
@@ -26,13 +30,41 @@ import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdir, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { Readable } from "node:stream";
 import { Client as MinioClient } from "minio";
 import { Pool } from "pg";
+import { generateResponsiveImageVariants } from "./image-variants.js";
+import {
+  nextReconciliationStep,
+  normalizeReconciliationAction,
+  normalizeReconciliationRequest,
+  reconciliationRetryDelayMs
+} from "./media-reconciliation.js";
+import {
+  MediaReconciliationRepository,
+  MediaReconciliationTaskConflictError,
+  MediaReconciliationTaskNotFoundError,
+  type MediaReconciliationTask
+} from "./media-reconciliation-repository.js";
+import { processVideoMedia } from "./video-processing.js";
 
 type MediaKind = "image" | "gif" | "video";
 type StorageProvider = "local" | "minio";
 type StorageMode = "postgres" | "memory";
-type MediaAuditAction = "upload_accepted" | "upload_rejected" | "object_deleted" | "object_delete_missing" | "object_delete_failed";
+type MediaAuditAction =
+  | "upload_accepted"
+  | "upload_rejected"
+  | "object_deleted"
+  | "object_delete_missing"
+  | "object_delete_failed"
+  | "reconciliation_enqueued"
+  | "reconciliation_bound"
+  | "reconciliation_unbound_observed"
+  | "reconciliation_cleaned"
+  | "reconciliation_retry"
+  | "reconciliation_failed"
+  | "reconciliation_manual_retry"
+  | "reconciliation_manual_discard";
 
 type UploadedMediaFile = {
   originalname: string;
@@ -53,6 +85,17 @@ type MediaUploadResult = {
   byteSize: number;
   width: number | null;
   height: number | null;
+  variants: Record<string, string>;
+  responsiveSources: Array<{
+    url: string;
+    objectKey: string;
+    width: number;
+    height: number;
+    mimeType: string;
+    byteSize: number;
+  }>;
+  posterUrl: string | null;
+  durationSeconds: number | null;
 };
 
 type HeaderResponse = {
@@ -84,6 +127,12 @@ const maxUploadBytes = Number(process.env.MEDIA_MAX_UPLOAD_BYTES ?? 8 * 1024 * 1
 const localStorageRoot = process.env.MEDIA_LOCAL_STORAGE_ROOT ?? path.resolve("storage", "media");
 const objectStorageProvider = (process.env.OBJECT_STORAGE_PROVIDER ?? "local").toLowerCase() as StorageProvider;
 const mediaDatabaseUrl = process.env.MEDIA_DATABASE_URL;
+const catalogServiceUrl = process.env.CATALOG_SERVICE_URL ?? "http://localhost:4103";
+const reconciliationPollIntervalMs = Number(process.env.MEDIA_RECONCILIATION_POLL_INTERVAL_MS ?? 5_000);
+const reconciliationInitialDelayMs = Number(process.env.MEDIA_RECONCILIATION_INITIAL_DELAY_MS ?? 30_000);
+const reconciliationConfirmDelayMs = Number(process.env.MEDIA_RECONCILIATION_CONFIRM_DELAY_MS ?? 30_000);
+const reconciliationBatchSize = Number(process.env.MEDIA_RECONCILIATION_BATCH_SIZE ?? 10);
+const reconciliationMaxAttempts = Number(process.env.MEDIA_RECONCILIATION_MAX_ATTEMPTS ?? 8);
 const memoryAuditEvents: MediaAuditEvent[] = [];
 
 function headerValue(headers: HeaderBag, name: string): string | undefined {
@@ -92,9 +141,9 @@ function headerValue(headers: HeaderBag, name: string): string | undefined {
   return value;
 }
 
-function createStoreContext(correlationId: string | undefined): StoreContext {
+function createStoreContext(correlationId: string | undefined, storeId?: string): StoreContext {
   return assertStoreContext({
-    storeId: process.env.DEFAULT_STORE_ID ?? "00000000-0000-4000-8000-000000000001",
+    storeId: storeId ?? process.env.DEFAULT_STORE_ID ?? "00000000-0000-4000-8000-000000000001",
     region: process.env.DEFAULT_STORE_REGION ?? "local",
     timezone: process.env.DEFAULT_STORE_TIMEZONE ?? "Asia/Hong_Kong",
     correlationId: correlationId ?? randomUUID()
@@ -134,6 +183,14 @@ function notFound(message: string, details?: unknown): NotFoundException {
 function dependencyUnavailable(message: string, details?: unknown): ServiceUnavailableException {
   return new ServiceUnavailableException({
     code: ERROR_CODES.DEPENDENCY_UNAVAILABLE,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function conflict(message: string, details?: unknown): ConflictException {
+  return new ConflictException({
+    code: ERROR_CODES.CONFLICT,
     message,
     ...(details === undefined ? {} : { details })
   });
@@ -291,6 +348,14 @@ function objectKey(ctx: StoreContext, kind: MediaKind, file: UploadedMediaFile, 
   ].join("/");
 }
 
+function responsiveObjectKey(sourceKey: string, width: number): string {
+  return sourceKey.replace(/\.[^.]+$/, `-w${width}.webp`);
+}
+
+function posterObjectKey(sourceKey: string): string {
+  return sourceKey.replace(/\.[^.]+$/, "-poster.webp");
+}
+
 function assertOwnedObjectKey(ctx: StoreContext, key: string) {
   const normalized = key.trim();
 
@@ -419,30 +484,91 @@ class MediaAuditRepository {
 class MediaStorage {
   private readonly provider = objectStorageProvider === "minio" ? "minio" : "local";
   private readonly bucket = process.env.OBJECT_STORAGE_BUCKET ?? "demo-teaware-media";
-  private readonly cdnUrl = process.env.OBJECT_STORAGE_CDN_URL?.replace(/\/$/, "");
   private minioClient: MinioClient | null = null;
 
   async save(ctx: StoreContext, file: UploadedMediaFile): Promise<MediaUploadResult> {
     const validation = validateUpload(file);
-    const key = objectKey(ctx, validation.kind, file, validation.mimeType);
+    let processedVideo: Awaited<ReturnType<typeof processVideoMedia>> | null = null;
+    if (validation.kind !== "image") {
+      try {
+        processedVideo = await processVideoMedia(file.buffer, validation.mimeType as "image/gif" | "video/mp4");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException)?.code === "ENOENT") {
+          throw dependencyUnavailable("media processing dependency is unavailable", { dependency: "ffmpeg" });
+        }
+        throw uploadRejected("media file could not be processed", {
+          reason: "MEDIA_PROCESSING_FAILED",
+          detectedMimeType: validation.mimeType
+        });
+      }
+    }
+    const storedKind: MediaKind = processedVideo ? "video" : validation.kind;
+    const storedMimeType = processedVideo?.mimeType ?? validation.mimeType;
+    const storedBuffer = processedVideo?.buffer ?? file.buffer;
+    const key = objectKey(ctx, storedKind, file, storedMimeType);
     const assetId = randomUUID();
-    const url = this.provider === "minio"
-      ? await this.saveToMinio(key, file.buffer, validation.mimeType)
-      : await this.saveToLocal(key, file.buffer);
+    const savedKeys: string[] = [];
 
-    return {
-      assetId,
-      storeId: ctx.storeId,
-      provider: this.provider,
-      kind: validation.kind,
-      objectKey: key,
-      url,
-      originalName: file.originalname,
-      mimeType: validation.mimeType,
-      byteSize: file.size,
-      width: validation.width,
-      height: validation.height
-    };
+    try {
+      const url = await this.saveBuffer(key, storedBuffer, storedMimeType);
+      savedKeys.push(key);
+      const generatedVariants = validation.kind === "image"
+        ? await generateResponsiveImageVariants(file.buffer)
+        : [];
+      const responsiveSources: MediaUploadResult["responsiveSources"] = [];
+
+      for (const variant of generatedVariants) {
+        const variantKey = responsiveObjectKey(key, variant.width);
+        const variantUrl = await this.saveBuffer(variantKey, variant.buffer, variant.mimeType);
+        savedKeys.push(variantKey);
+        responsiveSources.push({
+          url: variantUrl,
+          objectKey: variantKey,
+          width: variant.width,
+          height: variant.height,
+          mimeType: variant.mimeType,
+          byteSize: variant.byteSize
+        });
+      }
+
+      let posterUrl: string | null = null;
+      if (processedVideo) {
+        const posterKey = posterObjectKey(key);
+        posterUrl = await this.saveBuffer(posterKey, processedVideo.poster.buffer, processedVideo.poster.mimeType);
+        savedKeys.push(posterKey);
+        responsiveSources.push({
+          url: posterUrl,
+          objectKey: posterKey,
+          width: processedVideo.poster.width,
+          height: processedVideo.poster.height,
+          mimeType: processedVideo.poster.mimeType,
+          byteSize: processedVideo.poster.buffer.byteLength
+        });
+      }
+
+      return {
+        assetId,
+        storeId: ctx.storeId,
+        provider: this.provider,
+        kind: storedKind,
+        objectKey: key,
+        url,
+        originalName: file.originalname,
+        mimeType: storedMimeType,
+        byteSize: storedBuffer.byteLength,
+        width: processedVideo?.width ?? validation.width,
+        height: processedVideo?.height ?? validation.height,
+        variants: processedVideo && posterUrl
+          ? { poster: posterUrl }
+          : Object.fromEntries(responsiveSources.map((variant) => [`w${variant.width}`, variant.url])),
+        responsiveSources,
+        posterUrl,
+        durationSeconds: processedVideo?.durationSeconds ?? null
+      };
+    } catch (error) {
+      await Promise.allSettled(savedKeys.map((savedKey) => this.delete(ctx, savedKey)));
+      throw error;
+    }
   }
 
   async delete(ctx: StoreContext, key: string): Promise<{ objectKey: string; deleted: boolean; provider: StorageProvider }> {
@@ -471,14 +597,43 @@ class MediaStorage {
     }
   }
 
-  private async saveToLocal(key: string, buffer: Buffer): Promise<string> {
+  async read(ctx: StoreContext, key: string): Promise<{ stream: Readable; byteSize: number; contentType: string }> {
+    const normalizedKey = assertOwnedObjectKey(ctx, key);
+
+    if (this.provider === "minio") {
+      const client = this.getMinioClient();
+      const metadata = await client.statObject(this.bucket, normalizedKey);
+      return {
+        stream: await client.getObject(this.bucket, normalizedKey),
+        byteSize: metadata.size,
+        contentType: metadata.metaData?.["content-type"] ?? "application/octet-stream"
+      };
+    }
+
+    const targetPath = path.resolve(localStorageRoot, normalizedKey);
+    if (!targetPath.startsWith(path.resolve(localStorageRoot))) {
+      throw validationFailed("media path is invalid", { reason: "MEDIA_PATH_INVALID" });
+    }
+    const metadata = await stat(targetPath);
+    const extension = path.extname(targetPath).toLowerCase();
+    const contentType = ({ ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".gif": "image/gif", ".mp4": "video/mp4" } as Record<string, string>)[extension]
+      ?? "application/octet-stream";
+    return { stream: createReadStream(targetPath), byteSize: metadata.size, contentType };
+  }
+
+  private async saveToLocal(key: string, buffer: Buffer): Promise<void> {
     const targetPath = path.join(localStorageRoot, key);
     await mkdir(path.dirname(targetPath), { recursive: true });
     await writeFile(targetPath, buffer);
-    return `${process.env.MEDIA_PUBLIC_BASE_URL ?? "http://localhost:4108/files"}/${key.split("/").map(encodeURIComponent).join("/")}`;
   }
 
-  private async saveToMinio(key: string, buffer: Buffer, mimeType: string): Promise<string> {
+  private async saveBuffer(key: string, buffer: Buffer, mimeType: string): Promise<string> {
+    if (this.provider === "minio") await this.saveToMinio(key, buffer, mimeType);
+    else await this.saveToLocal(key, buffer);
+    return publicMediaPath(key);
+  }
+
+  private async saveToMinio(key: string, buffer: Buffer, mimeType: string): Promise<void> {
     const client = this.getMinioClient();
     const exists = await client.bucketExists(this.bucket).catch(() => false);
 
@@ -490,15 +645,6 @@ class MediaStorage {
       "Content-Type": mimeType,
       "Cache-Control": "public, max-age=31536000, immutable"
     });
-
-    if (!this.cdnUrl) {
-      throw dependencyUnavailable("object storage CDN URL is not configured", {
-        dependency: "object-storage",
-        reason: "OBJECT_STORAGE_CDN_URL_REQUIRED"
-      });
-    }
-
-    return `${this.cdnUrl}/${key.split("/").map(encodeURIComponent).join("/")}`;
   }
 
   private getMinioClient(): MinioClient {
@@ -529,11 +675,105 @@ class MediaStorage {
   }
 }
 
+@Injectable()
+class MediaReconciliationWorker implements OnModuleInit, OnApplicationShutdown {
+  private timer: ReturnType<typeof setInterval> | null = null;
+  private running = false;
+
+  constructor(
+    @Inject(MediaReconciliationRepository) private readonly reconciliation: MediaReconciliationRepository,
+    @Inject(MediaStorage) private readonly storage: MediaStorage,
+    @Inject(MediaAuditRepository) private readonly audit: MediaAuditRepository
+  ) {}
+
+  onModuleInit(): void {
+    this.timer = setInterval(() => void this.runOnce(), Math.max(reconciliationPollIntervalMs, 1_000));
+    this.timer.unref?.();
+    void this.runOnce();
+  }
+
+  onApplicationShutdown(): void {
+    if (this.timer) clearInterval(this.timer);
+  }
+
+  private async runOnce(): Promise<void> {
+    if (this.running) return;
+    this.running = true;
+    try {
+      const tasks = await this.reconciliation.claimDue(Math.max(1, reconciliationBatchSize));
+      for (const task of tasks) await this.process(task);
+    } catch {
+      // Readiness exposes an unavailable reconciliation store. The next poll retries.
+    } finally {
+      this.running = false;
+    }
+  }
+
+  private async process(task: MediaReconciliationTask): Promise<void> {
+    const ctx = createStoreContext(task.correlationId, task.storeId);
+    try {
+      const response = await fetch(`${catalogServiceUrl}/media-bindings/${encodeURIComponent(task.assetId)}`, {
+        headers: { "x-correlation-id": task.correlationId }
+      });
+      const payload = await response.json().catch(() => ({})) as { bound?: unknown; message?: unknown };
+      if (!response.ok || typeof payload.bound !== "boolean") {
+        throw new Error(typeof payload.message === "string" ? payload.message : `Catalog binding query failed with ${response.status}`);
+      }
+
+      const step = nextReconciliationStep({ bound: payload.bound, unboundObservations: task.unboundObservations });
+      if (step === "resolved_bound") {
+        await this.reconciliation.markResolvedBound(task.id);
+        await this.record(task, ctx, "reconciliation_bound", "Catalog binding confirmed; media objects retained");
+        return;
+      }
+      if (step === "confirm_unbound") {
+        await this.reconciliation.confirmUnbound(task.id, reconciliationConfirmDelayMs);
+        await this.record(task, ctx, "reconciliation_unbound_observed", "First unbound observation; confirmation scheduled");
+        return;
+      }
+
+      for (const objectKey of task.objectKeys) await this.storage.delete(ctx, objectKey);
+      await this.reconciliation.markCleaned(task.id);
+      await this.record(task, ctx, "reconciliation_cleaned", "Catalog remained unbound; media objects deleted");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Media reconciliation failed";
+      const nextAttempt = task.attemptCount + 1;
+      const status = await this.reconciliation.markFailure(task, message, reconciliationRetryDelayMs(nextAttempt));
+      await this.record(
+        task,
+        ctx,
+        status === "failed" ? "reconciliation_failed" : "reconciliation_retry",
+        status === "failed" ? `Reconciliation failed permanently: ${message}` : `Reconciliation retry scheduled: ${message}`
+      );
+    }
+  }
+
+  private record(
+    task: MediaReconciliationTask,
+    ctx: StoreContext,
+    action: MediaAuditAction,
+    summary: string
+  ): Promise<StorageMode> {
+    return this.audit.record({
+      storeId: task.storeId,
+      action,
+      actorId: "media-reconciliation-worker",
+      objectKey: task.objectKeys[0] ?? null,
+      assetId: task.assetId,
+      summary,
+      oldValue: { status: task.status, unboundObservations: task.unboundObservations, attemptCount: task.attemptCount },
+      newValue: { objectKeys: task.objectKeys },
+      correlationId: ctx.correlationId
+    });
+  }
+}
+
 @Controller()
 class MediaController {
   constructor(
     @Inject(MediaStorage) private readonly storage: MediaStorage,
-    @Inject(MediaAuditRepository) private readonly audit: MediaAuditRepository
+    @Inject(MediaAuditRepository) private readonly audit: MediaAuditRepository,
+    @Inject(MediaReconciliationRepository) private readonly reconciliation: MediaReconciliationRepository
   ) {}
 
   @Get("/health")
@@ -561,17 +801,25 @@ class MediaController {
   async ready(@Headers("x-correlation-id") correlationId?: string) {
     const ctx = createStoreContext(correlationId);
     const audit = await this.audit.ready();
+    const reconciliationReady = await this.reconciliation.ready();
 
     return {
       service: "media-service",
-      status: audit.storageMode === "postgres" || !mediaDatabaseUrl ? "ready" : "degraded",
+      status: (audit.storageMode === "postgres" || !mediaDatabaseUrl) && reconciliationReady ? "ready" : "degraded",
       storeId: ctx.storeId,
       storage: {
         provider: objectStorageProvider,
         bucketConfigured: Boolean(process.env.OBJECT_STORAGE_BUCKET),
         cdnConfigured: objectStorageProvider === "local" || Boolean(process.env.OBJECT_STORAGE_CDN_URL)
       },
-      audit
+      audit,
+      reconciliation: {
+        databaseConfigured: Boolean(mediaDatabaseUrl),
+        ready: reconciliationReady,
+        pollIntervalMs: reconciliationPollIntervalMs,
+        initialDelayMs: reconciliationInitialDelayMs,
+        confirmDelayMs: reconciliationConfirmDelayMs
+      }
     };
   }
 
@@ -668,6 +916,140 @@ class MediaController {
     }
   }
 
+  @Post("/media/reconciliation-tasks")
+  async enqueueReconciliation(
+    @Headers() headers: HeaderBag,
+    @Body() body: unknown
+  ) {
+    const ctx = createStoreContext(headerValue(headers, "x-correlation-id"));
+    const actorId = headerValue(headers, "x-admin-actor") ?? "admin-gateway";
+    let input: { assetId: string; objectKeys: string[] };
+    try {
+      input = normalizeReconciliationRequest(ctx.storeId, body);
+    } catch (error) {
+      throw validationFailed(error instanceof Error ? error.message : "media reconciliation request is invalid");
+    }
+
+    try {
+      const task = await this.reconciliation.enqueue({
+        storeId: ctx.storeId,
+        assetId: input.assetId,
+        objectKeys: input.objectKeys,
+        correlationId: ctx.correlationId,
+        initialDelayMs: Math.max(0, reconciliationInitialDelayMs),
+        maxAttempts: Math.max(1, reconciliationMaxAttempts)
+      });
+      await this.audit.record({
+        storeId: ctx.storeId,
+        action: "reconciliation_enqueued",
+        actorId,
+        objectKey: input.objectKeys[0] ?? null,
+        assetId: input.assetId,
+        summary: "Catalog outcome uncertain; durable media reconciliation queued",
+        oldValue: null,
+        newValue: task,
+        correlationId: ctx.correlationId
+      });
+      return task;
+    } catch (error) {
+      throw dependencyUnavailable("media reconciliation task could not be persisted", {
+        reason: error instanceof Error ? error.message : "MEDIA_RECONCILIATION_PERSIST_FAILED"
+      });
+    }
+  }
+
+  @Get("/media/reconciliation-tasks")
+  async reconciliationTasks(@Headers("x-correlation-id") correlationId?: string) {
+    const ctx = createStoreContext(correlationId);
+    try {
+      const [items, auditEvents] = await Promise.all([
+        this.reconciliation.list(ctx.storeId),
+        this.reconciliation.listAudit(ctx.storeId)
+      ]);
+      return {
+        items: items.map((task) => ({
+          ...task,
+          auditTrail: auditEvents.filter((event) => event.taskId === task.id)
+        })),
+        storageMode: "postgres" as const
+      };
+    } catch (error) {
+      throw dependencyUnavailable("media reconciliation tasks are unavailable", {
+        reason: error instanceof Error ? error.message : "MEDIA_RECONCILIATION_LIST_FAILED"
+      });
+    }
+  }
+
+  @Post("/media/reconciliation-tasks/:id/retry")
+  retryReconciliation(
+    @Headers() headers: HeaderBag,
+    @Param("id") id: string,
+    @Body() body: unknown
+  ) {
+    return this.handleReconciliation(headers, id, body, "retry");
+  }
+
+  @Post("/media/reconciliation-tasks/:id/discard")
+  discardReconciliation(
+    @Headers() headers: HeaderBag,
+    @Param("id") id: string,
+    @Body() body: unknown
+  ) {
+    return this.handleReconciliation(headers, id, body, "discard");
+  }
+
+  private async handleReconciliation(
+    headers: HeaderBag,
+    taskId: string,
+    body: unknown,
+    action: "retry" | "discard"
+  ) {
+    const ctx = createStoreContext(headerValue(headers, "x-correlation-id"));
+    let input: ReturnType<typeof normalizeReconciliationAction>;
+    try {
+      input = normalizeReconciliationAction({
+        taskId,
+        actorId: headerValue(headers, "x-admin-actor"),
+        decisionNote: typeof body === "object" && body !== null && "decisionNote" in body ? body.decisionNote : undefined,
+        idempotencyKey: headerValue(headers, "idempotency-key") ?? headerValue(headers, "x-idempotency-key")
+      });
+    } catch (error) {
+      throw validationFailed(error instanceof Error ? error.message : "media reconciliation action is invalid");
+    }
+
+    try {
+      const result = await this.reconciliation.handleFailed({
+        storeId: ctx.storeId,
+        ...input,
+        action,
+        correlationId: ctx.correlationId,
+        clientIp: (headerValue(headers, "x-forwarded-for")?.split(",")[0] ?? headerValue(headers, "x-real-ip") ?? "").trim().slice(0, 100) || null
+      });
+      if (!result.replayed) {
+        await this.audit.record({
+          storeId: ctx.storeId,
+          action: action === "retry" ? "reconciliation_manual_retry" : "reconciliation_manual_discard",
+          actorId: input.actorId,
+          objectKey: result.task.objectKeys[0] ?? null,
+          assetId: result.task.assetId,
+          summary: input.decisionNote,
+          oldValue: { status: result.auditEvent.oldStatus },
+          newValue: { status: result.auditEvent.newStatus, taskId: result.task.id },
+          correlationId: ctx.correlationId
+        });
+      }
+      return result;
+    } catch (error) {
+      if (error instanceof MediaReconciliationTaskNotFoundError) {
+        throw notFound(error.message, { taskId });
+      }
+      if (error instanceof MediaReconciliationTaskConflictError) {
+        throw conflict(error.message, { taskId, action });
+      }
+      throw dependencyUnavailable("media reconciliation action could not be persisted");
+    }
+  }
+
   @Get("/media/audit-events")
   auditEvents(@Headers("x-correlation-id") correlationId?: string) {
     const ctx = createStoreContext(correlationId);
@@ -698,9 +1080,33 @@ class MediaController {
       throw notFound("media file was not found", { reason: "MEDIA_FILE_NOT_FOUND" });
     }
   }
+
+  @Get("/media/public/:storeId/:scope/:kind/:yyyyMm/:fileName")
+  async publicMedia(
+    @Param("storeId") storeId: string,
+    @Param("scope") scope: string,
+    @Param("kind") kind: string,
+    @Param("yyyyMm") yyyyMm: string,
+    @Param("fileName") fileName: string,
+    @Res({ passthrough: true }) response: HeaderResponse
+  ) {
+    const ctx = createStoreContext(undefined, storeId);
+    try {
+      const media = await this.storage.read(ctx, [storeId, scope, kind, yyyyMm, fileName].join("/"));
+      response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      response.setHeader("Content-Length", String(media.byteSize));
+      response.setHeader("Content-Type", media.contentType);
+      return new StreamableFile(media.stream);
+    } catch {
+      throw notFound("media file was not found", { reason: "MEDIA_FILE_NOT_FOUND" });
+    }
+  }
 }
 
-@Module({ controllers: [MediaController], providers: [MediaStorage, MediaAuditRepository] })
+@Module({
+  controllers: [MediaController],
+  providers: [MediaStorage, MediaAuditRepository, MediaReconciliationRepository, MediaReconciliationWorker]
+})
 class AppModule {}
 
 async function bootstrap() {

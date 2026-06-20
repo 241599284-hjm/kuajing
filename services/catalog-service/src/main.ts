@@ -1,14 +1,19 @@
 import "reflect-metadata";
-import { BadRequestException, Body, Controller, Get, Headers, Inject, Injectable, Module, OnApplicationShutdown, Put, Query, ServiceUnavailableException } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Headers, Inject, Injectable, Module, OnApplicationShutdown, Param, Put, Query, ServiceUnavailableException } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { ERROR_CODES } from "@commerce/error-codes";
 import { money } from "@commerce/money";
 import { catalogCacheKeys, categoryWriteInvalidationKeys, productWriteInvalidationKeys, regionWriteInvalidationKeys } from "./cache-policy.js";
+import { catalogNotFound } from "./catalog-errors.js";
+import { normalizeMediaAssetId } from "./catalog-media-binding.js";
 import { normalizeProductPriceMinor } from "./product-price.js";
-import type {
-  CatalogCategory,
+import { normalizeProductMediaAssets, type SaveProductMediaAssetInput } from "./product-media.js";
+import {
+  normalizeResourceReference,
+  type CatalogCategory,
   CatalogMediaKind,
   CatalogProductStoryBlock,
+  CatalogProductMediaAsset,
   CatalogProductSummary,
   CatalogRegion,
   CatalogRegionIcon,
@@ -103,6 +108,7 @@ type StorefrontProductTranslationRow = {
   package_width_mm: number;
   package_height_mm: number;
   weight_grams: number;
+  media_assets: CatalogProductMediaAsset[];
 };
 
 type StoryBlockRow = {
@@ -170,6 +176,7 @@ type SaveProductInput = {
   customsDeclarationEn?: string;
   status?: "active" | "inactive";
   imageUrl?: string;
+  mediaAssets?: SaveProductMediaAssetInput[];
 };
 
 type AdminProductRow = {
@@ -202,6 +209,7 @@ type AdminProductRow = {
   capacity_en: string;
   customs_declaration_zh: string;
   customs_declaration_en: string;
+  media_assets: CatalogProductMediaAsset[];
 };
 
 type AdminProductList = {
@@ -254,14 +262,6 @@ const slowCatalogReadMs = Number(process.env.SLOW_CATALOG_READ_MS ?? 500);
 function validationFailed(message: string, details?: unknown): BadRequestException {
   return new BadRequestException({
     code: ERROR_CODES.VALIDATION_FAILED,
-    message,
-    ...(details === undefined ? {} : { details })
-  });
-}
-
-function notFound(message: string, details?: unknown): BadRequestException {
-  return new BadRequestException({
-    code: ERROR_CODES.NOT_FOUND,
     message,
     ...(details === undefined ? {} : { details })
   });
@@ -363,7 +363,11 @@ function normalizePageSize(value: string | undefined): number {
 
 function normalizeImageUrl(value: string | undefined, fallback: string): string {
   const imageUrl = value?.trim();
-  return imageUrl || fallback;
+  try {
+    return normalizeResourceReference(imageUrl || fallback);
+  } catch (error) {
+    throw validationFailed(error instanceof Error ? error.message : "image URL is invalid", { field: "imageUrl" });
+  }
 }
 
 function normalizeSku(value: string | undefined): string {
@@ -626,7 +630,25 @@ class CatalogRepository implements OnApplicationShutdown {
             COALESCE(pt_zh.capacity, s.capacity) AS capacity_zh,
             COALESCE(pt_en.capacity, s.capacity) AS capacity_en,
             COALESCE(pt_zh.customs_declaration, s.customs_declaration) AS customs_declaration_zh,
-            COALESCE(pt_en.customs_declaration, s.customs_declaration) AS customs_declaration_en
+            COALESCE(pt_en.customs_declaration, s.customs_declaration) AS customs_declaration_en,
+            COALESCE((
+              SELECT jsonb_agg(
+                jsonb_build_object(
+                  'assetId', pa.id, 'kind', pa.asset_kind, 'url', pa.url,
+                  'objectKey', pa.object_key, 'storageProvider', pa.storage_provider,
+                  'originalName', pa.original_name, 'mimeType', pa.mime_type,
+                  'byteSize', pa.byte_size, 'width', pa.width, 'height', pa.height,
+                  'posterUrl', pa.poster_url, 'durationSeconds', pa.duration_seconds,
+                  'variants', pa.variants, 'responsiveSources', pa.responsive_sources,
+                  'altTextZh', pa.alt_text_zh, 'altTextEn', pa.alt_text_en,
+                  'sortOrder', pa.sort_order
+                ) ORDER BY pa.sort_order
+              )
+              FROM product_assets pa
+              WHERE pa.store_id = p.store_id
+                AND pa.product_id = p.id
+                AND pa.usage_status <> 'deleted'
+            ), '[]'::jsonb) AS media_assets
           FROM products p
           JOIN LATERAL (
             SELECT *
@@ -660,6 +682,7 @@ class CatalogRepository implements OnApplicationShutdown {
         detailZh: row.detail_zh,
         detailEn: row.detail_en,
         imageUrl: row.image_url,
+        mediaAssets: row.media_assets,
         materialZh: row.material_zh,
         materialEn: row.material_en,
         originZh: row.origin_zh,
@@ -818,7 +841,25 @@ class CatalogRepository implements OnApplicationShutdown {
             s.package_length_mm,
             s.package_width_mm,
             s.package_height_mm,
-            s.weight_grams
+            s.weight_grams,
+            COALESCE((
+              SELECT jsonb_agg(
+                jsonb_build_object(
+                  'assetId', pa.id, 'kind', pa.asset_kind, 'url', pa.url,
+                  'objectKey', pa.object_key, 'storageProvider', pa.storage_provider,
+                  'originalName', pa.original_name, 'mimeType', pa.mime_type,
+                  'byteSize', pa.byte_size, 'width', pa.width, 'height', pa.height,
+                  'posterUrl', pa.poster_url, 'durationSeconds', pa.duration_seconds,
+                  'variants', pa.variants, 'responsiveSources', pa.responsive_sources,
+                  'altTextZh', pa.alt_text_zh, 'altTextEn', pa.alt_text_en,
+                  'sortOrder', pa.sort_order
+                ) ORDER BY pa.sort_order
+              )
+              FROM product_assets pa
+              WHERE pa.store_id = p.store_id
+                AND pa.product_id = p.id
+                AND pa.usage_status = 'active'
+            ), '[]'::jsonb) AS media_assets
           FROM products p
           JOIN skus s ON s.store_id = p.store_id AND s.product_id = p.id
           JOIN categories c ON c.id = p.category_id
@@ -888,6 +929,7 @@ class CatalogRepository implements OnApplicationShutdown {
           storeId: row.store_id,
           slug: row.slug,
           imageUrl: row.image_url,
+          mediaAssets: row.media_assets,
           price: money(row.price_minor, row.currency),
           originalPrice: money(row.original_price_minor, row.currency),
           monthlySales: row.monthly_sales,
@@ -953,6 +995,29 @@ class CatalogRepository implements OnApplicationShutdown {
     };
     await this.cache.set(ctx, catalogCacheKeys.storefront, snapshot, 60);
     return snapshot;
+  }
+
+  async mediaBinding(ctx: StoreContext, assetId: string): Promise<{
+    assetId: string;
+    bound: boolean;
+    productId: string | null;
+  }> {
+    try {
+      const result = await this.pool.query<{ product_id: string }>(
+        `SELECT product_id
+         FROM product_assets
+         WHERE store_id = $1 AND id = $2 AND usage_status = 'active'
+         LIMIT 1`,
+        [ctx.storeId, assetId]
+      );
+      return {
+        assetId,
+        bound: Boolean(result.rows[0]),
+        productId: result.rows[0]?.product_id ?? null
+      };
+    } catch {
+      throw dependencyUnavailable("catalog database is unavailable", { dependency: "postgres" });
+    }
   }
 
   async auditEvents(ctx: StoreContext, limit = 50): Promise<{ events: CatalogAuditEvent[]; storageMode: "postgres" }> {
@@ -1204,11 +1269,11 @@ class CatalogRepository implements OnApplicationShutdown {
         );
 
         if (!categoryResult.rows[0]) {
-          throw notFound(`category ${categorySlug} does not exist`, { categorySlug });
+          throw catalogNotFound(`category ${categorySlug} does not exist`, { categorySlug });
         }
 
         if (!regionResult.rows[0]) {
-          throw notFound(`region ${regionSlug} does not exist`, { regionSlug });
+          throw catalogNotFound(`region ${regionSlug} does not exist`, { regionSlug });
         }
 
         const existingSkuResult = await client.query<{ product_id: string }>(
@@ -1232,6 +1297,9 @@ class CatalogRepository implements OnApplicationShutdown {
         const weightGrams = normalizeInteger(product.weightGrams, "product.weightGrams");
         const customsDeclarationZh = normalizeText(product.customsDeclarationZh, "product.customsDeclarationZh", 500);
         const customsDeclarationEn = normalizeText(product.customsDeclarationEn, "product.customsDeclarationEn", 500);
+        const mediaAssets = product.mediaAssets === undefined
+          ? undefined
+          : normalizeProductMediaAssets(ctx.storeId, product.mediaAssets);
         const newValue = {
           sku,
           slug,
@@ -1240,7 +1308,8 @@ class CatalogRepository implements OnApplicationShutdown {
           category: categorySlug,
           region: regionSlug,
           status: product.status === "active" ? "active" : "draft",
-          imageUrl: normalizeImageUrl(product.imageUrl, "/assets/porcelain-tea-set-photo.jpg"),
+          imageUrl: mediaAssets?.[0]?.url ?? normalizeImageUrl(product.imageUrl, "/assets/porcelain-tea-set-photo.jpg"),
+          mediaAssets,
           priceMinor,
           originalPriceMinor: Math.round(priceMinor * 1.2),
           materialZh,
@@ -1397,6 +1466,54 @@ class CatalogRepository implements OnApplicationShutdown {
             customsDeclarationEn
           ]
         );
+
+        if (mediaAssets !== undefined) {
+          await client.query(
+            "DELETE FROM product_assets WHERE store_id = $1 AND product_id = $2",
+            [ctx.storeId, productId]
+          );
+
+          for (const asset of mediaAssets) {
+            await client.query(
+              `
+                INSERT INTO product_assets (
+                  id, store_id, product_id, asset_kind, url, width, height, mime_type,
+                  sort_order, poster_url, byte_size, duration_seconds, variants,
+                  responsive_sources, alt_text_en, alt_text_zh, storage_provider,
+                  object_key, original_name, usage_status, updated_at
+                )
+                VALUES (
+                  $1, $2, $3, $4, $5, $6, $7, $8,
+                  $9, $10, $11, $12, $13::jsonb,
+                  $14::jsonb, $15, $16, $17,
+                  $18, $19, 'active', now()
+                )
+              `,
+              [
+                asset.assetId,
+                ctx.storeId,
+                productId,
+                asset.kind,
+                asset.url,
+                asset.width,
+                asset.height,
+                asset.mimeType,
+                asset.sortOrder,
+                asset.posterUrl,
+                asset.byteSize,
+                asset.durationSeconds,
+                JSON.stringify(asset.variants),
+                JSON.stringify(asset.responsiveSources),
+                asset.altTextEn,
+                asset.altTextZh,
+                asset.storageProvider,
+                asset.objectKey,
+                asset.originalName
+              ]
+            );
+          }
+        }
+
         await this.recordAudit(client, {
           id: randomUUID(),
           storeId: ctx.storeId,
@@ -1546,7 +1663,22 @@ class CatalogRepository implements OnApplicationShutdown {
             )
             FROM product_translations pt
             WHERE pt.product_id = p.id
-          ), '{}'::jsonb)
+          ), '{}'::jsonb),
+          'mediaAssets', COALESCE((
+            SELECT jsonb_agg(
+              jsonb_build_object(
+                'assetId', pa.id,
+                'url', pa.url,
+                'objectKey', pa.object_key,
+                'altTextZh', pa.alt_text_zh,
+                'altTextEn', pa.alt_text_en,
+                'sortOrder', pa.sort_order,
+                'usageStatus', pa.usage_status
+              ) ORDER BY pa.sort_order
+            )
+            FROM product_assets pa
+            WHERE pa.store_id = p.store_id AND pa.product_id = p.id
+          ), '[]'::jsonb)
         ) AS value
         FROM skus s
         JOIN products p ON p.id = s.product_id AND p.store_id = s.store_id
@@ -1573,6 +1705,15 @@ class CatalogController {
   @Get("/ready")
   ready(): Promise<CatalogReadiness> {
     return this.catalogRepository.readiness();
+  }
+
+  @Get("/media-bindings/:assetId")
+  mediaBinding(
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Param("assetId") assetId: string
+  ) {
+    const ctx = createStoreContext(correlationId);
+    return this.catalogRepository.mediaBinding(ctx, normalizeMediaAssetId(assetId));
   }
 
   @Get("/products")

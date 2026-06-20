@@ -8,7 +8,9 @@ param(
   [string]$RemoteDir = "/opt/crossborder-commerce-kit",
   [switch]$SkipBootstrap,
   [switch]$WithObservability,
-  [switch]$ResetVolumes
+  [switch]$ResetVolumes,
+  [switch]$IncludeWorkingTree,
+  [switch]$SkipLocalVerification
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,7 +18,7 @@ $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 $gitSha = (git rev-parse --short=12 HEAD).Trim()
 $releaseStamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddHHmmss")
-$releaseName = "$releaseStamp-$gitSha"
+$releaseName = if ($IncludeWorkingTree) { "$releaseStamp-$gitSha-worktree" } else { "$releaseStamp-$gitSha" }
 
 function Invoke-LocalStep {
   param(
@@ -91,9 +93,11 @@ function Copy-ToRemote {
   Invoke-Native $copyCommand @sshBase $Source "${sshTarget}:$Target"
 }
 
-Invoke-LocalStep "Verify local deployment config" {
-  powershell -ExecutionPolicy Bypass -File scripts/validate-deployment-config.ps1 -EnvFile ".env.example" -AllowPlaceholders
-  docker compose config --quiet
+if (-not $SkipLocalVerification) {
+  Invoke-LocalStep "Verify local deployment config" {
+    powershell -ExecutionPolicy Bypass -File scripts/validate-deployment-config.ps1 -EnvFile ".env.example" -AllowPlaceholders
+    docker compose config --quiet
+  }
 }
 
 Invoke-LocalStep "Verify SSH connectivity" {
@@ -117,7 +121,39 @@ Invoke-LocalStep "Create deployment archive" {
     Remove-Item -LiteralPath $archive -Force
   }
 
-  git archive --format=tar --output=$archive HEAD
+  if ($IncludeWorkingTree) {
+    $tarArguments = @(
+      "--exclude=node_modules",
+      "--exclude=.turbo",
+      "--exclude=dist",
+      "--exclude=.next",
+      "--exclude=*.log",
+      "-cf",
+      $archive,
+      "apps",
+      "docs",
+      "infra",
+      "packages",
+      "scripts",
+      "services",
+      "tests",
+      ".env.example",
+      ".gitattributes",
+      ".gitignore",
+      ".npmrc",
+      "docker-compose.yml",
+      "LICENSE",
+      "package.json",
+      "playwright.config.ts",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml",
+      "tsconfig.base.json",
+      "turbo.json"
+    )
+    Invoke-Native tar @tarArguments
+  } else {
+    Invoke-Native git archive --format=tar --output=$archive HEAD
+  }
   Copy-ToRemote $archive "/tmp/crossborder-commerce-kit-deploy-$releaseName.tar"
 }
 
@@ -139,6 +175,12 @@ if [ ! -f '$RemoteDir/shared/.env' ]; then
     cp "`$release_dir/.env.example" '$RemoteDir/shared/.env'
   fi
 fi
+sed -i -E 's#^STOREFRONT_PUBLIC_URL=http://(localhost|127\.0\.0\.1):3000$#STOREFRONT_PUBLIC_URL=http://$HostName`:3000#' '$RemoteDir/shared/.env'
+sed -i -E 's#^ADMIN_PUBLIC_URL=http://(localhost|127\.0\.0\.1):3001$#ADMIN_PUBLIC_URL=http://$HostName`:3001#' '$RemoteDir/shared/.env'
+sed -i -E 's#^AUTH_VERIFY_BASE_URL=http://(localhost|127\.0\.0\.1):4102$#AUTH_VERIFY_BASE_URL=http://$HostName`:4102#' '$RemoteDir/shared/.env'
+sed -i -E 's#^NEXT_PUBLIC_AUTH_SERVICE_URL=http://(localhost|127\.0\.0\.1):4102$#NEXT_PUBLIC_AUTH_SERVICE_URL=http://$HostName`:4102#' '$RemoteDir/shared/.env'
+sed -i -E 's#^NEXT_PUBLIC_API_GATEWAY_URL=http://(localhost|127\.0\.0\.1):4000$#NEXT_PUBLIC_API_GATEWAY_URL=http://$HostName`:4000#' '$RemoteDir/shared/.env'
+sed -i -E 's#^NEXT_PUBLIC_ADMIN_GATEWAY_URL=http://(localhost|127\.0\.0\.1):4001$#NEXT_PUBLIC_ADMIN_GATEWAY_URL=http://$HostName`:4001#' '$RemoteDir/shared/.env'
 rm -f "`$release_dir/.env"
 ln -s '$RemoteDir/shared/.env' "`$release_dir/.env"
 if [ -L '$RemoteDir/current' ] || [ -e '$RemoteDir/current' ]; then

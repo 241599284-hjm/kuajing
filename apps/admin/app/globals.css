@@ -1,16 +1,42 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #f7f7f4;
-  --surface: #ffffff;
-  --ink: #111111;
-  --ink-soft: #5f5f5b;
-  --accent: #0864e6;
-  --line: #e0ded8;
+  --background: #f9fafb;
+  --foreground: #1f2937;
+  --muted: #f3f4f6;
+  --muted-foreground: #6b7280;
+  --placeholder: #9ca3af;
+  --border: #e5e7eb;
+  --primary: #55718b;
+  --primary-hover: #415d76;
+  --ring: rgb(85 113 139 / 18%);
+  --success: #15805d;
+  --success-bg: #e8f6f0;
+  --warning: #b65f12;
+  --warning-bg: #fff3e4;
+  --danger: #cf3f3f;
+  --danger-bg: #feeeee;
+  --info: #456b8c;
+  --info-bg: #edf3f8;
+  --shadow-card: 0 1px 2px rgb(31 41 55 / 4%), 0 3px 12px rgb(31 41 55 / 3%);
+  --bg: var(--background);
+  --surface: #fff;
+  --ink: var(--foreground);
+  --ink-soft: var(--muted-foreground);
+  --accent: var(--primary);
+  --line: var(--border);
 }
 
+* { box-sizing: border-box; }
+html { background: var(--background); }
 body {
-  background: var(--bg);
-  color: var(--ink);
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: "Noto Sans SC", "Microsoft YaHei UI", sans-serif;
+  letter-spacing: 0;
 }
 
+button, input, select, textarea { font: inherit; }
+button { cursor: pointer; }
+::selection { background: #dceee7; }

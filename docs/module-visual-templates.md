@@ -306,30 +306,28 @@ AdminPanel
 
 ```text
 Announcement bar
-PremiumStorefrontHeader
-Single-image Hero
-Best Sellers product rail
-Four category image navigation
-Why Choose Us trust section
-Craft story image/text
-New Arrivals product rail
-Customer Reviews carousel/cards
-Promotion banners
+FERNCLIFF brand header
+Single-image desktop/mobile Hero
+Artisan story image/text
+Category navigation
+Limited collection product grid
+Material detail editorial band
+Customer testimonials
 Newsletter subscribe block
-Black four-column Footer
+Charcoal Footer
 ```
 
 规则：
 
-- 首页视觉基准为“景德镇手工陶瓷 / 侘寂东方极简 / 跨境高信任电商”，不是旧的 CERAFAN/Serif 画册方向。
-- 第一屏必须看到品牌 Logo、单张真实茶具/陶瓷实景 Hero、主 CTA、次 CTA。
-- 顶部公告条必须可后台维护，默认展示免邮、景德镇手工瓷器、易碎品安全包装等信任信息。
+- 首页视觉基准为 `FERNCLIFF / Quiet Atelier`：北欧极简与美式中世纪现代融合，暖米白、哑光炭灰、橄榄灰和少量做旧黄铜，面向欧美高价值手工陶瓷与艺术品客户。
+- 第一屏必须看到 FERNCLIFF 品牌、单张真实手工器物 Hero、主 CTA；PC 和手机使用独立裁切资源，文字不得被器物或枝叶遮挡。
+- 顶部公告条、品牌导航、Hero、匠人故事、分类、限量藏品、材质、评价、订阅和 Footer 必须全部由首页布局接口驱动并可在后台排序、显隐、复制和编辑。
 - Hero 禁止多图自动轮播，只用单张静态大图，降低加载压力。
-- 商品、分类、地域、SEO、公告、促销、评价、Footer 链接最终都必须从 catalog/content/settings 配置读取；当前静态文案只允许作为开发期默认种子。
+- 商品和分类必须从 `catalog-service` 解析真实 slug；首页布局、公告、评价、订阅和 Footer 链接由 `store-service` 持久化；静态默认布局只允许用于首次初始化或依赖不可用时的开发降级。
 - 首页不再默认插入地域长列表；地域分类保留在导航、菜单和独立 `/regions` 页面，避免手机端首页过长。
 - “Shop All / 全部商品 / 继续购物”必须优先指向 `/products` 全商品页；首页 `#products` 只作为热销爆款区锚点，不再承担完整商品集合页职责。
-- 移动端优先：产品 rail 横向滑动，分类/信任/评价单列，主要按钮高度不低于 44px。
-- PC 端可展开为四列商品、二列分类、三列信任、四列 Footer。
+- 移动端优先：分类单列、限量作品列表化、评价横向浏览，主要按钮和图标触控区域不低于 44px。
+- PC 端分类和限量作品默认三列，匠人故事与材质模块使用克制的双栏编辑排版。
 - PayPal 审核页必须在 Footer 可访问：Privacy Policy、Terms of Service、Return Policy、Contact Us。
 
 ### 2. 分类/地域列表页
