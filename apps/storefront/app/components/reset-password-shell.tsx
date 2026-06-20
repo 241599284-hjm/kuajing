@@ -7,7 +7,7 @@ import { FormEvent, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useStorefrontLocale } from "./use-storefront-locale.js";
 
-const authServiceUrl = process.env.NEXT_PUBLIC_AUTH_SERVICE_URL ?? "http://localhost:4102";
+const authServiceUrl = process.env.NEXT_PUBLIC_AUTH_SERVICE_URL ?? "/auth";
 
 export function ResetPasswordShell() {
   const [locale] = useStorefrontLocale();

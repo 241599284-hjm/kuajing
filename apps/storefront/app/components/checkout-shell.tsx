@@ -16,7 +16,7 @@ import { TeawareLoadingOverlay } from "./teaware-loading-overlay.js";
 import { useStorefrontLocale } from "./use-storefront-locale.js";
 
 const apiGatewayUrl = process.env.NEXT_PUBLIC_API_GATEWAY_URL ?? "http://localhost:4000";
-const authServiceUrl = process.env.NEXT_PUBLIC_AUTH_SERVICE_URL ?? "http://localhost:4102";
+const authServiceUrl = process.env.NEXT_PUBLIC_AUTH_SERVICE_URL ?? "/auth";
 
 function formatMoney(value: number) {
   return `$${value.toFixed(0)}`;

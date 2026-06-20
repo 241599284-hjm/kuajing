@@ -8,7 +8,11 @@ const nextConfig = {
     .filter(Boolean),
   async rewrites() {
     const mediaServiceUrl = (process.env.MEDIA_SERVICE_URL ?? "http://localhost:4108").replace(/\/$/, "");
-    return [{ source: "/media/public/:path*", destination: `${mediaServiceUrl}/media/public/:path*` }];
+    const authServiceUrl = (process.env.AUTH_SERVICE_URL ?? "http://localhost:4102").replace(/\/$/, "");
+    return [
+      { source: "/auth/:path*", destination: `${authServiceUrl}/:path*` },
+      { source: "/media/public/:path*", destination: `${mediaServiceUrl}/media/public/:path*` }
+    ];
   }
 };
 

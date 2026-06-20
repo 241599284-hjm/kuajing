@@ -12,7 +12,7 @@ type RegistrationDialogProps = {
   locale: Locale;
 };
 
-const authServiceUrl = process.env.NEXT_PUBLIC_AUTH_SERVICE_URL ?? "http://localhost:4102";
+const authServiceUrl = process.env.NEXT_PUBLIC_AUTH_SERVICE_URL ?? "/auth";
 
 export function RegistrationDialog({ isOpen, onClose, copy, locale }: RegistrationDialogProps) {
   const [username, setUsername] = useState("");

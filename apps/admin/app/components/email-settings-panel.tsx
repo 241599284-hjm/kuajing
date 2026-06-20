@@ -74,7 +74,7 @@ type EmailAccountRecord = {
   storageMode?: "postgres" | "memory";
 };
 
-const authServiceUrl = process.env.NEXT_PUBLIC_AUTH_SERVICE_URL ?? "http://localhost:4102";
+const authServiceUrl = process.env.NEXT_PUBLIC_AUTH_SERVICE_URL ?? "/auth";
 const adminGatewayUrl = process.env.NEXT_PUBLIC_ADMIN_GATEWAY_URL ?? "http://localhost:4001";
 
 const initialSettings: EmailSettings = {

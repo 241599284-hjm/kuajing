@@ -3,7 +3,7 @@
 import { createContext, type FormEvent, type ReactNode, useContext, useEffect, useState } from "react";
 import { AdminField, AdminInlineStatus, AdminPanel, AdminPrimaryButton, AdminTextInput } from "./admin-ui.js";
 
-const authServiceUrl = process.env.NEXT_PUBLIC_AUTH_SERVICE_URL ?? "http://localhost:4102";
+const authServiceUrl = process.env.NEXT_PUBLIC_AUTH_SERVICE_URL ?? "/auth";
 type AdminSession = { email: string; role: string };
 const AdminSessionContext = createContext<{ session: AdminSession; logout: () => Promise<void> } | null>(null);
 

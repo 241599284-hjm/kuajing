@@ -13,8 +13,9 @@ services:
       NODE_ENV: development
       NEXT_ALLOWED_DEV_ORIGINS: ${NEXT_ALLOWED_DEV_ORIGINS:-}
       NEXT_PUBLIC_API_GATEWAY_URL: ${NEXT_PUBLIC_API_GATEWAY_URL:-http://localhost:4000}
-      NEXT_PUBLIC_AUTH_SERVICE_URL: ${NEXT_PUBLIC_AUTH_SERVICE_URL:-http://localhost:4102}
+      NEXT_PUBLIC_AUTH_SERVICE_URL: ${NEXT_PUBLIC_AUTH_SERVICE_URL:-/auth}
       NEXT_PUBLIC_ADMIN_ORIGIN: ${NEXT_PUBLIC_ADMIN_ORIGIN:-http://localhost:3001}
+      AUTH_SERVICE_URL: http://auth-service:4102
       MEDIA_SERVICE_URL: http://media-service:4108
     ports:
       - "3000:3000"
@@ -38,8 +39,9 @@ services:
       NODE_ENV: development
       NEXT_ALLOWED_DEV_ORIGINS: ${NEXT_ALLOWED_DEV_ORIGINS:-}
       NEXT_PUBLIC_ADMIN_GATEWAY_URL: ${NEXT_PUBLIC_ADMIN_GATEWAY_URL:-http://localhost:4001}
-      NEXT_PUBLIC_AUTH_SERVICE_URL: ${NEXT_PUBLIC_AUTH_SERVICE_URL:-http://localhost:4102}
+      NEXT_PUBLIC_AUTH_SERVICE_URL: ${NEXT_PUBLIC_AUTH_SERVICE_URL:-/auth}
       NEXT_PUBLIC_STOREFRONT_URL: ${NEXT_PUBLIC_STOREFRONT_URL:-http://localhost:3000}
+      AUTH_SERVICE_URL: http://auth-service:4102
       MEDIA_SERVICE_URL: http://media-service:4108
     ports:
       - "3001:3001"

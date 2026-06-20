@@ -10,7 +10,7 @@ import { PremiumStorefrontHeader } from "./premium-storefront-header.js";
 import { RegistrationDialog } from "./registration-dialog.js";
 import { useStorefrontLocale } from "./use-storefront-locale.js";
 
-const authServiceUrl = process.env.NEXT_PUBLIC_AUTH_SERVICE_URL ?? "http://localhost:4102";
+const authServiceUrl = process.env.NEXT_PUBLIC_AUTH_SERVICE_URL ?? "/auth";
 const apiGatewayUrl = process.env.NEXT_PUBLIC_API_GATEWAY_URL ?? "http://localhost:4000";
 
 type AccountSection = "profile" | "addresses" | "payments" | "orders" | "security";

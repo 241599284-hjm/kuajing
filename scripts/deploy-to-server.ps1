@@ -177,8 +177,8 @@ if [ ! -f '$RemoteDir/shared/.env' ]; then
 fi
 sed -i -E 's#^STOREFRONT_PUBLIC_URL=http://(localhost|127\.0\.0\.1):3000$#STOREFRONT_PUBLIC_URL=http://$HostName`:3000#' '$RemoteDir/shared/.env'
 sed -i -E 's#^ADMIN_PUBLIC_URL=http://(localhost|127\.0\.0\.1):3001$#ADMIN_PUBLIC_URL=http://$HostName`:3001#' '$RemoteDir/shared/.env'
-sed -i -E 's#^AUTH_VERIFY_BASE_URL=http://(localhost|127\.0\.0\.1):4102$#AUTH_VERIFY_BASE_URL=http://$HostName`:4102#' '$RemoteDir/shared/.env'
-sed -i -E 's#^NEXT_PUBLIC_AUTH_SERVICE_URL=http://(localhost|127\.0\.0\.1):4102$#NEXT_PUBLIC_AUTH_SERVICE_URL=http://$HostName`:4102#' '$RemoteDir/shared/.env'
+sed -i -E 's#^AUTH_VERIFY_BASE_URL=.*$#AUTH_VERIFY_BASE_URL=http://$HostName`:3000/auth#' '$RemoteDir/shared/.env'
+sed -i -E 's#^NEXT_PUBLIC_AUTH_SERVICE_URL=.*$#NEXT_PUBLIC_AUTH_SERVICE_URL=/auth#' '$RemoteDir/shared/.env'
 sed -i -E 's#^NEXT_PUBLIC_API_GATEWAY_URL=http://(localhost|127\.0\.0\.1):4000$#NEXT_PUBLIC_API_GATEWAY_URL=http://$HostName`:4000#' '$RemoteDir/shared/.env'
 sed -i -E 's#^NEXT_PUBLIC_ADMIN_GATEWAY_URL=http://(localhost|127\.0\.0\.1):4001$#NEXT_PUBLIC_ADMIN_GATEWAY_URL=http://$HostName`:4001#' '$RemoteDir/shared/.env'
 rm -f "`$release_dir/.env"
