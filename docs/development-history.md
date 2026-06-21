@@ -79,6 +79,7 @@
 - 后台“订单管理”已新增订单详情区，可从订单列表查看订单详情，并能触发 Mock 支付确认/取消；操作失败时显示失败状态，不伪造成功。异常订单人工补偿入口和订单操作审计已有第一版；仍需 PostgreSQL 故障演练验证 worker 后续消费。
 - 订单管理已迁移为统一业务列表基准：每笔订单固定单行摘要，右侧操作列仅“详情”按钮可打开弹窗；详情按订单唯一 ID 独立请求，页面只挂载一个 Portal 模态弹窗。关闭会中止请求并清空详情、退款和人工补偿状态，再次打开重新请求。共享 `DetailDialog` 处理遮罩、ESC、滚动锁、最大高度和移动安全边距，状态机拒绝过期响应。
 - 新增 `docs/list-detail-interaction-standard.md`，将单行摘要、独立详情接口、唯一弹窗、权限、加载锁、过期响应、空态、移动适配和 Playwright 验收设为前后台同类列表强制规范。
+- 订单统一列表基准已随 release `20260621152929-4a9fbf5d60d0` 部署测试服务器；后续商品、客户、售后等旧列表按该规范和独立详情接口逐页迁移。
 - 后台“库存管理”已新增库存预留流水区，可读取 reservation 状态并对 reserved 预留执行人工释放；释放失败时显性提示，不伪造成功。库存操作审计、盘点/调整和低库存提示已有第一版；批量盘点、正式告警规则和售后锁定库存仍未完成。
 - Docker Compose 已新增 `app` profile，可一键拉起当前 Node.js 应用服务；新增 `observability` profile，提供 Loki、Promtail、Grafana。
 - 根目录 `pnpm dev` 已明确 `--concurrency=18`，避免 18 个长期运行服务被 Turbo 默认并发卡住，导致 storefront、gateway、media、order、payment、product-import 等后半批服务无法启动，E2E 等待 3000 超时。
