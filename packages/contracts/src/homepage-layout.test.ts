@@ -40,6 +40,19 @@ describe("homepage layout", () => {
     })).toThrow("duplicate homepage module id");
   });
 
+  it("removes invisible and replacement characters from published copy", () => {
+    const layout = createDefaultHomepageLayout();
+    const normalized = normalizeHomepageLayout({
+      ...layout,
+      modules: layout.modules.map((module) => module.type === "hero"
+        ? { ...module, content: { ...module.content, title: { en: "Clean\u200b title\ufffd", zh: "干净\u0000标题" } } }
+        : module)
+    });
+    const title = normalized.modules.find((module) => module.type === "hero")?.content.title;
+
+    expect(title).toEqual({ en: "Clean title", zh: "干净标题" });
+  });
+
   it("duplicates and toggles modules without mutating the source layout", () => {
     const layout = createDefaultHomepageLayout();
     const source = layout.modules.find((module) => module.type === "artisanStory");

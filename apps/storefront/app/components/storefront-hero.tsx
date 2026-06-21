@@ -39,7 +39,7 @@ export function StorefrontHero({ locale, onLocaleChange, copy }: StorefrontHeroP
           alt={copy.heroAlt}
           className="absolute inset-0 h-full w-full object-cover opacity-80"
           loading="eager"
-          src="/assets/hero-teaware-photo.jpg"
+          src="/assets/hero-teaware-photo.webp"
         />
         <div className="absolute inset-0 bg-gradient-to-b from-black/5 via-black/12 to-black/62" />
         <div className="premium-container relative z-10 flex min-h-[70svh] items-end md:min-h-[62svh]">

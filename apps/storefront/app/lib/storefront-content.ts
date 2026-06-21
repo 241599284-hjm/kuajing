@@ -157,10 +157,10 @@ export const storefrontCopy = {
       }
     },
     categories: [
-      { name: "Tea Sets", image: "/assets/porcelain-tea-set-photo.jpg" },
-      { name: "Decor Vases", image: "/assets/region-jiangxi-tengwang.jpg" },
-      { name: "Gift Boxes", image: "/assets/hero-teaware-photo.jpg" },
-      { name: "Single Teacups", image: "/assets/yixing-teapot-photo.jpg" }
+      { name: "Tea Sets", image: "/assets/porcelain-tea-set-photo.webp" },
+      { name: "Decor Vases", image: "/assets/region-jiangxi-tengwang.webp" },
+      { name: "Gift Boxes", image: "/assets/hero-teaware-photo.webp" },
+      { name: "Single Teacups", image: "/assets/yixing-teapot-photo.webp" }
     ],
     mobile: {
       open: "Open navigation",
@@ -271,10 +271,10 @@ export const storefrontCopy = {
       }
     },
     categories: [
-      { name: "整套茶具", image: "/assets/porcelain-tea-set-photo.jpg" },
-      { name: "陶瓷花瓶", image: "/assets/region-jiangxi-tengwang.jpg" },
-      { name: "礼品礼盒", image: "/assets/hero-teaware-photo.jpg" },
-      { name: "单杯单品", image: "/assets/yixing-teapot-photo.jpg" }
+      { name: "整套茶具", image: "/assets/porcelain-tea-set-photo.webp" },
+      { name: "陶瓷花瓶", image: "/assets/region-jiangxi-tengwang.webp" },
+      { name: "礼品礼盒", image: "/assets/hero-teaware-photo.webp" },
+      { name: "单杯单品", image: "/assets/yixing-teapot-photo.webp" }
     ],
     mobile: {
       open: "打开导航",
@@ -329,7 +329,7 @@ export const storefrontCopy = {
 export const productCategories: StorefrontCategory[] = [
   {
     slug: "teapot",
-    image: "/assets/yixing-teapot-photo.jpg",
+    image: "/assets/yixing-teapot-photo.webp",
     isVisible: true,
     sortOrder: 10,
     copy: {
@@ -339,7 +339,7 @@ export const productCategories: StorefrontCategory[] = [
   },
   {
     slug: "teacup",
-    image: "/assets/porcelain-tea-set-photo.jpg",
+    image: "/assets/porcelain-tea-set-photo.webp",
     isVisible: true,
     sortOrder: 20,
     copy: {
@@ -349,7 +349,7 @@ export const productCategories: StorefrontCategory[] = [
   },
   {
     slug: "travel",
-    image: "/assets/travel-tea-set-photo.jpg",
+    image: "/assets/travel-tea-set-photo.webp",
     isVisible: true,
     sortOrder: 30,
     copy: {
@@ -359,7 +359,7 @@ export const productCategories: StorefrontCategory[] = [
   },
   {
     slug: "gift",
-    image: "/assets/porcelain-tea-set-photo.jpg",
+    image: "/assets/porcelain-tea-set-photo.webp",
     isVisible: true,
     sortOrder: 40,
     copy: {
@@ -369,7 +369,7 @@ export const productCategories: StorefrontCategory[] = [
   },
   {
     slug: "accessories",
-    image: "/assets/travel-tea-set-photo.jpg",
+    image: "/assets/travel-tea-set-photo.webp",
     isVisible: true,
     sortOrder: 50,
     copy: {
@@ -379,7 +379,7 @@ export const productCategories: StorefrontCategory[] = [
   },
   {
     slug: "new-arrivals",
-    image: "/assets/yixing-teapot-photo.jpg",
+    image: "/assets/yixing-teapot-photo.webp",
     isVisible: true,
     sortOrder: 60,
     copy: {
@@ -392,7 +392,7 @@ export const productCategories: StorefrontCategory[] = [
 export const products: StorefrontProduct[] = [
   {
     slug: "porcelain-tea-set",
-    image: "/assets/porcelain-tea-set-photo.jpg",
+    image: "/assets/porcelain-tea-set-photo.webp",
     price: "$96",
     priceValue: 96,
     originalPrice: "$128",
@@ -413,13 +413,13 @@ export const products: StorefrontProduct[] = [
           {
             title: "Gift-ready table setting",
             body: "The set is photographed and arranged for a compact gift page: teapot, cups, and a neutral porcelain finish that works across Western home interiors.",
-            image: "/assets/porcelain-tea-set-photo.jpg",
+            image: "/assets/porcelain-tea-set-photo.webp",
             imageAlt: "Porcelain teapot and teacups arranged for a gift table"
           },
           {
             title: "Responsive product storytelling",
             body: "On mobile, images and text stack for reading. On desktop, they alternate into a clean editorial layout so the same content can be maintained once in the admin.",
-            image: "/assets/hero-teaware-photo.jpg",
+            image: "/assets/hero-teaware-photo.webp",
             imageAlt: "Minimal white teapot detail"
           }
         ],
@@ -440,13 +440,13 @@ export const products: StorefrontProduct[] = [
           {
             title: "适合礼品陈列的茶席",
             body: "整套茶具以白瓷、金边和完整茶杯组合呈现，适合做欧美礼品页、家庭茶席和入门套装展示。",
-            image: "/assets/porcelain-tea-set-photo.jpg",
+            image: "/assets/porcelain-tea-set-photo.webp",
             imageAlt: "白瓷茶壶与茶杯礼品茶席"
           },
           {
             title: "自动适配手机和电脑",
             body: "手机端图文上下排列，电脑端图文左右交错排版，后台只需要维护一次内容，前台按屏幕尺寸自动适配。",
-            image: "/assets/hero-teaware-photo.jpg",
+            image: "/assets/hero-teaware-photo.webp",
             imageAlt: "极简白瓷茶壶细节"
           }
         ],
@@ -462,7 +462,7 @@ export const products: StorefrontProduct[] = [
   },
   {
     slug: "yixing-clay-pot",
-    image: "/assets/yixing-teapot-photo.jpg",
+    image: "/assets/yixing-teapot-photo.webp",
     price: "$128",
     priceValue: 128,
     originalPrice: "$168",
@@ -504,7 +504,7 @@ export const products: StorefrontProduct[] = [
   },
   {
     slug: "travel-tea-kit",
-    image: "/assets/travel-tea-set-photo.jpg",
+    image: "/assets/travel-tea-set-photo.webp",
     price: "$72",
     priceValue: 72,
     originalPrice: "$96",
@@ -546,7 +546,7 @@ export const products: StorefrontProduct[] = [
   },
   {
     slug: "celadon-teacup-set",
-    image: "/assets/porcelain-tea-set-photo.jpg",
+    image: "/assets/porcelain-tea-set-photo.webp",
     price: "$54",
     priceValue: 54,
     originalPrice: "$69",
@@ -588,7 +588,7 @@ export const products: StorefrontProduct[] = [
   },
   {
     slug: "gongfu-brewing-set",
-    image: "/assets/porcelain-tea-set-photo.jpg",
+    image: "/assets/porcelain-tea-set-photo.webp",
     price: "$118",
     priceValue: 118,
     originalPrice: "$148",
@@ -630,7 +630,7 @@ export const products: StorefrontProduct[] = [
   },
   {
     slug: "clay-side-handle-pot",
-    image: "/assets/yixing-teapot-photo.jpg",
+    image: "/assets/yixing-teapot-photo.webp",
     price: "$142",
     priceValue: 142,
     originalPrice: "$188",
@@ -672,7 +672,7 @@ export const products: StorefrontProduct[] = [
   },
   {
     slug: "compact-travel-case",
-    image: "/assets/travel-tea-set-photo.jpg",
+    image: "/assets/travel-tea-set-photo.webp",
     price: "$88",
     priceValue: 88,
     originalPrice: "$108",
@@ -714,7 +714,7 @@ export const products: StorefrontProduct[] = [
   },
   {
     slug: "porcelain-gift-cups",
-    image: "/assets/porcelain-tea-set-photo.jpg",
+    image: "/assets/porcelain-tea-set-photo.webp",
     price: "$64",
     priceValue: 64,
     originalPrice: "$82",
@@ -756,7 +756,7 @@ export const products: StorefrontProduct[] = [
   },
   {
     slug: "minimal-office-tea-set",
-    image: "/assets/travel-tea-set-photo.jpg",
+    image: "/assets/travel-tea-set-photo.webp",
     price: "$82",
     priceValue: 82,
     originalPrice: "$99",
@@ -799,16 +799,16 @@ export const products: StorefrontProduct[] = [
 ];
 
 const iconImages: Record<RegionIconKey, string> = {
-  palace: "/assets/region-beijing-tiananmen.jpg",
-  skyline: "/assets/region-shanghai-oriental-pearl.jpg",
-  pavilion: "/assets/region-jiangxi-tengwang.jpg",
-  wall: "/assets/region-beijing-tiananmen.jpg",
-  mountain: "/assets/region-jiangxi-tengwang.jpg",
-  bridge: "/assets/region-shanghai-oriental-pearl.jpg",
-  tower: "/assets/region-shanghai-oriental-pearl.jpg",
-  water: "/assets/region-jiangxi-tengwang.jpg",
-  statue: "/assets/region-beijing-tiananmen.jpg",
-  pagoda: "/assets/region-jiangxi-tengwang.jpg"
+  palace: "/assets/region-beijing-tiananmen.webp",
+  skyline: "/assets/region-shanghai-oriental-pearl.webp",
+  pavilion: "/assets/region-jiangxi-tengwang.webp",
+  wall: "/assets/region-beijing-tiananmen.webp",
+  mountain: "/assets/region-jiangxi-tengwang.webp",
+  bridge: "/assets/region-shanghai-oriental-pearl.webp",
+  tower: "/assets/region-shanghai-oriental-pearl.webp",
+  water: "/assets/region-jiangxi-tengwang.webp",
+  statue: "/assets/region-beijing-tiananmen.webp",
+  pagoda: "/assets/region-jiangxi-tengwang.webp"
 };
 
 function region(input: {
@@ -849,9 +849,9 @@ function region(input: {
 }
 
 export const regions: StorefrontRegion[] = [
-  region({ slug: "beijing", icon: "palace", sortOrder: 10, showOnHomepage: true, nameEn: "Beijing", nameZh: "北京", landmarkEn: "Tiananmen", landmarkZh: "天安门", image: "/assets/region-beijing-tiananmen.jpg" }),
-  region({ slug: "shanghai", icon: "skyline", sortOrder: 20, showOnHomepage: true, nameEn: "Shanghai", nameZh: "上海", landmarkEn: "Oriental Pearl Tower", landmarkZh: "东方明珠", image: "/assets/region-shanghai-oriental-pearl.jpg" }),
-  region({ slug: "jiangxi", icon: "pavilion", sortOrder: 30, showOnHomepage: true, nameEn: "Jiangxi", nameZh: "江西", landmarkEn: "Tengwang Pavilion", landmarkZh: "滕王阁", image: "/assets/region-jiangxi-tengwang.jpg" }),
+  region({ slug: "beijing", icon: "palace", sortOrder: 10, showOnHomepage: true, nameEn: "Beijing", nameZh: "北京", landmarkEn: "Tiananmen", landmarkZh: "天安门", image: "/assets/region-beijing-tiananmen.webp" }),
+  region({ slug: "shanghai", icon: "skyline", sortOrder: 20, showOnHomepage: true, nameEn: "Shanghai", nameZh: "上海", landmarkEn: "Oriental Pearl Tower", landmarkZh: "东方明珠", image: "/assets/region-shanghai-oriental-pearl.webp" }),
+  region({ slug: "jiangxi", icon: "pavilion", sortOrder: 30, showOnHomepage: true, nameEn: "Jiangxi", nameZh: "江西", landmarkEn: "Tengwang Pavilion", landmarkZh: "滕王阁", image: "/assets/region-jiangxi-tengwang.webp" }),
   region({ slug: "guangdong", icon: "tower", sortOrder: 40, showOnHomepage: true, nameEn: "Guangdong", nameZh: "广东", landmarkEn: "Canton Tower", landmarkZh: "广州塔" }),
   region({ slug: "tianjin", icon: "bridge", sortOrder: 50, nameEn: "Tianjin", nameZh: "天津", landmarkEn: "Tianjin Eye", landmarkZh: "天津之眼" }),
   region({ slug: "chongqing", icon: "skyline", sortOrder: 60, nameEn: "Chongqing", nameZh: "重庆", landmarkEn: "Mountain City Skyline", landmarkZh: "山城天际线" }),
