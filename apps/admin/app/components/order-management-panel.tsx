@@ -3,20 +3,19 @@
 import { createRequestId } from "../lib/request-id.js";
 import { localizedErrorMessage } from "@commerce/error-codes";
 import { ChevronLeft, ChevronRight, Filter, Search, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { detailDialogReducer, initialDetailDialogState } from "../lib/detail-dialog-state.js";
 import { parseRefundAmountMinor } from "../lib/payment-refund.js";
 import {
-  AdminActionRow,
   AdminField,
   AdminHelpText,
   AdminInlineStatus,
-  AdminListCard,
   AdminPanel,
   AdminPrimaryButton,
   AdminSecondaryButton,
   AdminTextInput
 } from "./admin-ui.js";
-import { ConfirmDialog } from "./ui/dialog.js";
+import { ConfirmDialog, DetailDialog } from "./ui/dialog.js";
 import { Badge } from "./ui/badge.js";
 import { Button } from "./ui/button.js";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card.js";
@@ -216,10 +215,13 @@ export function OrderManagementPanel() {
   const [activeFilters, setActiveFilters] = useState<OrderFilters>(emptyFilters);
   const [status, setStatus] = useState("等待加载");
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
-  const [orderDetail, setOrderDetail] = useState<AdminOrderDetail | null>(null);
-  const [detailStatus, setDetailStatus] = useState("未选择订单");
-  const [isDetailLoading, setIsDetailLoading] = useState(false);
+  const [detailState, dispatchDetail] = useReducer(detailDialogReducer<AdminOrderDetail>, initialDetailDialogState);
+  const detailRequestRef = useRef<AbortController | null>(null);
+  const selectedOrderId = detailState.selectedId;
+  const orderDetail = detailState.detail;
+  const isDetailLoading = detailState.loading;
+  const [detailActionStatus, setDetailActionStatus] = useState("");
+  const detailStatus = detailActionStatus || (detailState.loading ? "正在读取订单详情" : detailState.error ?? (detailState.detail ? "已读取订单详情" : "未选择订单"));
   const [manualCompensationReason, setManualCompensationReason] = useState("");
   const [manualCompensationAction, setManualCompensationAction] = useState<"confirm" | "cancel" | null>(null);
   const [refundSummary, setRefundSummary] = useState<PaymentRefundSummary | null>(null);
@@ -259,12 +261,6 @@ export function OrderManagementPanel() {
       setPageInput(String(result.page));
       setTotal(result.total);
       setTotalPages(result.totalPages);
-      if (selectedOrderId && !result.items.some((order) => order.orderId === selectedOrderId)) {
-        setSelectedOrderId(null);
-        setOrderDetail(null);
-        setRefundSummary(null);
-        setDetailStatus("未选择订单");
-      }
       setStatus(result.items.length > 0 ? "已读取订单" : "暂无符合条件的订单");
     } catch (error) {
       setOrders([]);
@@ -275,18 +271,28 @@ export function OrderManagementPanel() {
   }
 
   async function loadOrderDetail(orderId: string) {
-    setSelectedOrderId(orderId);
-    setIsDetailLoading(true);
-    setDetailStatus("正在读取订单详情");
+    if (isDetailLoading) return;
+    detailRequestRef.current?.abort();
+    const controller = new AbortController();
+    detailRequestRef.current = controller;
+    dispatchDetail({ type: "open", id: orderId });
+    setDetailActionStatus("");
+    setRefundSummary(null);
     setRefundStatus("正在读取退款记录");
+    setManualCompensationReason("");
+    setManualCompensationAction(null);
+    setRefundAmount("");
+    setRefundReason("");
 
     try {
       const [response, refundResponse] = await Promise.all([
         fetch(`${adminGatewayUrl}/orders/${orderId}`, {
-          headers: { "x-correlation-id": createRequestId() }
+          headers: { "x-correlation-id": createRequestId() },
+          signal: controller.signal
         }),
         fetch(`${adminGatewayUrl}/payments/orders/${orderId}/refunds`, {
-          headers: { "x-correlation-id": createRequestId() }
+          headers: { "x-correlation-id": createRequestId() },
+          signal: controller.signal
         })
       ]);
       const payload = (await response.json().catch(() => ({}))) as AdminOrderDetail | { message?: string };
@@ -295,8 +301,7 @@ export function OrderManagementPanel() {
         throw new Error(localizedErrorMessage(payload, response.status, "zh"));
       }
 
-      setOrderDetail(payload);
-      setDetailStatus("已读取订单详情");
+      dispatchDetail({ type: "loaded", id: orderId, detail: payload });
       const refundPayload = (await refundResponse.json().catch(() => ({}))) as PaymentRefundSummary | { message?: string };
       if (refundResponse.ok && "orderId" in refundPayload && "refunds" in refundPayload) {
         setRefundSummary(refundPayload);
@@ -310,12 +315,30 @@ export function OrderManagementPanel() {
         );
       }
     } catch (error) {
-      setOrderDetail(null);
+      if (controller.signal.aborted) return;
       setRefundSummary(null);
-      setDetailStatus(error instanceof Error && !(error instanceof TypeError) ? error.message : "订单详情 API 未连接");
+      dispatchDetail({
+        type: "failed",
+        id: orderId,
+        error: error instanceof Error && !(error instanceof TypeError) ? error.message : "订单详情 API 未连接"
+      });
     } finally {
-      setIsDetailLoading(false);
+      if (detailRequestRef.current === controller) detailRequestRef.current = null;
     }
+  }
+
+  function closeOrderDetail() {
+    detailRequestRef.current?.abort();
+    detailRequestRef.current = null;
+    dispatchDetail({ type: "close" });
+    setDetailActionStatus("");
+    setRefundSummary(null);
+    setRefundStatus("当前订单暂无可退款交易");
+    setRefundAmount("");
+    setRefundReason("");
+    setPendingRefundAmount(null);
+    setManualCompensationReason("");
+    setManualCompensationAction(null);
   }
 
   async function submitRefund(amountValue = refundAmount) {
@@ -370,11 +393,11 @@ export function OrderManagementPanel() {
 
   async function transitionPayment(action: "confirm" | "cancel") {
     if (!orderDetail) {
-      setDetailStatus("请先选择订单");
+      setDetailActionStatus("请先选择订单");
       return;
     }
 
-    setDetailStatus(action === "confirm" ? "正在确认支付" : "正在取消支付");
+    setDetailActionStatus(action === "confirm" ? "正在确认支付" : "正在取消支付");
 
     try {
       const response = await fetch(`${adminGatewayUrl}/payments/${action === "confirm" ? "mock-confirm" : "mock-cancel"}`, {
@@ -391,11 +414,11 @@ export function OrderManagementPanel() {
         throw new Error(localizedErrorMessage(payload, response.status, "zh"));
       }
 
-      setDetailStatus(payload.compensationQueued ? "操作已提交，库存补偿进入队列" : action === "confirm" ? "已确认支付" : "已取消支付");
+      setDetailActionStatus(payload.compensationQueued ? "操作已提交，库存补偿进入队列" : action === "confirm" ? "已确认支付" : "已取消支付");
       await loadOrders();
       await loadOrderDetail(orderDetail.orderId);
     } catch (error) {
-      setDetailStatus(
+      setDetailActionStatus(
         error instanceof Error && !(error instanceof TypeError)
           ? error.message
           : action === "confirm"
@@ -407,17 +430,17 @@ export function OrderManagementPanel() {
 
   async function manualCompensation(action: "confirm" | "cancel") {
     if (!orderDetail) {
-      setDetailStatus("请先选择订单");
+      setDetailActionStatus("请先选择订单");
       return;
     }
 
     if (!manualCompensationReason.trim()) {
-      setDetailStatus("人工补偿必须填写原因");
+      setDetailActionStatus("人工补偿必须填写原因");
       return;
     }
 
     setManualCompensationAction(action);
-    setDetailStatus(action === "confirm" ? "正在重排确认扣减补偿" : "正在重排释放库存补偿");
+    setDetailActionStatus(action === "confirm" ? "正在重排确认扣减补偿" : "正在重排释放库存补偿");
 
     try {
       const response = await fetch(`${adminGatewayUrl}/orders/${orderDetail.orderId}/manual-compensation`, {
@@ -440,11 +463,11 @@ export function OrderManagementPanel() {
       }
 
       setManualCompensationReason("");
-      setDetailStatus("人工补偿已重新入队，等待 worker 处理");
+      setDetailActionStatus("人工补偿已重新入队，等待 worker 处理");
       await loadOrders();
       await loadOrderDetail(orderDetail.orderId);
     } catch (error) {
-      setDetailStatus(error instanceof Error ? error.message : "人工补偿失败，未伪造成功");
+      setDetailActionStatus(error instanceof Error ? error.message : "人工补偿失败，未伪造成功");
     } finally {
       setManualCompensationAction(null);
     }
@@ -525,73 +548,46 @@ export function OrderManagementPanel() {
         </CardContent>
       </Card>
 
-      <div className="mt-5 grid gap-4">
+      <div className="mt-5 overflow-x-auto rounded-lg border border-[var(--border)] bg-white">
         {orders.length === 0 ? (
           <div className="rounded-md border border-dashed border-[var(--line)] bg-[var(--bg)] p-5 text-sm text-[var(--ink-soft)]">
             {status === "订单 API 未连接" ? "订单服务或管理网关未连接，本页没有伪造订单数据。" : "暂无订单。"}
           </div>
         ) : (
-          orders.map((order) => {
-            const exceptionOrder = isExceptionOrder(order);
-            const failureReason = order.lastFailureReason || "库存或支付补偿任务待人工确认";
-
-            return (
-              <AdminListCard
-                key={order.orderId}
-                eyebrow={order.storageMode === "postgres" ? "PostgreSQL" : "本地内存"}
-                title={order.orderNumber}
-                description={`${order.customerEmail} · ${formatDate(order.createdAt)}`}
-                action={
-                  exceptionOrder ? (
-                    <span
-                      className="w-fit rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-700"
-                      title={failureReason}
-                    >
-                      异常订单
-                    </span>
-                  ) : null
-                }
-              >
-                <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
-                  <div>
-                    <dt className="text-[var(--ink-soft)]">订单状态</dt>
-                    <dd className="mt-1 font-semibold">{statusLabel(order.status)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-[var(--ink-soft)]">支付状态</dt>
-                    <dd className="mt-1 font-semibold">{statusLabel(order.paymentStatus)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-[var(--ink-soft)]">库存状态</dt>
-                    <dd className="mt-1 font-semibold">{statusLabel(order.inventoryStatus)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-[var(--ink-soft)]">订单金额</dt>
-                    <dd className="mt-1 font-semibold">{formatMoney(order.totalMinor, order.currency)}</dd>
-                  </div>
-                </dl>
-
-                {exceptionOrder ? (
-                  <div
-                    className="mt-4 rounded-md border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-800"
-                    title={failureReason}
-                  >
-                    失败次数 {order.failureCount ?? 0} · 最近原因：{failureReason}
-                  </div>
-                ) : null}
-
-                <AdminActionRow className="mt-4">
-                  <AdminSecondaryButton
-                    disabled={isDetailLoading && selectedOrderId === order.orderId}
-                    onClick={() => void loadOrderDetail(order.orderId)}
-                    type="button"
-                  >
-                    {isDetailLoading && selectedOrderId === order.orderId ? "读取中" : "查看详情"}
-                  </AdminSecondaryButton>
-                </AdminActionRow>
-              </AdminListCard>
-            );
-          })
+          <table className="w-full min-w-[1060px] table-fixed border-collapse text-left text-sm">
+            <thead className="sticky top-0 z-10 bg-[var(--muted)] text-xs text-[var(--muted-foreground)]">
+              <tr className="h-11 border-b border-[var(--border)]">
+                <th className="w-[190px] px-4 font-medium">订单编号</th>
+                <th className="w-[220px] px-3 font-medium">买家邮箱</th>
+                <th className="w-[150px] px-3 font-medium">PayPal 交易 ID</th>
+                <th className="w-[120px] px-3 font-medium">订单状态</th>
+                <th className="w-[120px] px-3 font-medium">支付状态</th>
+                <th className="w-[120px] px-3 font-medium">金额</th>
+                <th className="w-[170px] px-3 font-medium">下单时间</th>
+                <th className="sticky right-0 w-[112px] border-l border-[var(--border)] bg-[var(--muted)] px-3 text-right font-medium">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {orders.map((order) => {
+                const exceptionOrder = isExceptionOrder(order);
+                const failureReason = order.lastFailureReason || "库存或支付补偿任务待人工确认";
+                return <tr className="h-14 border-b border-[var(--border)] last:border-b-0 hover:bg-[var(--muted)]/55" key={order.orderId}>
+                  <td className="px-4"><div className="truncate font-semibold" title={order.orderNumber}>{order.orderNumber}</div><div className="mt-0.5 truncate text-xs text-[var(--muted-foreground)]">{order.storageMode === "postgres" ? "PostgreSQL" : "本地内存"}</div></td>
+                  <td className="truncate px-3" title={order.customerEmail}>{order.customerEmail}</td>
+                  <td className="truncate px-3 text-xs text-[var(--muted-foreground)]" title={order.providerPaymentId ?? "待生成"}>{order.providerPaymentId ?? "待生成"}</td>
+                  <td className="px-3"><Badge tone={exceptionOrder ? "danger" : order.status === "paid" ? "success" : "warning"} title={exceptionOrder ? failureReason : undefined}>{exceptionOrder ? "异常订单" : statusLabel(order.status)}</Badge></td>
+                  <td className="px-3"><span className="block truncate" title={statusLabel(order.paymentStatus)}>{statusLabel(order.paymentStatus)}</span></td>
+                  <td className="truncate px-3 font-medium">{formatMoney(order.totalMinor, order.currency)}</td>
+                  <td className="truncate px-3 text-xs text-[var(--muted-foreground)]" title={formatDate(order.createdAt)}>{formatDate(order.createdAt)}</td>
+                  <td className="sticky right-0 border-l border-[var(--border)] bg-white px-3 text-right group-hover:bg-[var(--muted)]">
+                    <AdminSecondaryButton disabled={isDetailLoading} onClick={() => void loadOrderDetail(order.orderId)} type="button">
+                      {isDetailLoading && selectedOrderId === order.orderId ? "读取中" : "详情"}
+                    </AdminSecondaryButton>
+                  </td>
+                </tr>;
+              })}
+            </tbody>
+          </table>
         )}
       </div>
 
@@ -609,13 +605,16 @@ export function OrderManagementPanel() {
         </div>
       </div>
 
-      <div className="mt-5 rounded-md border border-[var(--line)] p-4">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--ink-soft)]">Order Detail</p>
-            <h3 className="mt-1 text-lg font-semibold">订单详情与支付操作</h3>
-            <p className="text-sm text-[var(--ink-soft)]">{detailStatus}</p>
-          </div>
+    </AdminPanel>
+    <DetailDialog
+      open={selectedOrderId !== null}
+      onOpenChange={(open) => { if (!open) closeOrderDetail(); }}
+      title={orderDetail ? `订单详情 · ${orderDetail.orderNumber}` : "订单详情"}
+      description={detailStatus}
+      loading={isDetailLoading}
+    >
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <AdminInlineStatus>{detailStatus}</AdminInlineStatus>
           {orderDetail ? (
             <div className="flex flex-col gap-2 sm:flex-row">
               <AdminPrimaryButton
@@ -636,7 +635,11 @@ export function OrderManagementPanel() {
           ) : null}
         </div>
 
-        {orderDetail ? (
+        {isDetailLoading ? (
+          <div className="mt-5 grid min-h-48 place-items-center rounded-md border border-dashed border-[var(--line)] bg-[var(--bg)] p-6 text-sm text-[var(--ink-soft)]" role="status">
+            正在加载完整订单详情，请稍候。
+          </div>
+        ) : orderDetail ? (
           <div className="mt-4 grid gap-4">
             <dl className="grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
               <div>
@@ -913,11 +916,10 @@ export function OrderManagementPanel() {
           </div>
         ) : (
           <div className="mt-4 rounded-md border border-dashed border-[var(--line)] bg-[var(--bg)] p-5 text-sm text-[var(--ink-soft)]">
-            从上方订单列表选择一笔订单后查看详情和 Mock 支付操作。
+            {detailStatus || "订单不存在、已删除，或当前账号无权查看。"}
           </div>
         )}
-      </div>
-    </AdminPanel>
+    </DetailDialog>
     <ConfirmDialog
       open={pendingRefundAmount !== null}
       onOpenChange={(open) => { if (!open) setPendingRefundAmount(null); }}
