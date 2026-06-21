@@ -424,11 +424,13 @@ services:
       ORDER_SERVICE_URL: http://order-service:4105
       ORDER_DATABASE_URL: postgresql://${POSTGRES_USER:-commerce}:${POSTGRES_PASSWORD:-commerce}@postgres:5432/order_db
       PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-mock}
+      PAYPAL_ENVIRONMENT: ${PAYPAL_ENVIRONMENT:-sandbox}
       PAYPAL_BASE_URL: ${PAYPAL_BASE_URL:-https://api-m.sandbox.paypal.com}
       PAYPAL_CLIENT_ID: ${PAYPAL_CLIENT_ID:-}
       PAYPAL_CLIENT_SECRET: ${PAYPAL_CLIENT_SECRET:-}
       PAYPAL_WEBHOOK_ID: ${PAYPAL_WEBHOOK_ID:-}
       PAYPAL_TIMEOUT_MS: ${PAYPAL_TIMEOUT_MS:-5000}
+      PAYMENT_CONFIG_ENCRYPTION_KEY: ${PAYMENT_CONFIG_ENCRYPTION_KEY:-}
       PAYMENT_WEBHOOK_POLL_INTERVAL_MS: ${PAYMENT_WEBHOOK_POLL_INTERVAL_MS:-1000}
       PAYMENT_WEBHOOK_BATCH_SIZE: ${PAYMENT_WEBHOOK_BATCH_SIZE:-5}
       PAYMENT_WEBHOOK_LEASE_MS: ${PAYMENT_WEBHOOK_LEASE_MS:-30000}
@@ -565,6 +567,7 @@ services:
       - ./infra/db/migrations/041-newsletter-subscriptions.sql:/docker-entrypoint-initdb.d/38-newsletter-subscriptions.sql:ro
       - ./infra/db/migrations/042-homepage-catalog-collection.sql:/docker-entrypoint-initdb.d/39-homepage-catalog-collection.sql:ro
       - ./infra/db/migrations/043-newsletter-operations.sql:/docker-entrypoint-initdb.d/40-newsletter-operations.sql:ro
+      - ./infra/db/migrations/044-paypal-configurations.sql:/docker-entrypoint-initdb.d/41-paypal-configurations.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U commerce -d postgres"]
       interval: 5s

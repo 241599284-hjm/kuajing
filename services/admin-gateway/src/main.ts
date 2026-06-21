@@ -1,11 +1,15 @@
 import "reflect-metadata";
-import { Body, Controller, Delete, Get, Headers, HttpException, Module, Param, Patch, Post, Put, Query, UploadedFile, UseInterceptors } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Headers, HttpException, Module, Param, Patch, Post, Put, Query, Req, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { NestFactory } from "@nestjs/core";
 import { assertStoreContext } from "@commerce/store-context";
 import { ERROR_CODES, normalizeErrorPayload } from "@commerce/error-codes";
 import { randomUUID } from "node:crypto";
-import { authorizeRefundRequest, RefundAuthorizationError } from "./refund-authorization.js";
+import {
+  authorizePaymentConfigurationRequest,
+  authorizeRefundRequest,
+  RefundAuthorizationError
+} from "./refund-authorization.js";
 import {
   pendingProductMediaAssets,
   pendingProductMediaObjects,
@@ -68,6 +72,10 @@ function buildForwardHeaders(headers: HeaderBag, extraHeaders: Record<string, st
 
   nextHeaders["x-correlation-id"] = nextHeaders["x-correlation-id"] ?? randomUUID();
   return nextHeaders;
+}
+
+function adminRequestIp(request: { ip?: string; socket?: { remoteAddress?: string } }) {
+  return request.ip?.trim() || request.socket?.remoteAddress?.trim() || "unknown";
 }
 
 function throwForwardedError(payload: unknown, status: number, correlationId: string): never {
@@ -142,9 +150,14 @@ async function forwardOrderJsonWithBody<T>(path: string, headers: HeaderBag, bod
   }, headers);
 }
 
-async function forwardPaymentJsonWithBody<T>(path: string, headers: HeaderBag, body: unknown): Promise<T> {
+async function forwardPaymentJsonWithBody<T>(
+  path: string,
+  headers: HeaderBag,
+  body: unknown,
+  method = "POST"
+): Promise<T> {
   return requestJson(`${paymentServiceUrl}${path}`, {
-    method: "POST",
+    method,
     headers: buildForwardHeaders(headers, { "Content-Type": "application/json" }),
     body: JSON.stringify(body)
   }, headers);
@@ -471,6 +484,61 @@ class HealthController {
     return forwardPaymentJson("/health", headers);
   }
 
+  @Get("/payments/paypal-configurations/:environment")
+  async paypalConfiguration(@Headers() headers: HeaderBag, @Param("environment") environmentValue: string) {
+    const environment = this.paypalEnvironment(environmentValue);
+    try {
+      const admin = await authorizePaymentConfigurationRequest(headers, environment, "read");
+      return forwardPaymentJson(
+        `/admin/paypal-configurations/${environment}`,
+        { ...headers, "x-admin-actor": admin.actorId }
+      );
+    } catch (error) {
+      this.throwAuthorizationError(error);
+    }
+  }
+
+  @Put("/payments/paypal-configurations/:environment")
+  async savePaypalConfiguration(
+    @Headers() headers: HeaderBag,
+    @Req() request: { ip?: string; socket?: { remoteAddress?: string } },
+    @Param("environment") environmentValue: string,
+    @Body() body: unknown
+  ) {
+    const environment = this.paypalEnvironment(environmentValue);
+    try {
+      const admin = await authorizePaymentConfigurationRequest(headers, environment, "write");
+      return forwardPaymentJsonWithBody(
+        `/admin/paypal-configurations/${environment}`,
+        { ...headers, "x-admin-actor": admin.actorId, "x-admin-ip": adminRequestIp(request) },
+        body,
+        "PUT"
+      );
+    } catch (error) {
+      this.throwAuthorizationError(error);
+    }
+  }
+
+  @Post("/payments/paypal-configurations/:environment/test")
+  async testPaypalConfiguration(
+    @Headers() headers: HeaderBag,
+    @Req() request: { ip?: string; socket?: { remoteAddress?: string } },
+    @Param("environment") environmentValue: string,
+    @Body() body: unknown
+  ) {
+    const environment = this.paypalEnvironment(environmentValue);
+    try {
+      const admin = await authorizePaymentConfigurationRequest(headers, environment, "read");
+      return forwardPaymentJsonWithBody(
+        `/admin/paypal-configurations/${environment}/test`,
+        { ...headers, "x-admin-actor": admin.actorId, "x-admin-ip": adminRequestIp(request) },
+        body
+      );
+    } catch (error) {
+      this.throwAuthorizationError(error);
+    }
+  }
+
   @Get("/payments/refunds")
   recentPaymentRefunds(@Headers() headers: HeaderBag) {
     return forwardPaymentJson("/payments/refunds", headers);
@@ -489,6 +557,20 @@ class HealthController {
   @Get("/payments/orders/:id/refunds")
   paymentRefunds(@Headers() headers: HeaderBag, @Param("id") id: string) {
     return forwardPaymentJson(`/payments/orders/${id}/refunds`, headers);
+  }
+
+  private paypalEnvironment(value: string): "sandbox" | "live" {
+    if (value !== "sandbox" && value !== "live") {
+      throw new HttpException({ code: ERROR_CODES.VALIDATION_FAILED, message: "PayPal environment must be sandbox or live." }, 400);
+    }
+    return value;
+  }
+
+  private throwAuthorizationError(error: unknown): never {
+    if (error instanceof RefundAuthorizationError) {
+      throw new HttpException({ code: error.code, message: error.message }, error.status);
+    }
+    throw error;
   }
 
   @Delete("/media/product-assets")

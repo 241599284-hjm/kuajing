@@ -124,6 +124,31 @@ export class PayPalProvider {
     return { status: "healthy", checkedAt: new Date().toISOString() };
   }
 
+  async webhookHealthCheck(_store: StoreContext): Promise<ProviderHealth> {
+    const webhookId = this.config.webhookId?.trim();
+    if (!webhookId) {
+      throw new PayPalProviderError("PAYPAL_CONFIG_MISSING", "PayPal webhook ID is required", undefined, false);
+    }
+    const accessToken = await this.accessToken();
+    const response = await this.request(
+      `${this.baseUrl}/v1/notifications/webhooks/${encodeURIComponent(webhookId)}`,
+      { headers: { authorization: `Bearer ${accessToken}` } }
+    );
+    const body = await response.json().catch(() => ({})) as PayPalErrorBody & { id?: string };
+    if (!response.ok) {
+      throw new PayPalProviderError(
+        "PAYPAL_WEBHOOK_LOOKUP_FAILED",
+        providerMessage(body, "PayPal webhook lookup failed"),
+        response.status,
+        response.status === 429 || response.status >= 500
+      );
+    }
+    if (body.id !== webhookId) {
+      throw new PayPalProviderError("PAYPAL_INVALID_RESPONSE", "PayPal webhook lookup response is invalid", response.status, true);
+    }
+    return { status: "healthy", checkedAt: new Date().toISOString() };
+  }
+
   async supports(_store: StoreContext): Promise<ProviderCapability> {
     return {
       countries: ["US", "DE", "GB", "HK"],

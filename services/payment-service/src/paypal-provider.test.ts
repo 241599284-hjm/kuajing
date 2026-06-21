@@ -107,6 +107,27 @@ describe("PayPalProvider", () => {
     expect(String((error as Error).message)).not.toContain("secret-must-not-leak");
   });
 
+  it("tests that the configured webhook exists in the selected PayPal environment", async () => {
+    const requests: string[] = [];
+    const responses = [
+      jsonResponse({ access_token: "sandbox-access-token", expires_in: 32400 }),
+      jsonResponse({ id: "WH-SANDBOX-1", url: "https://shop.example.com/webhooks/paypal" })
+    ];
+    const provider = new PayPalProvider({
+      clientId: "sandbox-client-id",
+      clientSecret: "sandbox-client-secret",
+      webhookId: "WH-SANDBOX-1",
+      baseUrl: "https://api-m.sandbox.paypal.com",
+      fetchFn: async (url) => {
+        requests.push(String(url));
+        return responses.shift() ?? jsonResponse({}, 500);
+      }
+    });
+
+    await expect(provider.webhookHealthCheck(store)).resolves.toMatchObject({ status: "healthy" });
+    expect(requests[1]).toBe("https://api-m.sandbox.paypal.com/v1/notifications/webhooks/WH-SANDBOX-1");
+  });
+
   it("classifies provider timeouts as retryable without creating a fake payment", async () => {
     const provider = new PayPalProvider({
       clientId: "sandbox-client-id",

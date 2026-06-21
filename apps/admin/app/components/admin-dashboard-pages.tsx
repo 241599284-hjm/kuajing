@@ -35,18 +35,132 @@ export function DashboardPage({ onOrders }: { onOrders: () => void }) {
   return <div className="space-y-6"><div className="flex items-end justify-between gap-4"><div><h1 className="text-xl font-semibold">仪表盘</h1><p className="mt-1 text-xs text-[var(--muted-foreground)]">{status}</p></div><Button size="sm" variant="outline" onClick={() => location.reload()}><RefreshCw size={14}/>刷新数据</Button></div><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{stats.map(({ label, value, icon: Icon }) => <Card key={label}><CardContent className="flex items-center justify-between p-5"><div><p className="text-sm text-[var(--muted-foreground)]">{label}</p><p className="mt-2 text-2xl font-semibold">{value}</p></div><span className="grid size-11 place-items-center rounded-full bg-[var(--success-bg)] text-[var(--success)]"><Icon size={21}/></span></CardContent></Card>)}</div><div className="grid gap-6 xl:grid-cols-[1.05fr_1.35fr]"><Card><CardHeader><CardTitle>近 7 日订单金额</CardTitle><Badge tone="neutral">USD</Badge></CardHeader><CardContent className="h-[300px]"><ResponsiveContainer width="100%" height="100%"><AreaChart data={chartData}><CartesianGrid stroke="#edf0f2" vertical={false}/><XAxis dataKey="day" axisLine={false} tickLine={false} fontSize={12}/><YAxis axisLine={false} tickLine={false} fontSize={12}/><Tooltip/><Area dataKey="amount" type="monotone" stroke="#17825f" fill="#e8f6f0" strokeWidth={2}/></AreaChart></ResponsiveContainer></CardContent></Card><Card><CardHeader><CardTitle>最新 PayPal 订单</CardTitle><Button variant="ghost" size="sm" onClick={onOrders}>查看全部</Button></CardHeader><TableWrap><Table><thead><tr><Th>订单号</Th><Th>买家</Th><Th>金额</Th><Th>状态</Th></tr></thead><tbody>{orders.slice(0,10).map((order, index) => <tr className="hover:bg-[#fafbfc]" key={order.orderId ?? index}><Td className="font-medium text-[var(--info)]">{order.orderNumber ?? order.orderId?.slice(0,8)}</Td><Td>{order.customerEmail ?? "-"}</Td><Td>{money(order.totalMinor, order.currency)}</Td><Td><Badge tone={tone(order.paymentStatus)}>{order.paymentStatus ?? order.status ?? "未知"}</Badge></Td></tr>)}{orders.length === 0 ? <tr><Td colSpan={4} className="h-40 text-center text-[var(--muted-foreground)]">暂无可展示的真实订单</Td></tr> : null}</tbody></Table></TableWrap></Card></div><Card><CardHeader><CardTitle>库存不足商品</CardTitle><Badge tone="warning">等待库存接口</Badge></CardHeader><CardContent className="flex min-h-28 items-center justify-center text-sm text-[var(--muted-foreground)]"><AlertTriangle className="mr-2" size={17}/>库存预警将在库存接口返回低库存记录后展示</CardContent></Card></div>;
 }
 
-function ConnectivityButton({ endpoint, label = "测试连通性" }: { endpoint: string; label?: string }) {
-  const [state, setState] = useState<"idle"|"testing"|"ok"|"error">("idle");
-  async function test() { setState("testing"); try { const response = await fetch(`${adminGatewayUrl}${endpoint}`); if (!response.ok) throw new Error(); setState("ok"); } catch { setState("error"); } }
-  return <div className="flex items-center gap-3"><Button size="sm" variant="outline" onClick={() => void test()} disabled={state === "testing"}>{state === "testing" ? <RefreshCw className="animate-spin" size={14}/> : <Activity size={14}/>} {label}</Button>{state === "ok" ? <span className="flex items-center gap-1 text-xs text-[var(--success)]"><CheckCircle2 size={14}/>连接成功</span> : null}{state === "error" ? <span className="flex items-center gap-1 text-xs text-[var(--danger)]"><AlertTriangle size={14}/>连接失败</span> : null}</div>;
+type PayPalEnvironment = "sandbox" | "live";
+type PayPalConfiguration = {
+  environment: PayPalEnvironment;
+  clientId: string;
+  secretConfigured: boolean;
+  webhookId: string;
+  webhookEvents: string[];
+  enabled: boolean;
+  updatedBy: string;
+  updatedAt: string;
+  lastTestedAt: string | null;
+  lastTestStatus: "succeeded" | "failed" | null;
+  lastTestErrorCode: string | null;
+};
+const paypalWebhookEvents = ["CHECKOUT.ORDER.APPROVED","PAYMENT.CAPTURE.COMPLETED","PAYMENT.CAPTURE.REFUNDED","PAYMENT.REFUND.PENDING","PAYMENT.REFUND.FAILED"];
+
+async function responseMessage(response: Response) {
+  const body = await response.json().catch(() => ({})) as { message?: string };
+  return body.message ?? `请求失败（HTTP ${response.status}）`;
 }
 
 export function PaypalSettingsPage({ mode }: { mode: "sandbox" | "live" | "webhook" }) {
   const [confirm, setConfirm] = useState(false);
-  const [message, setMessage] = useState("尚未保存");
+  const [environment, setEnvironment] = useState<PayPalEnvironment>(mode === "live" ? "live" : "sandbox");
+  const [configuration, setConfiguration] = useState<PayPalConfiguration | null>(null);
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [webhookId, setWebhookId] = useState("");
+  const [webhookEvents, setWebhookEvents] = useState<string[]>(paypalWebhookEvents);
+  const [enabled, setEnabled] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [message, setMessage] = useState("正在读取配置");
   const live = mode === "live";
   const title = mode === "sandbox" ? "PayPal 沙盒配置" : live ? "PayPal 生产环境密钥" : "Webhook 订阅配置";
-  return <div className="space-y-6"><div><h1 className="text-xl font-semibold">{title}</h1><p className="mt-1 text-xs text-[var(--muted-foreground)]">密钥仅提交到服务端加密存储，页面不会回显 Secret 原文。</p></div><Card><CardHeader><CardTitle>{mode === "webhook" ? "Webhook 接收与订阅" : live ? "Live 凭据" : "Sandbox 凭据"}</CardTitle><Badge tone={live ? "danger" : "info"}>{mode === "webhook" ? "异步通知" : live ? "生产环境" : "测试环境"}</Badge></CardHeader><CardContent className="space-y-5">{mode === "webhook" ? <><Field label="Webhook 接收地址"><Input readOnly value="/webhooks/paypal"/></Field><div><p className="text-sm font-medium">订阅事件</p><div className="mt-3 grid gap-3 sm:grid-cols-3">{["CHECKOUT.ORDER.APPROVED","PAYMENT.CAPTURE.COMPLETED","PAYMENT.CAPTURE.REFUNDED"].map((event) => <label className="flex items-center gap-2 rounded-lg border border-[var(--border)] p-3 text-xs" key={event}><input defaultChecked type="checkbox"/>{event}</label>)}</div></div><ConnectivityButton endpoint="/payments/provider-health" label="测试 Webhook 配置"/></> : <><Field label={`${live ? "正式" : "沙盒"} Client ID`}><Input autoComplete="off" placeholder="输入 Client ID"/></Field><Field label={`${live ? "正式" : "沙盒"} Secret`} hint="保存后仅显示已配置状态"><Input autoComplete="new-password" type="password" placeholder="输入 Secret"/></Field><ConnectivityButton endpoint="/payments/provider-health"/></>}<div className="flex items-center justify-between border-t border-[var(--border)] pt-5"><span className="text-xs text-[var(--muted-foreground)]">{message}</span><Button onClick={() => setConfirm(true)}>保存配置</Button></div></CardContent></Card><ConfirmDialog open={confirm} onOpenChange={setConfirm} title={live ? "确认更新生产密钥？" : "确认保存配置？"} description={live ? "更新后将影响真实收款。请确认 Client ID、环境和回调地址均已核对。" : "保存前请确认输入内容和环境无误。"} danger={live} confirmLabel="确认保存" onConfirm={() => setMessage("保存接口尚未接入，配置未写入")}/></div>;
+
+  useEffect(() => {
+    if (mode !== "webhook") setEnvironment(mode);
+  }, [mode]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setMessage("正在读取配置");
+    void fetch(`${adminGatewayUrl}/payments/paypal-configurations/${environment}`, { credentials: "include" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(await responseMessage(response));
+        return response.json() as Promise<PayPalConfiguration>;
+      })
+      .then((config) => {
+        if (cancelled) return;
+        setConfiguration(config);
+        setClientId(config.clientId);
+        setClientSecret("");
+        setWebhookId(config.webhookId);
+        setWebhookEvents(config.webhookEvents);
+        setEnabled(config.enabled);
+        setMessage(config.updatedAt ? `上次更新：${config.updatedAt.replace("T", " ").slice(0, 16)}` : "尚未保存");
+      })
+      .catch((error: Error) => {
+        if (!cancelled) setMessage(error.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [environment]);
+
+  async function save() {
+    setSaving(true);
+    setMessage("正在保存");
+    try {
+      const response = await fetch(`${adminGatewayUrl}/payments/paypal-configurations/${environment}`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ clientId, clientSecret: clientSecret || undefined, webhookId, webhookEvents, enabled })
+      });
+      if (!response.ok) throw new Error(await responseMessage(response));
+      const config = await response.json() as PayPalConfiguration;
+      setConfiguration(config);
+      setClientSecret("");
+      setMessage("配置已安全保存");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "保存失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function testConnectivity() {
+    setTesting(true);
+    setMessage("正在连接 PayPal");
+    try {
+      const response = await fetch(`${adminGatewayUrl}/payments/paypal-configurations/${environment}/test`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ includeWebhook: mode === "webhook" })
+      });
+      if (!response.ok) throw new Error(await responseMessage(response));
+      setConfiguration((current) => current ? {
+        ...current,
+        lastTestStatus: "succeeded",
+        lastTestedAt: new Date().toISOString(),
+        lastTestErrorCode: null
+      } : current);
+      setMessage(mode === "webhook" ? "PayPal Webhook 配置验证成功" : "PayPal OAuth 连接成功");
+    } catch (error) {
+      setConfiguration((current) => current ? {
+        ...current,
+        lastTestStatus: "failed",
+        lastTestedAt: new Date().toISOString()
+      } : current);
+      setMessage(error instanceof Error ? error.message : "连接失败");
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  const secretHint = configuration?.secretConfigured
+    ? "Secret 已配置；留空保存会保留原值"
+    : "首次保存必须输入 Secret，保存后不再回显";
+  const activeLive = environment === "live";
+  return <div className="space-y-6"><div><h1 className="text-xl font-semibold">{title}</h1><p className="mt-1 text-xs text-[var(--muted-foreground)]">Secret 仅提交到服务端 AES-256-GCM 加密存储，页面不会回显原文。</p></div><Card><CardHeader><CardTitle>{mode === "webhook" ? "Webhook 接收与订阅" : live ? "Live 凭据" : "Sandbox 凭据"}</CardTitle><Badge tone={activeLive ? "danger" : "info"}>{mode === "webhook" ? `${activeLive ? "生产" : "沙盒"}异步通知` : activeLive ? "生产环境" : "测试环境"}</Badge></CardHeader><CardContent className="space-y-5">{mode === "webhook" ? <><Field label="配置环境"><select className="h-9 rounded-lg border border-[var(--border)] bg-white px-3 text-sm" value={environment} onChange={(event) => setEnvironment(event.target.value as PayPalEnvironment)}><option value="sandbox">Sandbox 沙盒</option><option value="live">Live 生产</option></select></Field><Field label="Webhook 接收地址"><Input readOnly value="/webhooks/paypal"/></Field><Field label="Webhook ID"><Input value={webhookId} onChange={(event) => setWebhookId(event.target.value)} placeholder="输入 PayPal 后台生成的 Webhook ID"/></Field><div><p className="text-sm font-medium">订阅事件</p><div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{paypalWebhookEvents.map((event) => <label className="flex min-h-11 items-center gap-2 rounded-lg border border-[var(--border)] p-3 text-xs" key={event}><input checked={webhookEvents.includes(event)} type="checkbox" onChange={(change) => setWebhookEvents(change.target.checked ? [...webhookEvents, event] : webhookEvents.filter((value) => value !== event))}/>{event}</label>)}</div></div></> : <><Field label={`${live ? "正式" : "沙盒"} Client ID`}><Input autoComplete="off" value={clientId} onChange={(event) => setClientId(event.target.value)} placeholder="输入 Client ID"/></Field><Field label={`${live ? "正式" : "沙盒"} Secret`} hint={secretHint}><Input autoComplete="new-password" value={clientSecret} onChange={(event) => setClientSecret(event.target.value)} type="password" placeholder={configuration?.secretConfigured ? "留空保留已配置 Secret" : "输入 Secret"}/></Field></>}<label className="flex min-h-11 items-center gap-3 text-sm"><input checked={enabled} type="checkbox" onChange={(event) => setEnabled(event.target.checked)}/>启用此环境配置</label><div className="flex flex-wrap items-center gap-3"><Button size="sm" variant="outline" onClick={() => void testConnectivity()} disabled={testing || loading || !configuration?.secretConfigured}>{testing ? <RefreshCw className="animate-spin" size={14}/> : <Activity size={14}/>}测试连通性</Button>{configuration?.lastTestStatus === "succeeded" ? <span className="flex items-center gap-1 text-xs text-[var(--success)]"><CheckCircle2 size={14}/>最近测试成功</span> : configuration?.lastTestStatus === "failed" ? <span className="flex items-center gap-1 text-xs text-[var(--danger)]"><AlertTriangle size={14}/>最近测试失败</span> : null}</div><div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-5"><span className="text-xs text-[var(--muted-foreground)]">{message}</span><Button disabled={saving || loading || !clientId.trim()} onClick={() => setConfirm(true)}>{saving ? "保存中" : "保存配置"}</Button></div></CardContent></Card><ConfirmDialog open={confirm} onOpenChange={setConfirm} title={activeLive ? "确认更新生产支付配置？" : "确认保存沙盒配置？"} description={activeLive ? "更新后将影响真实收款和 Webhook 验签。请再次核对 Client ID、Webhook ID 和启用状态。" : "保存后该配置将参与沙盒支付、退款和 Webhook 验签。"} danger={activeLive} confirmLabel="确认保存" onConfirm={() => void save()}/></div>;
 }
 
 export function RecordsPage({ kind }: { kind: "refunds" | "webhooks" | "customers" }) {

@@ -1,11 +1,18 @@
 import "reflect-metadata";
-import { BadRequestException, Body, ConflictException, Controller, Get, Headers, HttpCode, HttpException, Inject, Module, NotFoundException, Param, Post, Req, ServiceUnavailableException } from "@nestjs/common";
+import { BadRequestException, Body, ConflictException, Controller, Get, Headers, HttpCode, HttpException, Inject, Module, NotFoundException, Param, Post, Put, Req, ServiceUnavailableException } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { ERROR_CODES, normalizeErrorPayload } from "@commerce/error-codes";
 import type { IPaymentProvider, ProviderHealth } from "@commerce/provider-contracts";
 import { assertStoreContext, type StoreContext } from "@commerce/store-context";
 import { randomUUID } from "node:crypto";
 import { PayPalProvider, PayPalProviderError } from "./paypal-provider.js";
+import {
+  normalizePayPalEnvironment,
+  PayPalConfigurationError,
+  PayPalConfigurationRepository,
+  PayPalConfigurationService,
+  type PayPalEnvironment
+} from "./paypal-configuration.js";
 import { normalizePaymentProviderName } from "./provider-selection.js";
 import { acceptPayPalWebhook, PayPalWebhookRequestError } from "./paypal-webhook-handler.js";
 import { PaymentWebhookInboxRepository, PaymentWebhookPayloadConflictError } from "./payment-webhook-inbox.js";
@@ -145,16 +152,18 @@ type PaymentIntentProvider = Pick<IPaymentProvider, "name" | "healthCheck" | "su
 
 const mockProvider = new MockPaymentProvider();
 const configuredProviderName = normalizePaymentProviderName(process.env.PAYMENT_PROVIDER);
-const paypalProvider = configuredProviderName === "paypal"
-  ? new PayPalProvider({
-      clientId: process.env.PAYPAL_CLIENT_ID ?? "",
-      clientSecret: process.env.PAYPAL_CLIENT_SECRET ?? "",
-      webhookId: process.env.PAYPAL_WEBHOOK_ID,
-      baseUrl: process.env.PAYPAL_BASE_URL ?? "https://api-m.sandbox.paypal.com",
-      timeoutMs: Number(process.env.PAYPAL_TIMEOUT_MS ?? 5000)
-    })
-  : null;
-const provider: PaymentIntentProvider = paypalProvider ?? mockProvider;
+
+function activePayPalEnvironment(): PayPalEnvironment {
+  return normalizePayPalEnvironment(process.env.PAYPAL_ENVIRONMENT ?? "sandbox");
+}
+
+async function resolveProvider(
+  configurations: PayPalConfigurationService,
+  storeId: string
+): Promise<PaymentIntentProvider> {
+  if (configuredProviderName !== "paypal") return mockProvider;
+  return configurations.createProvider(storeId, activePayPalEnvironment());
+}
 
 async function createPaymentIntent(
   selectedProvider: PaymentIntentProvider,
@@ -210,16 +219,27 @@ class PaymentController {
     @Inject(PaymentTransactionRepository)
     private readonly transactions: PaymentTransactionRepository,
     @Inject(PaymentRefundRepository)
-    private readonly refunds: PaymentRefundRepository
+    private readonly refunds: PaymentRefundRepository,
+    @Inject(PayPalConfigurationService)
+    private readonly paypalConfigurations: PayPalConfigurationService
   ) {}
   @Get("/health")
   async health() {
+    const store = createStoreContext(undefined);
     try {
-      return { service: "payment-service", status: "ok", provider: provider.name, providerHealth: await provider.healthCheck(createStoreContext(undefined)) };
+      const provider = await resolveProvider(this.paypalConfigurations, store.storeId);
+      return { service: "payment-service", status: "ok", provider: provider.name, providerHealth: await provider.healthCheck(store) };
     } catch (error) {
+      if (error instanceof PayPalConfigurationError) {
+        throw dependencyUnavailable("Payment provider configuration is unavailable.", {
+          provider: configuredProviderName,
+          providerCode: error.code,
+          retryable: false
+        });
+      }
       if (error instanceof PayPalProviderError) {
         throw dependencyUnavailable("Payment provider health check failed.", {
-          provider: provider.name,
+          provider: configuredProviderName,
           providerCode: error.code,
           providerStatus: error.status,
           retryable: error.retryable
@@ -230,11 +250,24 @@ class PaymentController {
   }
 
   @Post("/payments/intents")
-  createIntent(
+  async createIntent(
     @Headers("x-correlation-id") correlationId: string | undefined,
     @Body() body: MockPaymentIntentRequest
   ) {
-    return createPaymentIntent(provider, this.transactions, correlationId, body);
+    const store = createStoreContext(correlationId);
+    let provider: PaymentIntentProvider;
+    try {
+      provider = await resolveProvider(this.paypalConfigurations, store.storeId);
+    } catch (error) {
+      throw dependencyUnavailable("Payment provider configuration is unavailable.", {
+        provider: configuredProviderName,
+        providerCode: error instanceof PayPalConfigurationError || error instanceof PayPalProviderError
+          ? error.code
+          : "PAYPAL_CONFIG_STORAGE_UNAVAILABLE",
+        retryable: false
+      });
+    }
+    return createPaymentIntent(provider, this.transactions, store.correlationId, body);
   }
 
   @Post("/payments/mock-intents")
@@ -315,11 +348,19 @@ class PaymentController {
     }
     const store = createStoreContext(correlationId);
     try {
+      const provider = await resolveProvider(this.paypalConfigurations, store.storeId);
       return await processPaymentRefund({ store, orderId, amountMinor, currency, idempotencyKey, actorId, reason }, {
         repository: this.refunds,
         provider
       });
     } catch (error) {
+      if (error instanceof PayPalConfigurationError) {
+        throw dependencyUnavailable("Payment provider configuration is unavailable.", {
+          provider: configuredProviderName,
+          providerCode: error.code,
+          retryable: false
+        });
+      }
       if (error instanceof PaymentRefundConflictError) {
         throw new ConflictException({ code: ERROR_CODES.CONFLICT, message: error.message, correlationId: store.correlationId });
       }
@@ -368,9 +409,12 @@ class PaymentController {
     @Headers("x-correlation-id") correlationId: string | undefined,
     @Req() request: { rawBody?: Buffer; headers: Record<string, string | string[] | undefined> }
   ) {
-    if (!paypalProvider) throw dependencyUnavailable("PayPal provider is not enabled.", { provider: configuredProviderName });
+    if (configuredProviderName !== "paypal") {
+      throw dependencyUnavailable("PayPal provider is not enabled.", { provider: configuredProviderName });
+    }
     const store = createStoreContext(correlationId);
     try {
+      const paypalProvider = await this.paypalConfigurations.createProvider(store.storeId, activePayPalEnvironment());
       return await acceptPayPalWebhook({
         provider: paypalProvider,
         inbox: this.webhookInbox,
@@ -379,6 +423,12 @@ class PaymentController {
         rawBody: request.rawBody
       });
     } catch (error) {
+      if (error instanceof PayPalConfigurationError) {
+        throw dependencyUnavailable("PayPal webhook configuration is unavailable.", {
+          providerCode: error.code,
+          retryable: false
+        });
+      }
       if (error instanceof PayPalWebhookRequestError) throw validationFailed(error.message, { providerCode: error.code });
       if (error instanceof PaymentWebhookPayloadConflictError) {
         throw new ConflictException({ code: ERROR_CODES.IDEMPOTENCY_CONFLICT, message: error.message, correlationId: store.correlationId });
@@ -397,11 +447,94 @@ class PaymentController {
       throw error;
     }
   }
+
+  @Get("/admin/paypal-configurations/:environment")
+  paypalConfiguration(
+    @Headers("x-admin-actor") actorHeader: string | undefined,
+    @Param("environment") environmentValue: string
+  ) {
+    const actorId = actorHeader?.trim();
+    if (!actorId) throw validationFailed("Trusted admin actor is required.");
+    try {
+      const environment = normalizePayPalEnvironment(environmentValue);
+      return this.paypalConfigurations.getView(selfHostedStore.storeId, environment)
+        .catch(() => {
+          throw dependencyUnavailable("Payment configuration storage is unavailable.");
+        });
+    } catch (error) {
+      if (error instanceof PayPalConfigurationError) throw validationFailed(error.message, { providerCode: error.code });
+      throw error;
+    }
+  }
+
+  @Put("/admin/paypal-configurations/:environment")
+  async savePayPalConfiguration(
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Headers("x-admin-actor") actorHeader: string | undefined,
+    @Headers("x-admin-ip") actorIpHeader: string | undefined,
+    @Param("environment") environmentValue: string,
+    @Body() body: unknown
+  ) {
+    const actorId = actorHeader?.trim();
+    if (!actorId) throw validationFailed("Trusted admin actor is required.");
+    try {
+      return await this.paypalConfigurations.save({
+        storeId: selfHostedStore.storeId,
+        environment: normalizePayPalEnvironment(environmentValue),
+        body,
+        actorId,
+        actorIp: actorIpHeader?.trim() || "unknown",
+        correlationId: correlationId ?? randomUUID()
+      });
+    } catch (error) {
+      if (error instanceof PayPalConfigurationError) throw validationFailed(error.message, { providerCode: error.code });
+      throw dependencyUnavailable("Payment configuration storage is unavailable.");
+    }
+  }
+
+  @Post("/admin/paypal-configurations/:environment/test")
+  async testPayPalConfiguration(
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Headers("x-admin-actor") actorHeader: string | undefined,
+    @Headers("x-admin-ip") actorIpHeader: string | undefined,
+    @Param("environment") environmentValue: string,
+    @Body() body: { includeWebhook?: unknown }
+  ) {
+    const actorId = actorHeader?.trim();
+    if (!actorId) throw validationFailed("Trusted admin actor is required.");
+    const store = createStoreContext(correlationId);
+    try {
+      return await this.paypalConfigurations.test({
+        store,
+        environment: normalizePayPalEnvironment(environmentValue),
+        actorId,
+        actorIp: actorIpHeader?.trim() || "unknown",
+        includeWebhook: body.includeWebhook === true
+      });
+    } catch (error) {
+      if (error instanceof PayPalConfigurationError) throw validationFailed(error.message, { providerCode: error.code });
+      if (error instanceof PayPalProviderError) {
+        throw dependencyUnavailable("PayPal connectivity test failed.", {
+          providerCode: error.code,
+          providerStatus: error.status,
+          retryable: error.retryable
+        });
+      }
+      throw dependencyUnavailable("Payment configuration test is unavailable.");
+    }
+  }
 }
 
 @Module({
   controllers: [PaymentController],
-  providers: [PaymentWebhookInboxRepository, PaymentTransactionRepository, PaymentRefundRepository, PaymentWebhookWorker]
+  providers: [
+    PaymentWebhookInboxRepository,
+    PaymentTransactionRepository,
+    PaymentRefundRepository,
+    PayPalConfigurationRepository,
+    PayPalConfigurationService,
+    PaymentWebhookWorker
+  ]
 })
 class AppModule {}
 

@@ -49,6 +49,8 @@
 - 二次确认必须说明对象、金额/环境和影响，不允许只显示“确定吗”。
 - Secret 只提交到服务端加密存储，前端永不回显原文，不写日志。
 - 未认证返回 401；无权限返回 403；退款只允许 owner/finance。
+- PayPal Sandbox 配置允许 owner/finance 更新；Live 配置只有 owner 可更新。读取和连通性测试仍要求 owner/finance 的有效管理员会话。
+- PayPal Secret 使用服务端 AES-256-GCM 加密，密钥由 `PAYMENT_CONFIG_ENCRYPTION_KEY` 注入；数据库、审计、接口响应和页面均不得出现 Secret 原文。
 
 ## 7. 接口连通性
 
@@ -56,6 +58,7 @@
 - 按钮必须调用真实后端检测端点，展示测试中、成功、失败和 correlation ID；禁止本地延时模拟成功。
 - 保存与测试分开；测试通过不等于已保存，保存成功也不等于外部 Provider 可用。
 - Sandbox 与 Live 凭据隔离存储和检测，不允许自动复制或混用。
+- PayPal 凭据测试必须真实请求所选环境的 OAuth；Webhook 测试还必须通过官方 Webhook 查询接口验证所填 Webhook ID 存在，不能只检查本地字段。
 
 ## 8. PayPal 边界
 

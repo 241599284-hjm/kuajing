@@ -37,3 +37,17 @@ export async function authorizeRefundRequest(
   }
   return { actorId: session.adminId, role: session.role };
 }
+
+export async function authorizePaymentConfigurationRequest(
+  headers: HeaderBag,
+  environment: "sandbox" | "live",
+  action: "read" | "write",
+  fetchFn: FetchLike = fetch,
+  authServiceUrl = process.env.AUTH_SERVICE_URL ?? "http://localhost:4102"
+) {
+  const admin = await authorizeRefundRequest(headers, fetchFn, authServiceUrl);
+  if (action === "write" && environment === "live" && admin.role !== "owner") {
+    throw new RefundAuthorizationError(403, ERROR_CODES.FORBIDDEN, "only the owner can update live payment credentials");
+  }
+  return admin;
+}
