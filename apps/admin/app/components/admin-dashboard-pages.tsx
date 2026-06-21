@@ -1,12 +1,15 @@
 "use client";
 
 import { Activity, AlertTriangle, CheckCircle2, CircleDollarSign, PackageCheck, RefreshCw, RotateCcw, ShoppingBag, Webhook } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { createRequestId } from "../lib/request-id.js";
+import { detailDialogReducer, initialDetailDialogState } from "../lib/detail-dialog-state.js";
+import { recordDetailRequest, type RecordKind } from "../lib/record-detail.js";
 import { Badge } from "./ui/badge.js";
 import { Button } from "./ui/button.js";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card.js";
-import { ConfirmDialog } from "./ui/dialog.js";
+import { ConfirmDialog, DetailDialog } from "./ui/dialog.js";
 import { Field, Input, Textarea } from "./ui/input.js";
 import { Table, TableWrap, Td, Th } from "./ui/table.js";
 
@@ -163,13 +166,89 @@ export function PaypalSettingsPage({ mode }: { mode: "sandbox" | "live" | "webho
   return <div className="space-y-6"><div><h1 className="text-xl font-semibold">{title}</h1><p className="mt-1 text-xs text-[var(--muted-foreground)]">Secret 仅提交到服务端 AES-256-GCM 加密存储，页面不会回显原文。</p></div><Card><CardHeader><CardTitle>{mode === "webhook" ? "Webhook 接收与订阅" : live ? "Live 凭据" : "Sandbox 凭据"}</CardTitle><Badge tone={activeLive ? "danger" : "info"}>{mode === "webhook" ? `${activeLive ? "生产" : "沙盒"}异步通知` : activeLive ? "生产环境" : "测试环境"}</Badge></CardHeader><CardContent className="space-y-5">{mode === "webhook" ? <><Field label="配置环境"><select className="h-9 rounded-lg border border-[var(--border)] bg-white px-3 text-sm" value={environment} onChange={(event) => setEnvironment(event.target.value as PayPalEnvironment)}><option value="sandbox">Sandbox 沙盒</option><option value="live">Live 生产</option></select></Field><Field label="Webhook 接收地址"><Input readOnly value="/webhooks/paypal"/></Field><Field label="Webhook ID"><Input value={webhookId} onChange={(event) => setWebhookId(event.target.value)} placeholder="输入 PayPal 后台生成的 Webhook ID"/></Field><div><p className="text-sm font-medium">订阅事件</p><div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{paypalWebhookEvents.map((event) => <label className="flex min-h-11 items-center gap-2 rounded-lg border border-[var(--border)] p-3 text-xs" key={event}><input checked={webhookEvents.includes(event)} type="checkbox" onChange={(change) => setWebhookEvents(change.target.checked ? [...webhookEvents, event] : webhookEvents.filter((value) => value !== event))}/>{event}</label>)}</div></div></> : <><Field label={`${live ? "正式" : "沙盒"} Client ID`}><Input autoComplete="off" value={clientId} onChange={(event) => setClientId(event.target.value)} placeholder="输入 Client ID"/></Field><Field label={`${live ? "正式" : "沙盒"} Secret`} hint={secretHint}><Input autoComplete="new-password" value={clientSecret} onChange={(event) => setClientSecret(event.target.value)} type="password" placeholder={configuration?.secretConfigured ? "留空保留已配置 Secret" : "输入 Secret"}/></Field></>}<label className="flex min-h-11 items-center gap-3 text-sm"><input checked={enabled} type="checkbox" onChange={(event) => setEnabled(event.target.checked)}/>启用此环境配置</label><div className="flex flex-wrap items-center gap-3"><Button size="sm" variant="outline" onClick={() => void testConnectivity()} disabled={testing || loading || !configuration?.secretConfigured}>{testing ? <RefreshCw className="animate-spin" size={14}/> : <Activity size={14}/>}测试连通性</Button>{configuration?.lastTestStatus === "succeeded" ? <span className="flex items-center gap-1 text-xs text-[var(--success)]"><CheckCircle2 size={14}/>最近测试成功</span> : configuration?.lastTestStatus === "failed" ? <span className="flex items-center gap-1 text-xs text-[var(--danger)]"><AlertTriangle size={14}/>最近测试失败</span> : null}</div><div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-5"><span className="text-xs text-[var(--muted-foreground)]">{message}</span><Button disabled={saving || loading || !clientId.trim()} onClick={() => setConfirm(true)}>{saving ? "保存中" : "保存配置"}</Button></div></CardContent></Card><ConfirmDialog open={confirm} onOpenChange={setConfirm} title={activeLive ? "确认更新生产支付配置？" : "确认保存沙盒配置？"} description={activeLive ? "更新后将影响真实收款和 Webhook 验签。请再次核对 Client ID、Webhook ID 和启用状态。" : "保存后该配置将参与沙盒支付、退款和 Webhook 验签。"} danger={activeLive} confirmLabel="确认保存" onConfirm={() => void save()}/></div>;
 }
 
-export function RecordsPage({ kind }: { kind: "refunds" | "webhooks" | "customers" }) {
+export function RecordsPage({ kind }: { kind: RecordKind }) {
   const map = { refunds: { title: "退款记录", icon: RotateCcw, text: "退款记录将从 payment-service 查询" }, webhooks: { title: "Webhook 回调日志", icon: Webhook, text: "验签事件将从 durable inbox 查询" }, customers: { title: "买家列表", icon: ShoppingBag, text: "买家资料将从客户接口查询" } } as const;
-  const meta = map[kind]; const Icon = meta.icon;
-  const [records,setRecords]=useState<Array<Record<string,unknown>>>([]); const [loading,setLoading]=useState(false); const [loadState,setLoadState]=useState("尚未刷新");
-  async function load(){setLoading(true);try{const endpoint=kind==="refunds"?"/payments/refunds":kind==="webhooks"?"/payments/webhooks":"/customers";const response=await fetch(`${adminGatewayUrl}${endpoint}`);if(!response.ok)throw new Error();const body=await response.json();setRecords(Array.isArray(body)?body:body.items??[]);setLoadState("数据已同步");}catch{setRecords([]);setLoadState("接口暂不可用");}finally{setLoading(false);}}
-  useEffect(()=>{void load();},[kind]);
-  return <div className="space-y-6"><div><h1 className="text-xl font-semibold">{meta.title}</h1><p className="mt-1 text-xs text-[var(--muted-foreground)]">只展示后端返回的真实记录 · {loadState}</p></div><Card><CardHeader><CardTitle>{meta.title}</CardTitle><Button size="sm" variant="outline" disabled={loading} onClick={()=>void load()}><RefreshCw className={loading?"animate-spin":""} size={14}/>刷新</Button></CardHeader>{records.length?<TableWrap><Table><thead><tr>{kind==="refunds"?<><Th>退款 ID</Th><Th>订单 ID</Th><Th>金额</Th><Th>状态</Th><Th>操作人</Th><Th>时间</Th></>:kind==="webhooks"?<><Th>事件 ID</Th><Th>事件类型</Th><Th>关联订单</Th><Th>状态</Th><Th>尝试</Th><Th>接收时间</Th></>:<><Th>买家</Th><Th>邮箱</Th><Th>订单数</Th><Th>状态</Th></>}</tr></thead><tbody>{records.map((record,index)=><tr className="hover:bg-[#fafbfc]" key={String(record.refundId??record.eventId??index)}>{kind==="refunds"?<><Td className="font-medium">{String(record.providerRefundId??record.refundId??"-")}</Td><Td>{String(record.orderId??"-")}</Td><Td>{money(Number(record.amountMinor??0),String(record.currency??"USD"))}</Td><Td><Badge tone={tone(String(record.status??""))}>{String(record.status??"-")}</Badge></Td><Td>{String(record.actorId??"-")}</Td><Td>{String(record.createdAt??"-").replace("T"," ").slice(0,16)}</Td></>:kind==="webhooks"?<><Td className="font-medium">{String(record.eventId??"-")}</Td><Td>{String(record.eventType??"-")}</Td><Td>{String(record.orderId??"-")}</Td><Td><Badge tone={tone(String(record.status??""))}>{String(record.status??"-")}</Badge></Td><Td>{String(record.attemptCount??0)}/{String(record.maxAttempts??0)}</Td><Td>{String(record.receivedAt??"-").replace("T"," ").slice(0,16)}</Td></>:<><Td>{String(record.name??"-")}</Td><Td>{String(record.email??"-")}</Td><Td>{String(record.orderCount??0)}</Td><Td><Badge>{String(record.status??"-")}</Badge></Td></>}</tr>)}</tbody></Table></TableWrap>:<CardContent className="flex min-h-[320px] flex-col items-center justify-center text-center"><span className="grid size-12 place-items-center rounded-full bg-[var(--muted)] text-[var(--muted-foreground)]"><Icon size={21}/></span><p className="mt-4 text-sm font-medium">暂无记录</p><p className="mt-1 text-xs text-[var(--muted-foreground)]">{meta.text}</p></CardContent>}</Card></div>;
+  const meta = map[kind];
+  const Icon = meta.icon;
+  const [records, setRecords] = useState<Array<Record<string, unknown>>>([]);
+  const [recordsKind, setRecordsKind] = useState<RecordKind>(kind);
+  const [loading, setLoading] = useState(false);
+  const [loadState, setLoadState] = useState("尚未刷新");
+  const [detailState, dispatchDetail] = useReducer(detailDialogReducer<Record<string, unknown>>, initialDetailDialogState);
+  const requestRef = useRef<AbortController | null>(null);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const endpoint = kind === "refunds" ? "/payments/refunds" : kind === "webhooks" ? "/payments/webhooks" : "/customers";
+      const response = await fetch(`${adminGatewayUrl}${endpoint}`, { credentials: "include", headers: { "x-correlation-id": createRequestId() } });
+      if (!response.ok) throw new Error();
+      const body = await response.json();
+      const nextRecords = (Array.isArray(body) ? body : body.items ?? []) as Array<Record<string, unknown>>;
+      setRecords(nextRecords.filter((record) => {
+        try { recordDetailRequest(kind, record); return true; } catch { return false; }
+      }));
+      setRecordsKind(kind);
+      setLoadState("数据已同步");
+    } catch {
+      setRecords([]);
+      setRecordsKind(kind);
+      setLoadState("接口暂不可用");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function closeDetail() {
+    requestRef.current?.abort();
+    requestRef.current = null;
+    dispatchDetail({ type: "close" });
+  }
+
+  async function openDetail(record: Record<string, unknown>) {
+    if (detailState.loading) return;
+    const request = recordDetailRequest(kind, record);
+    const controller = new AbortController();
+    requestRef.current?.abort();
+    requestRef.current = controller;
+    dispatchDetail({ type: "open", id: request.id });
+    try {
+      const response = await fetch(`${adminGatewayUrl}${request.path}`, {
+        cache: "no-store",
+        credentials: "include",
+        headers: { "x-correlation-id": createRequestId() },
+        signal: controller.signal
+      });
+      const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
+      if (!response.ok || Object.keys(payload).length === 0) throw new Error(response.status === 403 ? "当前账号无权查看此记录" : "记录不存在或已删除");
+      dispatchDetail({ type: "loaded", id: request.id, detail: payload });
+    } catch (error) {
+      if (!controller.signal.aborted) dispatchDetail({ type: "failed", id: request.id, error: error instanceof Error ? error.message : "详情接口暂不可用" });
+    } finally {
+      if (requestRef.current === controller) requestRef.current = null;
+    }
+  }
+
+  useEffect(() => {
+    closeDetail();
+    void load();
+    return () => requestRef.current?.abort();
+  }, [kind]);
+
+  const detailFields = detailState.detail ? Object.entries(detailState.detail).filter(([key]) => key !== "payload") : [];
+  const visibleRecords = recordsKind === kind ? records : [];
+  return <div className="space-y-6">
+    <div><h1 className="text-xl font-semibold">{meta.title}</h1><p className="mt-1 text-xs text-[var(--muted-foreground)]">只展示后端返回的真实记录 · {loadState}</p></div>
+    <Card><CardHeader><CardTitle>{meta.title}</CardTitle><Button size="sm" variant="outline" disabled={loading} onClick={() => void load()}><RefreshCw className={loading ? "animate-spin" : ""} size={14}/>刷新</Button></CardHeader>
+      {visibleRecords.length ? <TableWrap><Table className="table-fixed"><thead><tr>{kind === "refunds" ? <><Th>退款 ID</Th><Th>订单 ID</Th><Th>金额</Th><Th>状态</Th><Th>时间</Th></> : kind === "webhooks" ? <><Th>事件 ID</Th><Th>事件类型</Th><Th>关联订单</Th><Th>状态</Th><Th>接收时间</Th></> : <><Th>买家</Th><Th>邮箱</Th><Th>注册时间</Th><Th>状态</Th></>}<Th className="sticky right-0 w-24 border-l text-right">操作</Th></tr></thead><tbody>{visibleRecords.map((record) => {
+        const request = recordDetailRequest(kind, record);
+        return <tr className="h-12 hover:bg-[#fafbfc]" key={request.id}>{kind === "refunds" ? <><Td className="truncate font-medium" title={String(record.providerRefundId ?? record.refundId ?? "-")}>{String(record.providerRefundId ?? record.refundId ?? "-")}</Td><Td className="truncate" title={String(record.orderId ?? "-")}>{String(record.orderId ?? "-")}</Td><Td>{money(Number(record.amountMinor ?? 0), String(record.currency ?? "USD"))}</Td><Td><Badge tone={tone(String(record.status ?? ""))}>{String(record.status ?? "-")}</Badge></Td><Td className="truncate">{String(record.createdAt ?? "-").replace("T", " ").slice(0, 16)}</Td></> : kind === "webhooks" ? <><Td className="truncate font-medium" title={String(record.eventId ?? "-")}>{String(record.eventId ?? "-")}</Td><Td className="truncate" title={String(record.eventType ?? "-")}>{String(record.eventType ?? "-")}</Td><Td className="truncate">{String(record.orderId ?? "-")}</Td><Td><Badge tone={tone(String(record.status ?? ""))}>{String(record.status ?? "-")}</Badge></Td><Td className="truncate">{String(record.receivedAt ?? "-").replace("T", " ").slice(0, 16)}</Td></> : <><Td className="truncate font-medium" title={String(record.name ?? "-")}>{String(record.name ?? "-")}</Td><Td className="truncate" title={String(record.email ?? "-")}>{String(record.email ?? "-")}</Td><Td className="truncate">{String(record.createdAt ?? "-").replace("T", " ").slice(0, 16)}</Td><Td><Badge>{String(record.status ?? "-")}</Badge></Td></>}<Td className="sticky right-0 border-l bg-white text-right"><Button size="sm" variant="outline" disabled={detailState.loading} onClick={() => void openDetail(record)}>{detailState.loading && detailState.selectedId === request.id ? "读取中" : "详情"}</Button></Td></tr>;
+      })}</tbody></Table></TableWrap> : <CardContent className="flex min-h-[320px] flex-col items-center justify-center text-center"><span className="grid size-12 place-items-center rounded-full bg-[var(--muted)] text-[var(--muted-foreground)]"><Icon size={21}/></span><p className="mt-4 text-sm font-medium">暂无记录</p><p className="mt-1 text-xs text-[var(--muted-foreground)]">{meta.text}</p></CardContent>}
+    </Card>
+    <DetailDialog open={detailState.selectedId !== null} onOpenChange={(open) => { if (!open) closeDetail(); }} title={`${meta.title}详情`} description={detailState.loading ? "正在读取完整详情" : detailState.error ?? "已读取完整详情"} loading={detailState.loading}>
+      {detailState.loading ? <div className="grid min-h-48 place-items-center text-sm text-[var(--muted-foreground)]">正在加载完整详情，请稍候。</div> : detailState.detail ? <div className="space-y-5"><dl className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{detailFields.map(([key, value]) => <div className="min-w-0" key={key}><dt className="text-xs text-[var(--muted-foreground)]">{key}</dt><dd className="mt-1 break-words text-sm font-medium">{value === null || value === undefined ? "-" : typeof value === "object" ? JSON.stringify(value) : String(value)}</dd></div>)}</dl>{"payload" in detailState.detail ? <section><h3 className="text-sm font-semibold">原始回调数据</h3><pre className="mt-2 max-h-80 overflow-auto rounded-lg bg-[#f7f8f9] p-4 text-xs">{JSON.stringify(detailState.detail.payload, null, 2)}</pre></section> : null}</div> : <div className="grid min-h-48 place-items-center text-sm text-[var(--muted-foreground)]">{detailState.error ?? "记录不存在、已删除，或当前账号无权查看。"}</div>}
+    </DetailDialog>
+  </div>;
 }
 
 export function SiteSettingsPage() { const [open,setOpen]=useState(false); return <div className="space-y-6"><h1 className="text-xl font-semibold">网站基础配置</h1><Card><CardHeader><CardTitle>店铺信息</CardTitle></CardHeader><CardContent className="grid gap-5 lg:grid-cols-2"><Field label="后台名称"><Input defaultValue="工艺品跨境管理后台"/></Field><Field label="默认币种"><select className="h-9 rounded-lg border border-[var(--border)] px-3 text-sm"><option>USD</option><option>EUR</option><option>GBP</option></select></Field><Field label="客服联系邮箱"><Input type="email" placeholder="support@example.com"/></Field><Field label="订单时区"><Input defaultValue="Asia/Hong_Kong"/></Field><div className="lg:col-span-2"><Field label="网站备注"><Textarea placeholder="仅供内部运营人员查看"/></Field></div><div className="lg:col-span-2 flex justify-end"><Button onClick={()=>setOpen(true)}>保存设置</Button></div></CardContent></Card><ConfirmDialog open={open} onOpenChange={setOpen} title="确认保存网站配置？" description="基础配置会影响后台显示和订单默认值，请确认后继续。" onConfirm={()=>undefined}/></div>; }

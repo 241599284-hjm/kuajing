@@ -287,10 +287,12 @@ export function OrderManagementPanel() {
     try {
       const [response, refundResponse] = await Promise.all([
         fetch(`${adminGatewayUrl}/orders/${orderId}`, {
+          cache: "no-store",
           headers: { "x-correlation-id": createRequestId() },
           signal: controller.signal
         }),
         fetch(`${adminGatewayUrl}/payments/orders/${orderId}/refunds`, {
+          cache: "no-store",
           headers: { "x-correlation-id": createRequestId() },
           signal: controller.signal
         })

@@ -18,6 +18,7 @@ import { OpsManagementPanel } from "./ops-management-panel.js";
 import { OrderManagementPanel } from "./order-management-panel.js";
 import { ProductImportManagementPanel } from "./product-import-management-panel.js";
 import { ProductManagementPanel } from "./product-management-panel.js";
+import { ProductListPanel } from "./product-list-panel.js";
 import { ReviewManagementPanel } from "./review-management-panel.js";
 import { TradeSettingsPanel } from "./trade-settings-panel.js";
 import { Badge } from "./ui/badge.js";
@@ -58,7 +59,7 @@ export function AdminWorkspace() {
       case "paypalOrder": return <PayPalOrderPage onOrders={()=>navigate("orders")}/>;
       case "refunds": return <RecordsPage kind="refunds"/>;
       case "webhooks": return <RecordsPage kind="webhooks"/>;
-      case "products": return <ExistingPage title="商品列表" description="维护商品、价格、上下架和多媒体资料。"><ProductManagementPanel/></ExistingPage>;
+      case "products": return <ExistingPage title="商品列表" description="查看商品摘要与完整详情；编辑操作请进入新增 / 编辑商品。"><ProductListPanel/></ExistingPage>;
       case "productEdit": return <ExistingPage title="新增 / 编辑商品" description="商品保存、发布和删除均需要二次确认。"><ProductManagementPanel/></ExistingPage>;
       case "categories": return <ExistingPage title="商品分类" description="维护分类名称、排序和前台展示。"><CategoryManagementPanel/></ExistingPage>;
       case "inventory": return <ExistingPage title="库存预警" description="查看库存、安全库存、预留和手工调整记录。"><InventoryManagementPanel/></ExistingPage>;

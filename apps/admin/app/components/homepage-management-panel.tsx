@@ -13,6 +13,7 @@ import {
 import { Copy, Eye, GripVertical, Monitor, Save, Send, Smartphone, Trash2, UploadCloud, Wifi } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createRequestId } from "../lib/request-id.js";
+import { preferredUploadedImageUrl } from "../lib/media-upload-selection.js";
 import { Badge } from "./ui/badge.js";
 import { Button } from "./ui/button.js";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card.js";
@@ -135,10 +136,10 @@ export function HomepageManagementPanel() {
         headers: { "x-correlation-id": createRequestId() },
         body: formData
       });
-      const payload = await response.json().catch(() => ({})) as { url?: string; message?: string };
+      const payload = await response.json().catch(() => ({})) as { url?: string; message?: string; responsiveSources?: Array<{ url?: string; width?: number; mimeType?: string }> };
       if (!response.ok || !payload.url) throw new Error(payload.message ?? "上传失败");
-      updateSelected({ imageUrl: payload.url });
-      setStatus("图片已上传，发布后生效");
+      updateSelected({ imageUrl: preferredUploadedImageUrl(payload) });
+      setStatus("图片已上传并自动使用 WebP，发布后生效");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "图片上传失败");
     }
