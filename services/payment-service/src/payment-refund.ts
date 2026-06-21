@@ -247,6 +247,32 @@ export class PaymentRefundRepository implements RefundRepository, OnApplicationS
     }));
   }
 
+  async getById(storeId: string, refundId: string) {
+    const row = (await this.pool.query<PaymentRefundSummaryRow & { order_id: string; provider: string }>(
+      `SELECT id, order_id, provider, provider_refund_id, amount_minor, currency, status, reason,
+              actor_id, correlation_id, created_at, completed_at
+       FROM payment_refunds
+       WHERE store_id = $1 AND id = $2
+       LIMIT 1`,
+      [storeId, refundId]
+    )).rows[0];
+    if (!row) return null;
+    return {
+      refundId: row.id,
+      orderId: row.order_id,
+      provider: row.provider,
+      providerRefundId: row.provider_refund_id ?? undefined,
+      amountMinor: Number(row.amount_minor),
+      currency: row.currency,
+      status: row.status,
+      reason: row.reason,
+      actorId: row.actor_id,
+      correlationId: row.correlation_id,
+      createdAt: row.created_at.toISOString(),
+      completedAt: row.completed_at?.toISOString()
+    };
+  }
+
   async recordProviderResult(input: { refundId: string; providerRefundId: string; status: "completed" | "pending" }): Promise<void> {
     const client = await this.pool.connect();
     try {

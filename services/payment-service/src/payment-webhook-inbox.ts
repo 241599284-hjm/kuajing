@@ -185,6 +185,37 @@ export class PaymentWebhookInboxRepository implements OnApplicationShutdown {
     }));
   }
 
+  async getByEventId(storeId: string, eventId: string) {
+    const row = (await this.pool.query<WebhookRow>(
+      `SELECT store_id, provider, event_id, provider_payment_id, order_id, event_type, payload,
+              status, payload_hash, attempt_count, max_attempts, correlation_id, last_error,
+              received_at, processed_at, updated_at
+       FROM payment_webhook_events
+       WHERE store_id = $1 AND event_id = $2
+       ORDER BY received_at DESC
+       LIMIT 1`,
+      [storeId, eventId]
+    )).rows[0];
+    if (!row) return null;
+    return {
+      eventId: row.event_id,
+      provider: row.provider,
+      providerPaymentId: row.provider_payment_id,
+      orderId: row.order_id ?? undefined,
+      eventType: row.event_type,
+      payload: row.payload,
+      status: row.status,
+      payloadHash: row.payload_hash,
+      attemptCount: row.attempt_count,
+      maxAttempts: row.max_attempts,
+      correlationId: row.correlation_id,
+      lastError: row.last_error ?? undefined,
+      receivedAt: row.received_at.toISOString(),
+      processedAt: row.processed_at?.toISOString(),
+      updatedAt: row.updated_at.toISOString()
+    };
+  }
+
   async claimDue(limit: number, leaseMs: number): Promise<PaymentWebhookTask[]> {
     const result = await this.pool.query<WebhookRow>(
       `WITH due AS (

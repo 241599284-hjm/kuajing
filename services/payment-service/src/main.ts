@@ -397,10 +397,32 @@ class PaymentController {
     return this.refunds.listRecent(store.storeId);
   }
 
+  @Get("/payments/refunds/:refundId")
+  async refundDetail(
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Param("refundId") refundId: string
+  ) {
+    const store = createStoreContext(correlationId);
+    const refund = await this.refunds.getById(store.storeId, refundId);
+    if (!refund) throw new NotFoundException({ code: ERROR_CODES.NOT_FOUND, message: "Refund was not found." });
+    return refund;
+  }
+
   @Get("/payments/webhooks")
   recentWebhooks(@Headers("x-correlation-id") correlationId: string | undefined) {
     const store = createStoreContext(correlationId);
     return this.webhookInbox.listRecent(store.storeId);
+  }
+
+  @Get("/payments/webhooks/:eventId")
+  async webhookDetail(
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Param("eventId") eventId: string
+  ) {
+    const store = createStoreContext(correlationId);
+    const event = await this.webhookInbox.getByEventId(store.storeId, eventId);
+    if (!event) throw new NotFoundException({ code: ERROR_CODES.NOT_FOUND, message: "Webhook event was not found." });
+    return event;
   }
 
   @Post("/webhooks/paypal")

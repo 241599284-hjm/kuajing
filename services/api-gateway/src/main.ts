@@ -139,6 +139,11 @@ class HealthController {
     return forwardJson("/products", headers);
   }
 
+  @Get("/catalog/products/:slug")
+  product(@Headers() headers: HeaderBag, @Param("slug") slug: string) {
+    return forwardJson(`/storefront/products/${encodeURIComponent(slug)}`, headers);
+  }
+
   @Get("/catalog/categories")
   categories(@Headers() headers: HeaderBag) {
     return forwardJson("/categories", headers);

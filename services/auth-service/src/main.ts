@@ -11,7 +11,9 @@ import {
   Inject,
   Injectable,
   Module,
+  NotFoundException,
   OnApplicationShutdown,
+  Param,
   Post,
   Put,
   Query,
@@ -463,6 +465,22 @@ class AuthRepository implements OnApplicationShutdown {
       [storeId]
     );
     return result.rows.map((row) => ({ customerId: row.id, name: row.username, email: row.email, status: row.status, createdAt: row.created_at.toISOString() }));
+  }
+
+  async getCustomer(storeId: string, customerId: string) {
+    const row = (await this.pool.query<{ id: string; username: string; email: string; status: string; email_verified_at: Date | null; created_at: Date }>(
+      `SELECT id, username, email, status, email_verified_at, created_at
+       FROM customers WHERE store_id = $1 AND id = $2 LIMIT 1`,
+      [storeId, customerId]
+    )).rows[0];
+    return row ? {
+      customerId: row.id,
+      name: row.username,
+      email: row.email,
+      status: row.status,
+      emailVerifiedAt: row.email_verified_at?.toISOString(),
+      createdAt: row.created_at.toISOString()
+    } : null;
   }
 
   async createPendingCustomer(
@@ -1074,6 +1092,13 @@ class AuthService {
     return this.authRepository.listCustomers(ctx.storeId);
   }
 
+  async getCustomer(ctx: StoreContext, cookie: string | undefined, customerId: string) {
+    await this.getAdminSession(ctx, cookie);
+    const customer = await this.authRepository.getCustomer(ctx.storeId, customerId);
+    if (!customer) throw new NotFoundException({ code: ERROR_CODES.NOT_FOUND, message: "Customer was not found." });
+    return customer;
+  }
+
   async forgotPassword(ctx: StoreContext, body: ForgotPasswordRequest) {
     const input = normalizeForgotPasswordRequest(body);
     const emailSettings = await this.authRepository.getEmailSettings(ctx);
@@ -1150,6 +1175,15 @@ class AuthController {
   ) {
     const ctx = createStoreContext(correlationId);
     return this.authService.listCustomers(ctx, cookie);
+  }
+
+  @Get("/admin/customers/:customerId")
+  adminCustomer(
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Headers("cookie") cookie: string | undefined,
+    @Param("customerId") customerId: string
+  ) {
+    return this.authService.getCustomer(createStoreContext(correlationId), cookie, customerId);
   }
 
   @Post("/register")

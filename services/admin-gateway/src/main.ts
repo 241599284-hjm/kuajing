@@ -330,8 +330,16 @@ class HealthController {
   }
 
   @Get("/catalog/admin-products")
-  adminProducts(@Headers() headers: HeaderBag) {
-    return forwardJson("/admin/products", headers);
+  adminProducts(@Headers() headers: HeaderBag, @Query() query: Record<string, string | undefined>) {
+    const params = new URLSearchParams();
+    if (query.page) params.set("page", query.page);
+    if (query.size) params.set("size", query.size);
+    return forwardJson(`/admin/products${params.size ? `?${params}` : ""}`, headers);
+  }
+
+  @Get("/catalog/admin-products/:sku")
+  adminProduct(@Headers() headers: HeaderBag, @Param("sku") sku: string) {
+    return forwardJson(`/admin/products/${encodeURIComponent(sku)}`, headers);
   }
 
   @Get("/catalog/categories")
@@ -560,14 +568,29 @@ class HealthController {
     return forwardPaymentJson("/payments/refunds", headers);
   }
 
+  @Get("/payments/refunds/:refundId")
+  refundDetail(@Headers() headers: HeaderBag, @Param("refundId") refundId: string) {
+    return forwardPaymentJson(`/payments/refunds/${encodeURIComponent(refundId)}`, headers);
+  }
+
   @Get("/payments/webhooks")
   recentPaymentWebhooks(@Headers() headers: HeaderBag) {
     return forwardPaymentJson("/payments/webhooks", headers);
   }
 
+  @Get("/payments/webhooks/:eventId")
+  webhookDetail(@Headers() headers: HeaderBag, @Param("eventId") eventId: string) {
+    return forwardPaymentJson(`/payments/webhooks/${encodeURIComponent(eventId)}`, headers);
+  }
+
   @Get("/customers")
   customers(@Headers() headers: HeaderBag) {
     return forwardAuthJson("/admin/customers", headers);
+  }
+
+  @Get("/customers/:customerId")
+  customerDetail(@Headers() headers: HeaderBag, @Param("customerId") customerId: string) {
+    return forwardAuthJson(`/admin/customers/${encodeURIComponent(customerId)}`, headers);
   }
 
   @Get("/payments/orders/:id/refunds")
@@ -672,6 +695,11 @@ class HealthController {
   @Get("/reviews")
   reviews(@Headers() headers: HeaderBag) {
     return forwardReviewJson("/admin/reviews", headers);
+  }
+
+  @Get("/reviews/:id")
+  review(@Headers() headers: HeaderBag, @Param("id") id: string) {
+    return forwardReviewJson(`/admin/reviews/${encodeURIComponent(id)}`, headers);
   }
 
   @Put("/reviews/:id")

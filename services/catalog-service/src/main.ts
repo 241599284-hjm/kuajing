@@ -5,6 +5,7 @@ import { ERROR_CODES } from "@commerce/error-codes";
 import { money } from "@commerce/money";
 import { catalogCacheKeys, categoryWriteInvalidationKeys, productWriteInvalidationKeys, regionWriteInvalidationKeys } from "./cache-policy.js";
 import { catalogNotFound } from "./catalog-errors.js";
+import { storefrontProductBySlug } from "./storefront-product-detail.js";
 import { normalizeMediaAssetId } from "./catalog-media-binding.js";
 import { normalizeProductPriceMinor } from "./product-price.js";
 import { normalizeProductMediaAssets, type SaveProductMediaAssetInput } from "./product-media.js";
@@ -997,6 +998,17 @@ class CatalogRepository implements OnApplicationShutdown {
     return snapshot;
   }
 
+  async getAdminProduct(ctx: StoreContext, sku: string) {
+    let page = 1;
+    while (true) {
+      const result = await this.listAdminProducts(ctx, page, 100);
+      const product = result.items.find((item) => item.sku === sku);
+      if (product) return product;
+      if (page * result.size >= result.total) return null;
+      page += 1;
+    }
+  }
+
   async mediaBinding(ctx: StoreContext, assetId: string): Promise<{
     assetId: string;
     bound: boolean;
@@ -1778,6 +1790,26 @@ class CatalogController {
   ): Promise<CatalogCategory[]> {
     const ctx = createStoreContext(correlationId);
     return this.catalogRepository.saveCategories(ctx, body.categories ?? [], actorFromHeader(actorId));
+  }
+
+  @Get("/admin/products/:sku")
+  async adminProduct(
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Param("sku") sku: string
+  ) {
+    const ctx = createStoreContext(correlationId);
+    const product = await this.catalogRepository.getAdminProduct(ctx, sku);
+    if (!product) throw catalogNotFound("admin product not found", { sku });
+    return product;
+  }
+
+  @Get("/storefront/products/:slug")
+  async storefrontProduct(
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Param("slug") slug: string
+  ): Promise<CatalogStorefrontProduct> {
+    const ctx = createStoreContext(correlationId);
+    return storefrontProductBySlug(await this.catalogRepository.listStorefrontProducts(ctx), slug);
   }
 
   @Put("/regions")

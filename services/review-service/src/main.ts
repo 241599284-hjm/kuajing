@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { BadRequestException, Body, ConflictException, Controller, Get, Headers, HttpException, Injectable, Module, Param, Post, Put, Query, ServiceUnavailableException } from "@nestjs/common";
+import { BadRequestException, Body, ConflictException, Controller, Get, Headers, HttpException, Injectable, Module, NotFoundException, Param, Post, Put, Query, ServiceUnavailableException } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { ERROR_CODES } from "@commerce/error-codes";
 import { assertStoreContext } from "@commerce/store-context";
@@ -199,6 +199,16 @@ class ReviewRepository {
     }
   }
 
+  async getById(id: string) {
+    if (!pool) return memoryReviews.get(id) ?? null;
+    try {
+      const row = (await pool.query("SELECT * FROM product_reviews WHERE id = $1 LIMIT 1", [id])).rows[0];
+      return row ? toReview(row) : null;
+    } catch {
+      return memoryReviews.get(id) ?? null;
+    }
+  }
+
   async create(headers: HeaderBag, productSlug: string, body: Record<string, unknown>) {
     const now = new Date().toISOString();
     const email = normalizeEmail(body.customerEmail);
@@ -393,6 +403,13 @@ class ReviewController {
   @Get("/admin/reviews")
   adminReviews(@Query("status") _status?: string) {
     return this.repository.listAdmin();
+  }
+
+  @Get("/admin/reviews/:id")
+  async adminReview(@Param("id") id: string) {
+    const review = await this.repository.getById(id);
+    if (!review) throw new NotFoundException({ code: ERROR_CODES.NOT_FOUND, message: "Review was not found." });
+    return { review, storageMode: await this.repository.storageMode() };
   }
 
   @Put("/admin/reviews/:id")
