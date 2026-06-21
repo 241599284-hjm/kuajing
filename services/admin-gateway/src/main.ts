@@ -396,8 +396,24 @@ class HealthController {
   }
 
   @Get("/orders")
-  orders(@Headers() headers: HeaderBag) {
-    return forwardOrderJson("/orders", headers);
+  orders(@Headers() headers: HeaderBag, @Query() queryValues: Record<string, string | undefined>) {
+    const query = new URLSearchParams();
+    for (const key of [
+      "page",
+      "size",
+      "search",
+      "status",
+      "paymentStatus",
+      "dateFrom",
+      "dateTo",
+      "amountMinMinor",
+      "amountMaxMinor"
+    ]) {
+      const value = queryValues[key];
+      if (value) query.set(key, value);
+    }
+    const suffix = query.size > 0 ? `?${query.toString()}` : "";
+    return forwardOrderJson(`/orders${suffix}`, headers);
   }
 
   @Get("/orders/:id")

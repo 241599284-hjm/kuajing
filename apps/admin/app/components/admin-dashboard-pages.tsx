@@ -20,7 +20,7 @@ function tone(status?: string): "success" | "warning" | "danger" | "neutral" { i
 export function DashboardPage({ onOrders }: { onOrders: () => void }) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [status, setStatus] = useState("正在读取订单数据");
-  useEffect(() => { void fetch(`${adminGatewayUrl}/orders`).then(async (response) => { if (!response.ok) throw new Error(); const body = await response.json(); setOrders(Array.isArray(body) ? body : body.orders ?? []); setStatus("数据已同步"); }).catch(() => setStatus("订单服务暂不可用")); }, []);
+  useEffect(() => { void fetch(`${adminGatewayUrl}/orders?size=100`).then(async (response) => { if (!response.ok) throw new Error(); const body = await response.json(); setOrders(Array.isArray(body) ? body : body.items ?? body.orders ?? []); setStatus("数据已同步"); }).catch(() => setStatus("订单服务暂不可用")); }, []);
   const stats = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
     const todayOrders = orders.filter((order) => order.createdAt?.startsWith(today));

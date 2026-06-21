@@ -2,6 +2,7 @@
 
 import { createRequestId } from "../lib/request-id.js";
 import { localizedErrorMessage } from "@commerce/error-codes";
+import { ChevronLeft, ChevronRight, Filter, Search, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { parseRefundAmountMinor } from "../lib/payment-refund.js";
 import {
@@ -16,6 +17,10 @@ import {
   AdminTextInput
 } from "./admin-ui.js";
 import { ConfirmDialog } from "./ui/dialog.js";
+import { Badge } from "./ui/badge.js";
+import { Button } from "./ui/button.js";
+import { Card, CardContent, CardHeader, CardTitle } from "./ui/card.js";
+import { Field, Input } from "./ui/input.js";
 
 const adminGatewayUrl = process.env.NEXT_PUBLIC_ADMIN_GATEWAY_URL ?? "http://localhost:4001";
 
@@ -33,6 +38,35 @@ type AdminOrderSummary = {
   currency: string;
   storageMode: "postgres" | "memory";
   createdAt: string;
+  providerPaymentId?: string;
+};
+
+type OrderListResponse = {
+  items: AdminOrderSummary[];
+  page: number;
+  size: number;
+  total: number;
+  totalPages: number;
+};
+
+type OrderFilters = {
+  search: string;
+  status: string;
+  paymentStatus: string;
+  dateFrom: string;
+  dateTo: string;
+  amountMin: string;
+  amountMax: string;
+};
+
+const emptyFilters: OrderFilters = {
+  search: "",
+  status: "",
+  paymentStatus: "",
+  dateFrom: "",
+  dateTo: "",
+  amountMin: "",
+  amountMax: ""
 };
 
 type AdminOrderLine = {
@@ -173,6 +207,13 @@ function auditActionLabel(value: string) {
 
 export function OrderManagementPanel() {
   const [orders, setOrders] = useState<AdminOrderSummary[]>([]);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [pageInput, setPageInput] = useState("1");
+  const [draftFilters, setDraftFilters] = useState<OrderFilters>(emptyFilters);
+  const [activeFilters, setActiveFilters] = useState<OrderFilters>(emptyFilters);
   const [status, setStatus] = useState("等待加载");
   const [isLoading, setIsLoading] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
@@ -193,25 +234,38 @@ export function OrderManagementPanel() {
     setStatus("正在读取订单");
 
     try {
-      const response = await fetch(`${adminGatewayUrl}/orders`, {
+      const query = new URLSearchParams({ page: String(page), size: String(pageSize) });
+      for (const key of ["search", "status", "paymentStatus", "dateFrom", "dateTo"] as const) {
+        if (activeFilters[key]) query.set(key, activeFilters[key]);
+      }
+      if (activeFilters.amountMin) query.set("amountMinMinor", String(Math.round(Number(activeFilters.amountMin) * 100)));
+      if (activeFilters.amountMax) query.set("amountMaxMinor", String(Math.round(Number(activeFilters.amountMax) * 100)));
+      const response = await fetch(`${adminGatewayUrl}/orders?${query}`, {
         headers: {
           "x-correlation-id": createRequestId()
         }
       });
-      const payload = (await response.json().catch(() => [])) as AdminOrderSummary[] | { message?: string };
+      const payload = (await response.json().catch(() => ({}))) as OrderListResponse | AdminOrderSummary[] | { message?: string };
 
-      if (!response.ok || !Array.isArray(payload)) {
+      if (!response.ok || (!Array.isArray(payload) && !("items" in payload))) {
         throw new Error(localizedErrorMessage(payload, response.status, "zh"));
       }
 
-      setOrders(payload);
-      if (selectedOrderId && !payload.some((order) => order.orderId === selectedOrderId)) {
+      const result = Array.isArray(payload)
+        ? { items: payload, page: 1, size: payload.length, total: payload.length, totalPages: payload.length ? 1 : 0 }
+        : payload;
+      setOrders(result.items);
+      setPage(result.page);
+      setPageInput(String(result.page));
+      setTotal(result.total);
+      setTotalPages(result.totalPages);
+      if (selectedOrderId && !result.items.some((order) => order.orderId === selectedOrderId)) {
         setSelectedOrderId(null);
         setOrderDetail(null);
         setRefundSummary(null);
         setDetailStatus("未选择订单");
       }
-      setStatus(payload.length > 0 ? "已读取订单" : "暂无订单");
+      setStatus(result.items.length > 0 ? "已读取订单" : "暂无符合条件的订单");
     } catch (error) {
       setOrders([]);
       setStatus(error instanceof Error && !(error instanceof TypeError) ? error.message : "订单 API 未连接");
@@ -398,7 +452,7 @@ export function OrderManagementPanel() {
 
   useEffect(() => {
     void loadOrders();
-  }, []);
+  }, [page, pageSize, activeFilters]);
 
   const summary = useMemo(() => {
     const totalMinor = orders.reduce((total, order) => total + order.totalMinor, 0);
@@ -413,14 +467,63 @@ export function OrderManagementPanel() {
         这里读取 order-service 的真实订单边界。当前 Mock 订单会显示库存预留、支付意向和存储模式；API 未连接时不会展示假订单。
       </AdminHelpText>
 
-      <AdminActionRow className="mt-5">
-        <AdminSecondaryButton disabled={isLoading} onClick={loadOrders} type="button">
-          {isLoading ? "刷新中" : "刷新订单"}
-        </AdminSecondaryButton>
-        <AdminInlineStatus>
-          订单数 {orders.length}，当前合计 {formatMoney(summary.totalMinor, "USD")}，内存模式 {summary.memoryCount}
-        </AdminInlineStatus>
-      </AdminActionRow>
+      <Card className="mt-5">
+        <CardHeader>
+          <div>
+            <CardTitle>订单筛选</CardTitle>
+            <p className="mt-1 text-xs text-[var(--muted-foreground)]">按订单状态、支付状态、日期、金额和全局关键词查询真实订单。</p>
+          </div>
+          <Badge tone="info"><Filter size={13}/>服务端筛选</Badge>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <Field label="订单 / 交易 / 买家搜索">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--placeholder)]" size={15}/>
+                <Input className="pl-9" value={draftFilters.search} onChange={(event) => setDraftFilters({ ...draftFilters, search: event.target.value })} placeholder="订单号、PayPal ID、邮箱"/>
+              </div>
+            </Field>
+            <Field label="订单状态">
+              <select className="h-9 rounded-lg border border-[var(--border)] bg-white px-3 text-sm" value={draftFilters.status} onChange={(event) => setDraftFilters({ ...draftFilters, status: event.target.value })}>
+                <option value="">全部状态</option>
+                <option value="pending_payment">待支付</option>
+                <option value="paid">已支付</option>
+                <option value="cancelled">已取消</option>
+                <option value="compensating">补偿处理中</option>
+              </select>
+            </Field>
+            <Field label="支付状态">
+              <select className="h-9 rounded-lg border border-[var(--border)] bg-white px-3 text-sm" value={draftFilters.paymentStatus} onChange={(event) => setDraftFilters({ ...draftFilters, paymentStatus: event.target.value })}>
+                <option value="">全部支付状态</option>
+                <option value="mock_created">待支付</option>
+                <option value="paid">已支付</option>
+                <option value="partially_refunded">部分退款</option>
+                <option value="refunded">已全额退款</option>
+                <option value="cancelled">已取消</option>
+              </select>
+            </Field>
+            <Field label="每页条数">
+              <select className="h-9 rounded-lg border border-[var(--border)] bg-white px-3 text-sm" value={pageSize} onChange={(event) => { setPage(1); setPageSize(Number(event.target.value)); }}>
+                <option value="20">20 条</option>
+                <option value="50">50 条</option>
+                <option value="100">100 条</option>
+              </select>
+            </Field>
+            <Field label="开始日期"><Input type="date" value={draftFilters.dateFrom} onChange={(event) => setDraftFilters({ ...draftFilters, dateFrom: event.target.value })}/></Field>
+            <Field label="结束日期"><Input type="date" value={draftFilters.dateTo} onChange={(event) => setDraftFilters({ ...draftFilters, dateTo: event.target.value })}/></Field>
+            <Field label="最低金额（USD）"><Input inputMode="decimal" value={draftFilters.amountMin} onChange={(event) => setDraftFilters({ ...draftFilters, amountMin: event.target.value })} placeholder="0.00"/></Field>
+            <Field label="最高金额（USD）"><Input inputMode="decimal" value={draftFilters.amountMax} onChange={(event) => setDraftFilters({ ...draftFilters, amountMax: event.target.value })} placeholder="999.00"/></Field>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
+            <AdminInlineStatus>共 {total} 笔，当前页 {orders.length} 笔，合计 {formatMoney(summary.totalMinor, "USD")}，内存模式 {summary.memoryCount}</AdminInlineStatus>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button size="sm" variant="outline" onClick={() => { setDraftFilters(emptyFilters); setActiveFilters(emptyFilters); setPage(1); }}><X size={14}/>清空</Button>
+              <Button size="sm" onClick={() => { setPage(1); setActiveFilters({ ...draftFilters }); }}><Filter size={14}/>应用筛选</Button>
+              <Button size="sm" variant="outline" disabled={isLoading} onClick={() => void loadOrders()}>{isLoading ? "刷新中" : "刷新"}</Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="mt-5 grid gap-4">
         {orders.length === 0 ? (
@@ -490,6 +593,20 @@ export function OrderManagementPanel() {
             );
           })
         )}
+      </div>
+
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--line)] pt-4">
+        <p className="text-xs text-[var(--ink-soft)]">第 {totalPages === 0 ? 0 : page} / {totalPages} 页，共 {total} 笔订单</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button aria-label="上一页" size="icon" variant="outline" disabled={page <= 1 || isLoading} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft size={16}/></Button>
+          <Input className="w-20 text-center" aria-label="跳转页码" inputMode="numeric" value={pageInput} onChange={(event) => setPageInput(event.target.value)}/>
+          <Button size="sm" variant="outline" disabled={totalPages === 0 || isLoading} onClick={() => {
+            const next = Number(pageInput);
+            if (Number.isInteger(next) && next >= 1 && next <= totalPages) setPage(next);
+            else setPageInput(String(page));
+          }}>跳转</Button>
+          <Button aria-label="下一页" size="icon" variant="outline" disabled={page >= totalPages || isLoading} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}><ChevronRight size={16}/></Button>
+        </div>
       </div>
 
       <div className="mt-5 rounded-md border border-[var(--line)] p-4">

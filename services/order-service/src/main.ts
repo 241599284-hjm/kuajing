@@ -23,6 +23,14 @@ import { nextRetryAt } from "@commerce/outbox-inbox";
 import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import { assertCheckoutReplay, checkoutFingerprint } from "./checkout-idempotency.js";
+import {
+  buildOrderListSql,
+  filterAndPaginateMemoryOrders,
+  normalizeOrderListQuery,
+  OrderListQueryError,
+  type OrderListQuery,
+  type OrderListResult
+} from "./order-list-query.js";
 
 type MockCheckoutLine = {
   slug?: string;
@@ -99,6 +107,7 @@ type AdminOrderSummary = {
   currency: string;
   storageMode: "postgres" | "memory";
   createdAt: string;
+  providerPaymentId?: string;
 };
 
 type AdminOrderLine = {
@@ -570,7 +579,6 @@ function mockMemoryOrder(
 function listMemoryOrders(): AdminOrderSummary[] {
   return [...mockOrdersByIdempotencyKey.values()]
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-    .slice(0, 50)
     .map((order) => ({
       orderId: order.orderId,
       orderNumber: order.orderNumber,
@@ -822,7 +830,8 @@ class OrderRepository implements OnApplicationShutdown {
     }
   }
 
-  async listOrders(ctx: StoreContext): Promise<AdminOrderSummary[]> {
+  async listOrders(ctx: StoreContext, query: OrderListQuery): Promise<OrderListResult> {
+    const built = buildOrderListSql(ctx.storeId, query);
     const result = await this.pool.query<{
       id: string;
       order_number: string;
@@ -836,54 +845,32 @@ class OrderRepository implements OnApplicationShutdown {
       total_minor: number;
       currency: string;
       created_at: Date;
-    }>(
-      `
-        SELECT
-          o.id,
-          o.order_number,
-          o.customer_email,
-          o.status,
-          o.payment_status,
-          o.inventory_status,
-          o.total_minor,
-          o.currency,
-          o.created_at,
-          (o.status = 'compensating' OR o.inventory_status = 'compensation_pending') AS is_exception,
-          COALESCE(comp.failure_count, 0)::int AS failure_count,
-          COALESCE(comp.last_failure_reason, '') AS last_failure_reason
-        FROM orders o
-        LEFT JOIN LATERAL (
-          SELECT
-            COUNT(*)::int AS failure_count,
-            (ARRAY_AGG(ct.last_error ORDER BY ct.updated_at DESC))[1] AS last_failure_reason
-          FROM compensation_tasks ct
-          WHERE ct.store_id = o.store_id
-            AND ct.aggregate_type = 'order'
-            AND ct.aggregate_id = o.id
-            AND ct.status IN ('pending', 'processing', 'retrying', 'dead_lettered')
-        ) comp ON true
-        WHERE o.store_id = $1
-        ORDER BY o.created_at DESC
-        LIMIT 50
-      `,
-      [ctx.storeId]
-    );
-
-    return result.rows.map((row) => ({
-      orderId: row.id,
-      orderNumber: row.order_number,
-      customerEmail: row.customer_email,
-      status: row.status,
-      paymentStatus: row.payment_status,
-      inventoryStatus: row.inventory_status,
-      isException: row.is_exception,
-      failureCount: row.failure_count,
-      lastFailureReason: row.last_failure_reason ?? "",
-      totalMinor: row.total_minor,
-      currency: row.currency,
-      storageMode: "postgres",
-      createdAt: row.created_at.toISOString()
-    }));
+      provider_payment_id: string | null;
+      total_count: number;
+    }>(built.text, built.values);
+    const total = result.rows[0]?.total_count ?? 0;
+    return {
+      items: result.rows.map((row) => ({
+        orderId: row.id,
+        orderNumber: row.order_number,
+        customerEmail: row.customer_email,
+        status: row.status,
+        paymentStatus: row.payment_status,
+        inventoryStatus: row.inventory_status,
+        isException: row.is_exception,
+        failureCount: row.failure_count,
+        lastFailureReason: row.last_failure_reason ?? "",
+        totalMinor: row.total_minor,
+        currency: row.currency,
+        storageMode: "postgres",
+        createdAt: row.created_at.toISOString(),
+        providerPaymentId: row.provider_payment_id ?? undefined
+      })),
+      page: query.page,
+      size: query.size,
+      total,
+      totalPages: Math.ceil(total / query.size)
+    };
   }
 
   async listCustomerOrders(ctx: StoreContext, email: string): Promise<AdminOrderSummary[]> {
@@ -1595,13 +1582,23 @@ class OrderController {
   }
 
   @Get("/orders")
-  async orders(@Headers("x-correlation-id") correlationId: string | undefined) {
+  async orders(
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Query() rawQuery: Record<string, unknown>
+  ) {
     const ctx = createStoreContext(correlationId);
+    let query: OrderListQuery;
+    try {
+      query = normalizeOrderListQuery(rawQuery);
+    } catch (error) {
+      if (error instanceof OrderListQueryError) throw validationFailed(error.message);
+      throw error;
+    }
 
     try {
-      return await this.orderRepository.listOrders(ctx);
+      return await this.orderRepository.listOrders(ctx, query);
     } catch {
-      return listMemoryOrders();
+      return filterAndPaginateMemoryOrders(listMemoryOrders(), query);
     }
   }
 
