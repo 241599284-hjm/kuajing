@@ -80,6 +80,8 @@
 - 订单管理已迁移为统一业务列表基准：每笔订单固定单行摘要，右侧操作列仅“详情”按钮可打开弹窗；详情按订单唯一 ID 独立请求，页面只挂载一个 Portal 模态弹窗。关闭会中止请求并清空详情、退款和人工补偿状态，再次打开重新请求。共享 `DetailDialog` 处理遮罩、ESC、滚动锁、最大高度和移动安全边距，状态机拒绝过期响应。
 - 新增 `docs/list-detail-interaction-standard.md`，将单行摘要、独立详情接口、唯一弹窗、权限、加载锁、过期响应、空态、移动适配和 Playwright 验收设为前后台同类列表强制规范。
 - 订单统一列表基准已随 release `20260621152929-4a9fbf5d60d0` 部署测试服务器；后续商品、客户、售后等旧列表按该规范和独立详情接口逐页迁移。
+- 统一列表/详情规范已继续覆盖退款记录、Webhook 日志、客户、后台商品、评价和前台限量商品。payment/auth/catalog/review 服务与双网关新增按业务唯一 ID 获取完整详情的接口；各页面只保留一个根级弹窗实例，详情打开时独立请求并加锁，关闭时中止请求、清空缓存，支持遮罩、关闭按钮、ESC、移动安全边距和底层滚动锁。列表固定单行、超长省略，后台操作列吸附右侧；评价编辑操作迁入详情弹窗，未复用列表摘要数据。
+- 首页编辑器媒体选择新增 `selectLargestWebpSource`：上传完成后优先持久化媒体服务生成的最大 WebP 响应式源，缺少 WebP 时明确失败，不回退保存原始 JPG/PNG。默认首页和现有陶瓷静态素材同步切换为 `/assets/*`、`/static/*` 相对 WebP 路径；首页内容归一化会清除控制字符、零宽字符和 Unicode replacement character。
 - 后台“库存管理”已新增库存预留流水区，可读取 reservation 状态并对 reserved 预留执行人工释放；释放失败时显性提示，不伪造成功。库存操作审计、盘点/调整和低库存提示已有第一版；批量盘点、正式告警规则和售后锁定库存仍未完成。
 - Docker Compose 已新增 `app` profile，可一键拉起当前 Node.js 应用服务；新增 `observability` profile，提供 Loki、Promtail、Grafana。
 - 根目录 `pnpm dev` 已明确 `--concurrency=18`，避免 18 个长期运行服务被 Turbo 默认并发卡住，导致 storefront、gateway、media、order、payment、product-import 等后半批服务无法启动，E2E 等待 3000 超时。
