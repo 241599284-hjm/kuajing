@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { BadRequestException, Body, ConflictException, Controller, Get, Headers, HttpException, Injectable, Module, NotFoundException, Param, Post, Put, Query, ServiceUnavailableException } from "@nestjs/common";
+import { BadRequestException, Body, ConflictException, Controller, Get, Headers, HttpException, Inject, Injectable, Module, NotFoundException, Param, Post, Put, Query, ServiceUnavailableException } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { ERROR_CODES } from "@commerce/error-codes";
 import { assertStoreContext } from "@commerce/store-context";
@@ -369,8 +369,11 @@ class ReviewNotificationService {
 @Controller()
 class ReviewController {
   constructor(
+    @Inject(ReviewRepository)
     private readonly repository: ReviewRepository,
+    @Inject(OrderPurchaseVerifier)
     private readonly orderPurchaseVerifier: OrderPurchaseVerifier,
+    @Inject(ReviewNotificationService)
     private readonly notifications: ReviewNotificationService
   ) {}
 
