@@ -2,7 +2,7 @@
 
 import { localizedErrorMessage } from "@commerce/error-codes";
 import { Save, Upload } from "lucide-react";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { createRequestId } from "../lib/request-id.js";
 import { createBlankProduct, normalizeProductDetail, shouldCloseEditor, type ProductDraft, type ProductMediaAsset } from "../lib/catalog-editor.js";
 import { Button } from "./ui/button.js";
@@ -48,6 +48,7 @@ export function ProductEditorDialog({
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState("填写商品资料后保存");
   const [confirming, setConfirming] = useState(false);
+  const confirmingRef = useRef(false);
 
   useEffect(() => {
     if (!open) {
@@ -58,6 +59,7 @@ export function ProductEditorDialog({
       setUploading(false);
       setMessage("填写商品资料后保存");
       setConfirming(false);
+      confirmingRef.current = false;
       return;
     }
     if (mode === "create") {
@@ -153,6 +155,7 @@ export function ProductEditorDialog({
       setMessage("SKU、中英文商品名必须填写");
       return;
     }
+    confirmingRef.current = true;
     setConfirming(true);
   }
 
@@ -181,7 +184,7 @@ export function ProductEditorDialog({
     <DetailDialog
       open={open}
       onOpenChange={(nextOpen) => {
-        if (shouldCloseEditor(confirming, nextOpen)) onOpenChange(false);
+        if (shouldCloseEditor(confirmingRef.current, nextOpen)) onOpenChange(false);
       }}
       title={mode === "create" ? "新增商品" : `修改商品 · ${sku ?? ""}`}
       description={message}
@@ -240,6 +243,6 @@ export function ProductEditorDialog({
         </form>
       )}
     </DetailDialog>
-    <ConfirmDialog open={confirming} onOpenChange={setConfirming} title={mode === "create" ? "确认新增商品？" : "确认保存商品修改？"} description={draft.status === "active" ? "该商品保存后将处于已上架状态，前台可能立即展示最新资料。" : "商品将保存为未上架状态，可继续检查资料后再发布。"} confirmLabel="确认保存" onConfirm={() => void save()}/>
+    <ConfirmDialog open={confirming} onOpenChange={(openValue) => { confirmingRef.current = openValue; setConfirming(openValue); }} title={mode === "create" ? "确认新增商品？" : "确认保存商品修改？"} description={draft.status === "active" ? "该商品保存后将处于已上架状态，前台可能立即展示最新资料。" : "商品将保存为未上架状态，可继续检查资料后再发布。"} confirmLabel="确认保存" onConfirm={() => void save()}/>
   </>;
 }
