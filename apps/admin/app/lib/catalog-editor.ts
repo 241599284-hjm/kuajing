@@ -116,3 +116,7 @@ export function adminPreviewUrl(value: string | null | undefined) {
   if (value.startsWith("/media/public/") || value.startsWith("https://")) return value;
   return null;
 }
+
+export function shouldCloseEditor(confirming: boolean, nextOpen: boolean) {
+  return !nextOpen && !confirming;
+}

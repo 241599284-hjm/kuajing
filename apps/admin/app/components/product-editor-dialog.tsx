@@ -4,7 +4,7 @@ import { localizedErrorMessage } from "@commerce/error-codes";
 import { Save, Upload } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { createRequestId } from "../lib/request-id.js";
-import { createBlankProduct, normalizeProductDetail, type ProductDraft, type ProductMediaAsset } from "../lib/catalog-editor.js";
+import { createBlankProduct, normalizeProductDetail, shouldCloseEditor, type ProductDraft, type ProductMediaAsset } from "../lib/catalog-editor.js";
 import { Button } from "./ui/button.js";
 import { ConfirmDialog, DetailDialog } from "./ui/dialog.js";
 import { Field, Input, Textarea } from "./ui/input.js";
@@ -180,7 +180,9 @@ export function ProductEditorDialog({
   return <>
     <DetailDialog
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={(nextOpen) => {
+        if (shouldCloseEditor(confirming, nextOpen)) onOpenChange(false);
+      }}
       title={mode === "create" ? "新增商品" : `修改商品 · ${sku ?? ""}`}
       description={message}
       loading={loading}

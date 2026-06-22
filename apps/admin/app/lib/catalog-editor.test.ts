@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { adminPreviewUrl, createBlankCategory, createBlankProduct, normalizeProductDetail } from "./catalog-editor.js";
+import { adminPreviewUrl, createBlankCategory, createBlankProduct, normalizeProductDetail, shouldCloseEditor } from "./catalog-editor.js";
 
 describe("catalog editor defaults", () => {
   it("creates a complete inactive product draft", () => {
@@ -44,5 +44,11 @@ describe("catalog editor defaults", () => {
     expect(adminPreviewUrl("/media/public/products/a.webp")).toBe("/media/public/products/a.webp");
     expect(adminPreviewUrl("https://cdn.example.com/a.webp")).toBe("https://cdn.example.com/a.webp");
     expect(adminPreviewUrl("/assets/storefront-only.jpg")).toBeNull();
+  });
+
+  it("keeps the editor open while its confirmation dialog is active", () => {
+    expect(shouldCloseEditor(true, false)).toBe(false);
+    expect(shouldCloseEditor(false, false)).toBe(true);
+    expect(shouldCloseEditor(false, true)).toBe(false);
   });
 });

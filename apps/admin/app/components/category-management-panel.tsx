@@ -3,7 +3,7 @@
 import { localizedErrorMessage } from "@commerce/error-codes";
 import { Pencil, Plus, RefreshCw, Save, Tags } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
-import { createBlankCategory, type CategoryDraft } from "../lib/catalog-editor.js";
+import { createBlankCategory, shouldCloseEditor, type CategoryDraft } from "../lib/catalog-editor.js";
 import { createRequestId } from "../lib/request-id.js";
 import { Badge } from "./ui/badge.js";
 import { Button } from "./ui/button.js";
@@ -118,7 +118,7 @@ export function CategoryManagementPanel() {
       {categories.length ? <TableWrap><Table className="table-fixed min-w-[720px]"><thead><tr><Th>标识</Th><Th>中文名称</Th><Th>英文名称</Th><Th>排序</Th><Th>状态</Th><Th className="sticky right-0 w-28 border-l text-right">操作</Th></tr></thead><tbody>{categories.map((category) => <tr className="h-12 hover:bg-[#fafbfc]" key={category.slug}><Td className="truncate font-medium">{category.slug}</Td><Td className="truncate">{category.nameZh}</Td><Td className="truncate">{category.nameEn}</Td><Td>{category.sortOrder}</Td><Td><Badge tone={category.status === "active" ? "success" : "neutral"}>{category.status === "active" ? "已启用" : "已停用"}</Badge></Td><Td className="sticky right-0 border-l bg-white text-right"><Button size="sm" variant="outline" onClick={() => openEdit(category)}><Pencil size={14}/>修改</Button></Td></tr>)}</tbody></Table></TableWrap> : <CardContent className="grid min-h-72 place-items-center text-sm text-[var(--muted-foreground)]"><span className="flex items-center gap-2"><Tags size={18}/>{status}</span></CardContent>}
     </Card>
 
-    <DetailDialog open={editor !== null} onOpenChange={(open) => { if (!open && !saving) setEditor(null); }} title={editor?.mode === "create" ? "新增分类" : `修改分类 · ${editor?.draft.slug ?? ""}`} description={message} loading={false}>
+    <DetailDialog open={editor !== null} onOpenChange={(open) => { if (!saving && shouldCloseEditor(confirming, open)) setEditor(null); }} title={editor?.mode === "create" ? "新增分类" : `修改分类 · ${editor?.draft.slug ?? ""}`} description={message} loading={false}>
       {editor ? <form className="space-y-5" onSubmit={requestSave}>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="分类标识 slug"><Input disabled={editor.mode === "edit"} value={editor.draft.slug} onChange={(event) => patch({ slug: event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "") })}/></Field>
