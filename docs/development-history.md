@@ -83,6 +83,9 @@
 - 统一列表/详情规范已继续覆盖退款记录、Webhook 日志、客户、后台商品、评价和前台限量商品。payment/auth/catalog/review 服务与双网关新增按业务唯一 ID 获取完整详情的接口；各页面只保留一个根级弹窗实例，详情打开时独立请求并加锁，关闭时中止请求、清空缓存，支持遮罩、关闭按钮、ESC、移动安全边距和底层滚动锁。列表固定单行、超长省略，后台操作列吸附右侧；评价编辑操作迁入详情弹窗，未复用列表摘要数据。
 - 首页编辑器媒体选择新增 `selectLargestWebpSource`：上传完成后优先持久化媒体服务生成的最大 WebP 响应式源，缺少 WebP 时明确失败，不回退保存原始 JPG/PNG。默认首页和现有陶瓷静态素材同步切换为 `/assets/*`、`/static/*` 相对 WebP 路径；首页内容归一化会清除控制字符、零宽字符和 Unicode replacement character。
 - 服务器演练发现 review-service 在 `tsx watch` 下无法依赖构造器类型元数据，`ReviewController` 三个依赖实际为 `undefined`。控制器现对 `ReviewRepository`、`OrderPurchaseVerifier`、`ReviewNotificationService` 使用显式 `@Inject`，并增加源码级运行配置回归测试；该修复恢复评价列表、详情、提交和审核路由的真实运行时依赖。
+- 商品管理入口已收敛到商品列表：删除独立“新增 / 编辑商品”菜单和一次渲染全部商品的大表单；列表顶部新增商品按钮，每行提供详情与修改按钮。新增/修改共用单实例编辑弹窗，保留双语资料、价格、分类、地域、跨境申报、包装、媒体上传和 WebP 转换，编辑时锁定 SKU，保存当前商品前二次确认，成功后刷新当前分页。
+- 商品分类已改为固定单行列表，顶部新增分类、每行修改，新增/修改共用单实例弹窗；已有分类 slug 锁定，避免修改 slug 意外创建重复分类，保存状态变更前二次确认。
+- ops-service 新增真实服务器状态采集：读取 `/proc/meminfo`、`/proc/stat`、`/proc/uptime`、根文件系统和 cgroup，返回 CPU、内存、Swap、磁盘、负载、运行时间和进程指标；Admin Gateway 转发 `/ops/server-status`，后台新增 30 秒自动刷新的服务器状态仪表盘。
 - 后台“库存管理”已新增库存预留流水区，可读取 reservation 状态并对 reserved 预留执行人工释放；释放失败时显性提示，不伪造成功。库存操作审计、盘点/调整和低库存提示已有第一版；批量盘点、正式告警规则和售后锁定库存仍未完成。
 - Docker Compose 已新增 `app` profile，可一键拉起当前 Node.js 应用服务；新增 `observability` profile，提供 Loki、Promtail、Grafana。
 - 根目录 `pnpm dev` 已明确 `--concurrency=18`，避免 18 个长期运行服务被 Turbo 默认并发卡住，导致 storefront、gateway、media、order、payment、product-import 等后半批服务无法启动，E2E 等待 3000 超时。
