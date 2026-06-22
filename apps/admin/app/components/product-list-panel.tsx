@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, PackageOpen, RefreshCw } from "lucide-react";
+import { ChevronLeft, ChevronRight, PackageOpen, Pencil, Plus, RefreshCw } from "lucide-react";
 import { useEffect, useReducer, useRef, useState } from "react";
 import { createRequestId } from "../lib/request-id.js";
 import { detailDialogReducer, initialDetailDialogState } from "../lib/detail-dialog-state.js";
@@ -9,6 +9,7 @@ import { Button } from "./ui/button.js";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card.js";
 import { DetailDialog } from "./ui/dialog.js";
 import { Table, TableWrap, Td, Th } from "./ui/table.js";
+import { ProductEditorDialog } from "./product-editor-dialog.js";
 
 const adminGatewayUrl = process.env.NEXT_PUBLIC_ADMIN_GATEWAY_URL ?? "http://localhost:4001";
 
@@ -35,6 +36,7 @@ export function ProductListPanel() {
   const [status, setStatus] = useState("正在读取商品");
   const [detailState, dispatchDetail] = useReducer(detailDialogReducer<Record<string, unknown>>, initialDetailDialogState);
   const requestRef = useRef<AbortController | null>(null);
+  const [editor, setEditor] = useState<{ mode: "create" | "edit"; sku: string | null } | null>(null);
 
   async function load(page = data.page) {
     setLoading(true);
@@ -86,12 +88,13 @@ export function ProductListPanel() {
 
   return <>
     <Card>
-      <CardHeader><div><CardTitle>商品列表</CardTitle><p className="mt-1 text-xs text-[var(--muted-foreground)]">单行摘要 · {status}</p></div><Button size="sm" variant="outline" disabled={loading} onClick={() => void load()}><RefreshCw className={loading ? "animate-spin" : ""} size={14}/>刷新</Button></CardHeader>
-      {data.items.length ? <TableWrap><Table className="table-fixed min-w-[960px]"><thead><tr><Th className="w-20">图片</Th><Th>SKU</Th><Th>中文名称</Th><Th>英文名称</Th><Th>分类</Th><Th>价格</Th><Th>状态</Th><Th className="sticky right-0 w-24 border-l text-right">操作</Th></tr></thead><tbody>{data.items.map((product) => <tr className="h-14 hover:bg-[#fafbfc]" key={product.sku}><Td><img alt={product.nameZh} className="size-10 rounded object-cover" height="40" loading="lazy" onError={(event) => { event.currentTarget.style.visibility = "hidden"; }} src={product.imageUrl} width="40"/></Td><Td className="truncate font-medium" title={product.sku}>{product.sku}</Td><Td className="truncate" title={product.nameZh}>{product.nameZh}</Td><Td className="truncate" title={product.nameEn}>{product.nameEn}</Td><Td className="truncate">{product.category}</Td><Td>{formatPrice(product.price)}</Td><Td><Badge tone={product.status === "active" ? "success" : "neutral"}>{product.status === "active" ? "已上架" : "未上架"}</Badge></Td><Td className="sticky right-0 border-l bg-white text-right"><Button size="sm" variant="outline" disabled={detailState.loading} onClick={() => void openDetail(product.sku)}>{detailState.loading && detailState.selectedId === product.sku ? "读取中" : "详情"}</Button></Td></tr>)}</tbody></Table></TableWrap> : <CardContent className="grid min-h-72 place-items-center text-sm text-[var(--muted-foreground)]"><span className="flex items-center gap-2"><PackageOpen size={18}/>{status}</span></CardContent>}
+      <CardHeader><div><CardTitle>商品列表</CardTitle><p className="mt-1 text-xs text-[var(--muted-foreground)]">单行摘要 · {status}</p></div><div className="flex gap-2"><Button size="sm" variant="outline" disabled={loading} onClick={() => void load()}><RefreshCw className={loading ? "animate-spin" : ""} size={14}/>刷新</Button><Button size="sm" onClick={() => setEditor({ mode: "create", sku: null })}><Plus size={14}/>新增商品</Button></div></CardHeader>
+      {data.items.length ? <TableWrap><Table className="table-fixed min-w-[1040px]"><thead><tr><Th className="w-20">图片</Th><Th>SKU</Th><Th>中文名称</Th><Th>英文名称</Th><Th>分类</Th><Th>价格</Th><Th>状态</Th><Th className="sticky right-0 w-44 border-l text-right">操作</Th></tr></thead><tbody>{data.items.map((product) => <tr className="h-14 hover:bg-[#fafbfc]" key={product.sku}><Td><img alt={product.nameZh} className="size-10 rounded object-cover" height="40" loading="lazy" onError={(event) => { event.currentTarget.style.visibility = "hidden"; }} src={product.imageUrl} width="40"/></Td><Td className="truncate font-medium" title={product.sku}>{product.sku}</Td><Td className="truncate" title={product.nameZh}>{product.nameZh}</Td><Td className="truncate" title={product.nameEn}>{product.nameEn}</Td><Td className="truncate">{product.category}</Td><Td>{formatPrice(product.price)}</Td><Td><Badge tone={product.status === "active" ? "success" : "neutral"}>{product.status === "active" ? "已上架" : "未上架"}</Badge></Td><Td className="sticky right-0 border-l bg-white text-right"><div className="flex justify-end gap-2"><Button size="sm" variant="outline" disabled={detailState.loading} onClick={() => void openDetail(product.sku)}>{detailState.loading && detailState.selectedId === product.sku ? "读取中" : "详情"}</Button><Button size="sm" variant="outline" onClick={() => setEditor({ mode: "edit", sku: product.sku })}><Pencil size={14}/>修改</Button></div></Td></tr>)}</tbody></Table></TableWrap> : <CardContent className="grid min-h-72 place-items-center text-sm text-[var(--muted-foreground)]"><span className="flex items-center gap-2"><PackageOpen size={18}/>{status}</span></CardContent>}
       <CardContent className="flex items-center justify-between border-t pt-4"><span className="text-xs text-[var(--muted-foreground)]">第 {data.total ? data.page : 0} / {totalPages} 页，共 {data.total} 件</span><div className="flex gap-2"><Button aria-label="上一页" size="icon" variant="outline" disabled={data.page <= 1 || loading} onClick={() => void load(data.page - 1)}><ChevronLeft size={16}/></Button><Button aria-label="下一页" size="icon" variant="outline" disabled={data.page >= totalPages || loading} onClick={() => void load(data.page + 1)}><ChevronRight size={16}/></Button></div></CardContent>
     </Card>
     <DetailDialog open={detailState.selectedId !== null} onOpenChange={(open) => { if (!open) closeDetail(); }} title="商品详情" description={detailState.loading ? "正在读取完整商品数据" : detailState.error ?? "已读取完整商品数据"} loading={detailState.loading}>
       {detailState.loading ? <div className="grid min-h-48 place-items-center text-sm text-[var(--muted-foreground)]">正在加载完整商品详情，请稍候。</div> : detailState.detail ? <div className="space-y-5">{typeof detailState.detail.imageUrl === "string" ? <img alt={String(detailState.detail.nameZh ?? "商品图片")} className="h-52 w-full rounded-lg object-cover" height="400" loading="lazy" src={detailState.detail.imageUrl} width="900"/> : null}<dl className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{detailFields.map(([key, value]) => <div className="min-w-0" key={key}><dt className="text-xs text-[var(--muted-foreground)]">{key}</dt><dd className="mt-1 break-words text-sm font-medium">{value === null || value === undefined ? "-" : typeof value === "object" ? JSON.stringify(value) : String(value)}</dd></div>)}</dl></div> : <div className="grid min-h-48 place-items-center text-sm text-[var(--muted-foreground)]">{detailState.error ?? "商品不存在、已删除，或当前账号无权查看。"}</div>}
     </DetailDialog>
+    <ProductEditorDialog open={editor !== null} mode={editor?.mode ?? "create"} sku={editor?.sku ?? null} onOpenChange={(open) => { if (!open) setEditor(null); }} onSaved={() => void load(data.page)}/>
   </>;
 }

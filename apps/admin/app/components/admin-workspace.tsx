@@ -1,7 +1,7 @@
 "use client";
 
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { AlertTriangle, BarChart3, Bell, Boxes, ChevronDown, ChevronLeft, ChevronRight, CircleDollarSign, FileClock, FileText, Globe2, LayoutDashboard, LayoutGrid, LogOut, Mail, Menu, Package, PackagePlus, PanelLeftClose, PanelLeftOpen, Search, Settings, ShieldCheck, ShoppingCart, Tags, Truck, UserRound, Users, WalletCards, Webhook, X } from "lucide-react";
+import { AlertTriangle, BarChart3, Bell, Boxes, ChevronDown, ChevronLeft, ChevronRight, CircleDollarSign, FileClock, FileText, Globe2, LayoutDashboard, LayoutGrid, LogOut, Mail, Menu, Package, PackagePlus, PanelLeftClose, PanelLeftOpen, Search, Server, Settings, ShieldCheck, ShoppingCart, Tags, Truck, UserRound, Users, WalletCards, Webhook, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useAdminSession } from "./admin-auth-gate.js";
 import { DashboardPage, PaypalSettingsPage, RecordsPage, SiteSettingsPage } from "./admin-dashboard-pages.js";
@@ -17,21 +17,21 @@ import { MediaReconciliationManagementPanel } from "./media-reconciliation-manag
 import { OpsManagementPanel } from "./ops-management-panel.js";
 import { OrderManagementPanel } from "./order-management-panel.js";
 import { ProductImportManagementPanel } from "./product-import-management-panel.js";
-import { ProductManagementPanel } from "./product-management-panel.js";
 import { ProductListPanel } from "./product-list-panel.js";
 import { ReviewManagementPanel } from "./review-management-panel.js";
+import { ServerStatusDashboard } from "./server-status-dashboard.js";
 import { TradeSettingsPanel } from "./trade-settings-panel.js";
 import { Badge } from "./ui/badge.js";
 import { Button } from "./ui/button.js";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card.js";
 import { Input } from "./ui/input.js";
 
-type Section = "dashboard"|"orders"|"paypalOrder"|"refunds"|"webhooks"|"products"|"productEdit"|"categories"|"inventory"|"customers"|"paypalSandbox"|"paypalLive"|"paypalWebhook"|"logistics"|"site"|"homepage"|"productImport"|"discounts"|"reviews"|"trade"|"email"|"ops"|"dlq"|"media"|"audit";
+type Section = "dashboard"|"serverStatus"|"orders"|"paypalOrder"|"refunds"|"webhooks"|"products"|"categories"|"inventory"|"customers"|"paypalSandbox"|"paypalLive"|"paypalWebhook"|"logistics"|"site"|"homepage"|"productImport"|"discounts"|"reviews"|"trade"|"email"|"ops"|"dlq"|"media"|"audit";
 type NavItem = { id: Section; label: string; icon: typeof BarChart3 };
 const groups: Array<{ label?: string; items: NavItem[] }> = [
-  { items: [{ id:"dashboard",label:"数据仪表盘",icon:BarChart3 }] },
+  { items: [{ id:"dashboard",label:"数据仪表盘",icon:BarChart3 },{id:"serverStatus",label:"服务器状态",icon:Server}] },
   { label:"订单管理",items:[{id:"orders",label:"全部订单列表",icon:ShoppingCart},{id:"paypalOrder",label:"PayPal 订单详情",icon:WalletCards},{id:"refunds",label:"退款记录",icon:CircleDollarSign},{id:"webhooks",label:"Webhook 回调日志",icon:Webhook}] },
-  { label:"商品管理",items:[{id:"products",label:"商品列表",icon:Package},{id:"productEdit",label:"新增 / 编辑商品",icon:PackagePlus},{id:"categories",label:"商品分类",icon:Tags},{id:"inventory",label:"库存预警",icon:AlertTriangle}] },
+  { label:"商品管理",items:[{id:"products",label:"商品列表",icon:Package},{id:"categories",label:"商品分类",icon:Tags},{id:"inventory",label:"库存预警",icon:AlertTriangle}] },
   { label:"客户管理",items:[{id:"customers",label:"买家列表",icon:Users}] },
   { label:"支付配置",items:[{id:"paypalSandbox",label:"PayPal 沙盒配置",icon:WalletCards},{id:"paypalLive",label:"PayPal 生产密钥",icon:ShieldCheck},{id:"paypalWebhook",label:"Webhook 订阅配置",icon:Webhook}] },
   { label:"内容与系统",items:[{id:"homepage",label:"首页可视化编辑",icon:LayoutDashboard},{id:"logistics",label:"物流模板设置",icon:Truck},{id:"site",label:"网站基础配置",icon:Settings}] },
@@ -55,13 +55,13 @@ export function AdminWorkspace() {
   const content = (()=>{
     switch(section){
       case "dashboard": return <DashboardPage onOrders={()=>navigate("orders")}/>;
+      case "serverStatus": return <ServerStatusDashboard/>;
       case "orders": return <ExistingPage title="订单管理" description="管理 PayPal 支付订单、履约、退款和异常状态。"><OrderManagementPanel/></ExistingPage>;
       case "paypalOrder": return <PayPalOrderPage onOrders={()=>navigate("orders")}/>;
       case "refunds": return <RecordsPage kind="refunds"/>;
       case "webhooks": return <RecordsPage kind="webhooks"/>;
-      case "products": return <ExistingPage title="商品列表" description="查看商品摘要与完整详情；编辑操作请进入新增 / 编辑商品。"><ProductListPanel/></ExistingPage>;
-      case "productEdit": return <ExistingPage title="新增 / 编辑商品" description="商品保存、发布和删除均需要二次确认。"><ProductManagementPanel/></ExistingPage>;
-      case "categories": return <ExistingPage title="商品分类" description="维护分类名称、排序和前台展示。"><CategoryManagementPanel/></ExistingPage>;
+      case "products": return <ExistingPage title="商品列表" description="在同一列表中查看详情、新增商品和修改完整商品资料。"><ProductListPanel/></ExistingPage>;
+      case "categories": return <ExistingPage title="商品分类" description="在同一列表中新增、修改分类名称、排序和前台状态。"><CategoryManagementPanel/></ExistingPage>;
       case "inventory": return <ExistingPage title="库存预警" description="查看库存、安全库存、预留和手工调整记录。"><InventoryManagementPanel/></ExistingPage>;
       case "customers": return <RecordsPage kind="customers"/>;
       case "paypalSandbox": return <PaypalSettingsPage mode="sandbox"/>;
