@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createBlankCategory, createBlankProduct, normalizeProductDetail } from "./catalog-editor.js";
+import { adminPreviewUrl, createBlankCategory, createBlankProduct, normalizeProductDetail } from "./catalog-editor.js";
 
 describe("catalog editor defaults", () => {
   it("creates a complete inactive product draft", () => {
@@ -38,5 +38,11 @@ describe("catalog editor defaults", () => {
       sortOrder: 50,
       status: "inactive"
     });
+  });
+
+  it("only previews media URLs reachable from the admin origin", () => {
+    expect(adminPreviewUrl("/media/public/products/a.webp")).toBe("/media/public/products/a.webp");
+    expect(adminPreviewUrl("https://cdn.example.com/a.webp")).toBe("https://cdn.example.com/a.webp");
+    expect(adminPreviewUrl("/assets/storefront-only.jpg")).toBeNull();
   });
 });

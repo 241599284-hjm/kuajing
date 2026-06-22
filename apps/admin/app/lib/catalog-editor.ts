@@ -110,3 +110,9 @@ export function createBlankCategory(maxSortOrder: number): CategoryDraft {
     status: "inactive"
   };
 }
+
+export function adminPreviewUrl(value: string | null | undefined) {
+  if (!value) return null;
+  if (value.startsWith("/media/public/") || value.startsWith("https://")) return value;
+  return null;
+}
