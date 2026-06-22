@@ -2,11 +2,11 @@
 
 import { localizedErrorMessage } from "@commerce/error-codes";
 import { Save, Upload } from "lucide-react";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { createRequestId } from "../lib/request-id.js";
-import { createBlankProduct, normalizeProductDetail, shouldCloseEditor, type ProductDraft, type ProductMediaAsset } from "../lib/catalog-editor.js";
+import { createBlankProduct, normalizeProductDetail, type ProductDraft, type ProductMediaAsset } from "../lib/catalog-editor.js";
 import { Button } from "./ui/button.js";
-import { ConfirmDialog, DetailDialog } from "./ui/dialog.js";
+import { DetailDialog } from "./ui/dialog.js";
 import { Field, Input, Textarea } from "./ui/input.js";
 
 const adminGatewayUrl = process.env.NEXT_PUBLIC_ADMIN_GATEWAY_URL ?? "http://localhost:4001";
@@ -48,7 +48,6 @@ export function ProductEditorDialog({
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState("填写商品资料后保存");
   const [confirming, setConfirming] = useState(false);
-  const confirmingRef = useRef(false);
 
   useEffect(() => {
     if (!open) {
@@ -59,7 +58,6 @@ export function ProductEditorDialog({
       setUploading(false);
       setMessage("填写商品资料后保存");
       setConfirming(false);
-      confirmingRef.current = false;
       return;
     }
     if (mode === "create") {
@@ -155,7 +153,6 @@ export function ProductEditorDialog({
       setMessage("SKU、中英文商品名必须填写");
       return;
     }
-    confirmingRef.current = true;
     setConfirming(true);
   }
 
@@ -183,9 +180,7 @@ export function ProductEditorDialog({
   return <>
     <DetailDialog
       open={open}
-      onOpenChange={(nextOpen) => {
-        if (shouldCloseEditor(confirmingRef.current, nextOpen)) onOpenChange(false);
-      }}
+      onOpenChange={onOpenChange}
       title={mode === "create" ? "新增商品" : `修改商品 · ${sku ?? ""}`}
       description={message}
       loading={loading}
@@ -237,12 +232,11 @@ export function ProductEditorDialog({
           </section>
 
           <div className="sticky bottom-0 -mx-5 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] bg-white px-5 py-4 sm:-mx-6 sm:px-6">
-            <span className="text-xs text-[var(--muted-foreground)]">{message}</span>
-            <Button disabled={saving || uploading} type="submit"><Save size={15}/>{saving ? "保存中" : "保存商品"}</Button>
+            <span className={`text-xs ${confirming ? "text-[var(--warning)]" : "text-[var(--muted-foreground)]"}`}>{confirming ? draft.status === "active" ? "确认后商品将处于已上架状态，前台可能立即展示最新资料。" : "确认后商品将保存为未上架状态。" : message}</span>
+            {confirming ? <div className="flex gap-2"><Button type="button" variant="outline" onClick={() => setConfirming(false)}>取消</Button><Button disabled={saving || uploading} type="button" onClick={() => void save()}><Save size={15}/>{saving ? "保存中" : "确认保存"}</Button></div> : <Button disabled={saving || uploading} type="submit"><Save size={15}/>保存商品</Button>}
           </div>
         </form>
       )}
     </DetailDialog>
-    <ConfirmDialog open={confirming} onOpenChange={(openValue) => { confirmingRef.current = openValue; setConfirming(openValue); }} title={mode === "create" ? "确认新增商品？" : "确认保存商品修改？"} description={draft.status === "active" ? "该商品保存后将处于已上架状态，前台可能立即展示最新资料。" : "商品将保存为未上架状态，可继续检查资料后再发布。"} confirmLabel="确认保存" onConfirm={() => void save()}/>
   </>;
 }

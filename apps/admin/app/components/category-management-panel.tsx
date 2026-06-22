@@ -2,13 +2,13 @@
 
 import { localizedErrorMessage } from "@commerce/error-codes";
 import { Pencil, Plus, RefreshCw, Save, Tags } from "lucide-react";
-import { FormEvent, useEffect, useRef, useState } from "react";
-import { createBlankCategory, shouldCloseEditor, type CategoryDraft } from "../lib/catalog-editor.js";
+import { FormEvent, useEffect, useState } from "react";
+import { createBlankCategory, type CategoryDraft } from "../lib/catalog-editor.js";
 import { createRequestId } from "../lib/request-id.js";
 import { Badge } from "./ui/badge.js";
 import { Button } from "./ui/button.js";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card.js";
-import { ConfirmDialog, DetailDialog } from "./ui/dialog.js";
+import { DetailDialog } from "./ui/dialog.js";
 import { Field, Input } from "./ui/input.js";
 import { Table, TableWrap, Td, Th } from "./ui/table.js";
 
@@ -39,7 +39,6 @@ export function CategoryManagementPanel() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("填写分类资料后保存");
   const [confirming, setConfirming] = useState(false);
-  const confirmingRef = useRef(false);
 
   async function load() {
     setLoading(true);
@@ -83,7 +82,6 @@ export function CategoryManagementPanel() {
       setMessage("slug、中英文分类名必须填写");
       return;
     }
-    confirmingRef.current = true;
     setConfirming(true);
   }
 
@@ -120,7 +118,7 @@ export function CategoryManagementPanel() {
       {categories.length ? <TableWrap><Table className="table-fixed min-w-[720px]"><thead><tr><Th>标识</Th><Th>中文名称</Th><Th>英文名称</Th><Th>排序</Th><Th>状态</Th><Th className="sticky right-0 w-28 border-l text-right">操作</Th></tr></thead><tbody>{categories.map((category) => <tr className="h-12 hover:bg-[#fafbfc]" key={category.slug}><Td className="truncate font-medium">{category.slug}</Td><Td className="truncate">{category.nameZh}</Td><Td className="truncate">{category.nameEn}</Td><Td>{category.sortOrder}</Td><Td><Badge tone={category.status === "active" ? "success" : "neutral"}>{category.status === "active" ? "已启用" : "已停用"}</Badge></Td><Td className="sticky right-0 border-l bg-white text-right"><Button size="sm" variant="outline" onClick={() => openEdit(category)}><Pencil size={14}/>修改</Button></Td></tr>)}</tbody></Table></TableWrap> : <CardContent className="grid min-h-72 place-items-center text-sm text-[var(--muted-foreground)]"><span className="flex items-center gap-2"><Tags size={18}/>{status}</span></CardContent>}
     </Card>
 
-    <DetailDialog open={editor !== null} onOpenChange={(open) => { if (!saving && shouldCloseEditor(confirmingRef.current, open)) setEditor(null); }} title={editor?.mode === "create" ? "新增分类" : `修改分类 · ${editor?.draft.slug ?? ""}`} description={message} loading={false}>
+    <DetailDialog open={editor !== null} onOpenChange={(open) => { if (!open && !saving) setEditor(null); }} title={editor?.mode === "create" ? "新增分类" : `修改分类 · ${editor?.draft.slug ?? ""}`} description={message} loading={false}>
       {editor ? <form className="space-y-5" onSubmit={requestSave}>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="分类标识 slug"><Input disabled={editor.mode === "edit"} value={editor.draft.slug} onChange={(event) => patch({ slug: event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "") })}/></Field>
@@ -129,9 +127,8 @@ export function CategoryManagementPanel() {
           <Field label="英文分类名"><Input value={editor.draft.nameEn} onChange={(event) => patch({ nameEn: event.target.value })}/></Field>
           <Field label="状态"><select className="h-9 rounded-lg border border-[var(--border)] bg-white px-3 text-sm" value={editor.draft.status} onChange={(event) => patch({ status: event.target.value as CategoryDraft["status"] })}><option value="inactive">停用</option><option value="active">启用</option></select></Field>
         </div>
-        <div className="flex items-center justify-between gap-3 border-t border-[var(--border)] pt-4"><span className="text-xs text-[var(--muted-foreground)]">{message}</span><Button disabled={saving} type="submit"><Save size={15}/>{saving ? "保存中" : "保存分类"}</Button></div>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-4"><span className={`text-xs ${confirming ? "text-[var(--warning)]" : "text-[var(--muted-foreground)]"}`}>{confirming ? editor.draft.status === "active" ? "确认后该分类将在前台启用。" : "确认后该分类将保持停用。" : message}</span>{confirming ? <div className="flex gap-2"><Button type="button" variant="outline" onClick={() => setConfirming(false)}>取消</Button><Button disabled={saving} type="button" onClick={() => void save()}><Save size={15}/>{saving ? "保存中" : "确认保存"}</Button></div> : <Button disabled={saving} type="submit"><Save size={15}/>保存分类</Button>}</div>
       </form> : null}
     </DetailDialog>
-    <ConfirmDialog open={confirming} onOpenChange={(openValue) => { confirmingRef.current = openValue; setConfirming(openValue); }} title={editor?.mode === "create" ? "确认新增分类？" : "确认保存分类修改？"} description={editor?.draft.status === "active" ? "该分类保存后将在前台处于启用状态。" : "该分类将保存为停用状态，不会在前台分类入口展示。"} confirmLabel="确认保存" onConfirm={() => void save()}/>
   </>;
 }
