@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { Body, Controller, Get, Headers, HttpException, Module, Param, Post, Query, Res, StreamableFile } from "@nestjs/common";
+import { Body, Controller, Get, Headers, HttpException, Module, Param, Post, Query, Req, Res, StreamableFile } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { assertStoreContext } from "@commerce/store-context";
 import { ERROR_CODES, normalizeErrorPayload } from "@commerce/error-codes";
@@ -13,6 +13,8 @@ const logisticsServiceUrl = process.env.LOGISTICS_SERVICE_URL ?? "http://localho
 const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL ?? "http://localhost:4111";
 const reviewServiceUrl = process.env.REVIEW_SERVICE_URL ?? "http://localhost:4112";
 const mediaServiceUrl = process.env.MEDIA_SERVICE_URL ?? "http://localhost:4108";
+const analyticsServiceUrl = process.env.ANALYTICS_SERVICE_URL ?? "http://localhost:4115";
+const analyticsIngestToken = process.env.ANALYTICS_INGEST_TOKEN ?? "";
 const forwardedHeaderNames = [
   "x-correlation-id",
   "accept-language",
@@ -25,6 +27,7 @@ const forwardedHeaderNames = [
 
 type HeaderBag = Record<string, string | string[] | undefined>;
 type HeaderResponse = { setHeader(name: string, value: string): void };
+type ClientRequest = { ip?: string; socket?: { remoteAddress?: string } };
 
 function headerValue(headers: HeaderBag, name: string): string | undefined {
   const value = headers[name] ?? headers[name.toLowerCase()];
@@ -32,8 +35,8 @@ function headerValue(headers: HeaderBag, name: string): string | undefined {
   return value;
 }
 
-function buildForwardHeaders(headers: HeaderBag): Record<string, string> {
-  const nextHeaders: Record<string, string> = {};
+function buildForwardHeaders(headers: HeaderBag, extraHeaders: Record<string, string> = {}): Record<string, string> {
+  const nextHeaders: Record<string, string> = { ...extraHeaders };
 
   for (const name of forwardedHeaderNames) {
     const value = headerValue(headers, name);
@@ -45,6 +48,28 @@ function buildForwardHeaders(headers: HeaderBag): Record<string, string> {
 
   nextHeaders["x-correlation-id"] = nextHeaders["x-correlation-id"] ?? randomUUID();
   return nextHeaders;
+}
+
+function clientIp(request: ClientRequest, headers: HeaderBag) {
+  const trustedHeader = process.env.TRUSTED_REAL_IP_HEADER?.trim().toLowerCase();
+  if (trustedHeader) {
+    const trustedValue = headerValue(headers, trustedHeader)?.split(",")[0]?.trim();
+    if (trustedValue) return trustedValue;
+  }
+  return request.ip?.trim() || request.socket?.remoteAddress?.trim() || "unknown";
+}
+
+function clientCountry(headers: HeaderBag) {
+  const trustedHeader = process.env.TRUSTED_COUNTRY_HEADER?.trim().toLowerCase();
+  return trustedHeader ? headerValue(headers, trustedHeader)?.trim() : undefined;
+}
+
+function analyticsHeaders(headers: HeaderBag, extra: Record<string, string> = {}) {
+  return buildForwardHeaders(headers, {
+    "content-type": "application/json",
+    "x-analytics-ingest-token": analyticsIngestToken,
+    ...extra
+  });
 }
 
 function throwForwardedError(payload: unknown, status: number, correlationId: string): never {
@@ -167,6 +192,36 @@ class HealthController {
   @Post("/storefront/newsletter-subscriptions")
   newsletterSubscription(@Headers() headers: HeaderBag, @Body() body: unknown) {
     return forwardServiceJson(storeServiceUrl, "/newsletter-subscriptions", headers, body);
+  }
+
+  @Post("/analytics/sessions/start")
+  analyticsStart(@Req() request: ClientRequest, @Headers() headers: HeaderBag, @Body() body: unknown) {
+    return requestJson(`${analyticsServiceUrl}/sessions/start`, {
+      method: "POST",
+      headers: analyticsHeaders(headers, {
+        "x-client-ip": clientIp(request, headers),
+        ...(clientCountry(headers) ? { "x-client-country": clientCountry(headers)! } : {})
+      }),
+      body: JSON.stringify(body)
+    }, headers);
+  }
+
+  @Post("/analytics/sessions/:id/pages")
+  analyticsPage(@Headers() headers: HeaderBag, @Param("id") id: string, @Body() body: unknown) {
+    return requestJson(`${analyticsServiceUrl}/sessions/${encodeURIComponent(id)}/pages`, {
+      method: "POST",
+      headers: analyticsHeaders(headers),
+      body: JSON.stringify(body)
+    }, headers);
+  }
+
+  @Post("/analytics/sessions/:id/activity")
+  analyticsActivity(@Headers() headers: HeaderBag, @Param("id") id: string, @Body() body: unknown) {
+    return requestJson(`${analyticsServiceUrl}/sessions/${encodeURIComponent(id)}/activity`, {
+      method: "POST",
+      headers: analyticsHeaders(headers),
+      body: JSON.stringify(body)
+    }, headers);
   }
 
   @Get("/media/public/:storeId/:scope/:kind/:yyyyMm/:fileName")

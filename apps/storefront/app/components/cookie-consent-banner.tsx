@@ -2,23 +2,23 @@
 
 import { useEffect, useState } from "react";
 import type { Locale } from "../lib/storefront-content.js";
-
-const storageKey = "cookie-consent-v1";
+import { analyticsConsentEvent, analyticsConsentStorageKey } from "../lib/analytics-consent.js";
 
 export function CookieConsentBanner({ locale }: { locale: Locale }) {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
     try {
-      setVisible(window.localStorage.getItem(storageKey) !== "accepted");
+      setVisible(window.localStorage.getItem(analyticsConsentStorageKey) === null);
     } catch {
       setVisible(true);
     }
   }, []);
 
-  function accept() {
+  function choose(value: "accepted" | "declined") {
     try {
-      window.localStorage.setItem(storageKey, "accepted");
+      window.localStorage.setItem(analyticsConsentStorageKey, value);
+      window.dispatchEvent(new Event(analyticsConsentEvent));
     } catch {
       // Consent UI should still close for the current page.
     }
@@ -44,11 +44,14 @@ export function CookieConsentBanner({ locale }: { locale: Locale }) {
               : "We use essential cookies for cart, login, and checkout. With consent, analytics and preference cookies help improve the store experience."}
           </p>
         </div>
-        <div className="grid shrink-0 grid-cols-2 gap-3 md:flex">
+        <div className="grid shrink-0 grid-cols-3 gap-3 md:flex">
           <a className="premium-btn-outline h-10 md:h-11" href="/privacy-policy">
             {locale === "zh" ? "隐私政策" : "Privacy"}
           </a>
-          <button className="premium-btn h-10 md:h-11" onClick={accept} type="button">
+          <button className="premium-btn-outline h-10 md:h-11" onClick={() => choose("declined")} type="button">
+            {locale === "zh" ? "仅必要" : "Essential only"}
+          </button>
+          <button className="premium-btn h-10 md:h-11" onClick={() => choose("accepted")} type="button">
             {locale === "zh" ? "接受" : "Accept"}
           </button>
         </div>

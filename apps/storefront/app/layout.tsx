@@ -1,6 +1,7 @@
 import "./globals.css";
 import type { ReactNode } from "react";
 import { CookieConsentHost } from "./components/cookie-consent-host.js";
+import { VisitorAnalytics } from "./components/visitor-analytics.js";
 
 export const metadata = {
   title: "Handmade Jingdezhen Porcelain Tea Sets & Oriental Ceramic Decor",
@@ -12,6 +13,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en">
       <body>
         {children}
+        <VisitorAnalytics />
         <CookieConsentHost />
       </body>
     </html>

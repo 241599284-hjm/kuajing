@@ -32,6 +32,7 @@ const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL ?? "http://l
 const reviewServiceUrl = process.env.REVIEW_SERVICE_URL ?? "http://localhost:4112";
 const opsServiceUrl = process.env.OPS_SERVICE_URL ?? "http://localhost:4113";
 const productImportServiceUrl = process.env.PRODUCT_IMPORT_SERVICE_URL ?? "http://localhost:4114";
+const analyticsServiceUrl = process.env.ANALYTICS_SERVICE_URL ?? "http://localhost:4115";
 const maxUploadBytes = Number(process.env.MEDIA_MAX_UPLOAD_BYTES ?? 8 * 1024 * 1024);
 const forwardedHeaderNames = [
   "x-correlation-id",
@@ -730,6 +731,74 @@ class HealthController {
   @Get("/ops/audit-events")
   opsAuditEvents(@Headers() headers: HeaderBag) {
     return forwardOpsJson("/audit-events", headers);
+  }
+
+  @Get("/analytics/ready")
+  async analyticsReady(@Headers() headers: HeaderBag) {
+    try {
+      const admin = await authorizeRefundRequest(headers);
+      if (admin.role !== "owner") throw new RefundAuthorizationError(403, ERROR_CODES.FORBIDDEN, "only the owner can view visitor analytics");
+      return requestJson(`${analyticsServiceUrl}/ready`, { headers: buildForwardHeaders(headers) }, headers);
+    } catch (error) {
+      this.throwAuthorizationError(error);
+    }
+  }
+
+  @Get("/analytics/sessions")
+  async analyticsSessions(
+    @Headers() headers: HeaderBag,
+    @Query("date") date: string,
+    @Query("page") page?: string,
+    @Query("size") size?: string
+  ) {
+    try {
+      const admin = await authorizeRefundRequest(headers);
+      if (admin.role !== "owner") throw new RefundAuthorizationError(403, ERROR_CODES.FORBIDDEN, "only the owner can view visitor analytics");
+      const query = new URLSearchParams({ date });
+      if (page) query.set("page", page);
+      if (size) query.set("size", size);
+      return requestJson(`${analyticsServiceUrl}/admin/sessions?${query}`, { headers: buildForwardHeaders(headers) }, headers);
+    } catch (error) {
+      this.throwAuthorizationError(error);
+    }
+  }
+
+  @Get("/analytics/sessions/:id")
+  async analyticsSession(@Headers() headers: HeaderBag, @Param("id") id: string) {
+    try {
+      const admin = await authorizeRefundRequest(headers);
+      if (admin.role !== "owner") throw new RefundAuthorizationError(403, ERROR_CODES.FORBIDDEN, "only the owner can view visitor analytics");
+      return requestJson(
+        `${analyticsServiceUrl}/admin/sessions/${encodeURIComponent(id)}`,
+        { headers: buildForwardHeaders(headers) },
+        headers
+      );
+    } catch (error) {
+      this.throwAuthorizationError(error);
+    }
+  }
+
+  @Get("/analytics/server-requests")
+  async analyticsServerRequests(
+    @Headers() headers: HeaderBag,
+    @Query("date") date: string,
+    @Query("page") page?: string,
+    @Query("size") size?: string
+  ) {
+    try {
+      const admin = await authorizeRefundRequest(headers);
+      if (admin.role !== "owner") throw new RefundAuthorizationError(403, ERROR_CODES.FORBIDDEN, "only the owner can view visitor analytics");
+      const query = new URLSearchParams({ date });
+      if (page) query.set("page", page);
+      if (size) query.set("size", size);
+      return requestJson(
+        `${analyticsServiceUrl}/admin/server-requests?${query}`,
+        { headers: buildForwardHeaders(headers) },
+        headers
+      );
+    } catch (error) {
+      this.throwAuthorizationError(error);
+    }
   }
 
   @Get("/product-import/config")

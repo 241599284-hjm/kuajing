@@ -13,10 +13,10 @@
 | Order Service | http://localhost:4105 |
 | Payment Service | http://localhost:4106 |
 | Support Service | http://localhost:4107 |
+| Analytics Service | http://localhost:4115 |
 | PostgreSQL | localhost:5432 |
 | Redis | localhost:6379 |
 | OpenSearch | http://localhost:9200 |
 | MinIO API | http://localhost:9000 |
 | MinIO Console | http://localhost:9001 |
 | Mailpit | http://localhost:8025 |
-

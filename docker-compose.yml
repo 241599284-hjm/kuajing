@@ -17,6 +17,10 @@ services:
       NEXT_PUBLIC_ADMIN_ORIGIN: ${NEXT_PUBLIC_ADMIN_ORIGIN:-http://localhost:3001}
       AUTH_SERVICE_URL: http://auth-service:4102
       MEDIA_SERVICE_URL: http://media-service:4108
+      ANALYTICS_SERVICE_URL: http://analytics-service:4115
+      ANALYTICS_INGEST_TOKEN: ${ANALYTICS_INGEST_TOKEN:-}
+      TRUSTED_REAL_IP_HEADER: ${TRUSTED_REAL_IP_HEADER:-}
+      TRUSTED_COUNTRY_HEADER: ${TRUSTED_COUNTRY_HEADER:-}
     ports:
       - "3000:3000"
     depends_on:
@@ -25,6 +29,8 @@ services:
       auth-service:
         condition: service_started
       media-service:
+        condition: service_started
+      analytics-service:
         condition: service_started
 
   admin:
@@ -73,6 +79,10 @@ services:
       MEDIA_SERVICE_URL: http://media-service:4108
       OPS_SERVICE_URL: http://ops-service:4113
       PRODUCT_IMPORT_SERVICE_URL: http://product-import-service:4114
+      ANALYTICS_SERVICE_URL: http://analytics-service:4115
+      ANALYTICS_INGEST_TOKEN: ${ANALYTICS_INGEST_TOKEN:-}
+      TRUSTED_REAL_IP_HEADER: ${TRUSTED_REAL_IP_HEADER:-}
+      TRUSTED_COUNTRY_HEADER: ${TRUSTED_COUNTRY_HEADER:-}
       DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
       DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
       DEFAULT_STORE_TIMEZONE: ${DEFAULT_STORE_TIMEZONE:-Asia/Hong_Kong}
@@ -96,6 +106,8 @@ services:
       ops-service:
         condition: service_started
       product-import-service:
+        condition: service_started
+      analytics-service:
         condition: service_started
 
   admin-gateway:
@@ -121,6 +133,7 @@ services:
       REVIEW_SERVICE_URL: http://review-service:4112
       OPS_SERVICE_URL: http://ops-service:4113
       PRODUCT_IMPORT_SERVICE_URL: http://product-import-service:4114
+      ANALYTICS_SERVICE_URL: http://analytics-service:4115
       DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
       DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
       DEFAULT_STORE_TIMEZONE: ${DEFAULT_STORE_TIMEZONE:-Asia/Hong_Kong}
@@ -153,6 +166,33 @@ services:
         condition: service_started
       product-import-service:
         condition: service_started
+      analytics-service:
+        condition: service_started
+
+  analytics-service:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: infra/docker/node-app.Dockerfile
+      args:
+        APP_FILTER: "@commerce/analytics-service"
+    container_name: cbck-analytics-service
+    environment:
+      NODE_ENV: development
+      PORT: 4115
+      ANALYTICS_DATABASE_URL: postgresql://${POSTGRES_USER:-commerce}:${POSTGRES_PASSWORD:-commerce}@postgres:5432/app_db
+      VISITOR_ANALYTICS_ENCRYPTION_KEY: ${VISITOR_ANALYTICS_ENCRYPTION_KEY:-}
+      VISITOR_ANALYTICS_RETENTION_DAYS: ${VISITOR_ANALYTICS_RETENTION_DAYS:-30}
+      SERVER_ACCESS_LOG_RETENTION_DAYS: ${SERVER_ACCESS_LOG_RETENTION_DAYS:-14}
+      ANALYTICS_INGEST_TOKEN: ${ANALYTICS_INGEST_TOKEN:-}
+      DEFAULT_STORE_ID: ${DEFAULT_STORE_ID:-00000000-0000-4000-8000-000000000001}
+      DEFAULT_STORE_REGION: ${DEFAULT_STORE_REGION:-local}
+      DEFAULT_STORE_TIMEZONE: ${DEFAULT_STORE_TIMEZONE:-Asia/Hong_Kong}
+    ports:
+      - "4115:4115"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   logistics-service:
     profiles: ["app"]
@@ -568,6 +608,7 @@ services:
       - ./infra/db/migrations/042-homepage-catalog-collection.sql:/docker-entrypoint-initdb.d/39-homepage-catalog-collection.sql:ro
       - ./infra/db/migrations/043-newsletter-operations.sql:/docker-entrypoint-initdb.d/40-newsletter-operations.sql:ro
       - ./infra/db/migrations/044-paypal-configurations.sql:/docker-entrypoint-initdb.d/41-paypal-configurations.sql:ro
+      - ./infra/db/migrations/045-visitor-analytics.sql:/docker-entrypoint-initdb.d/42-visitor-analytics.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U commerce -d postgres"]
       interval: 5s
