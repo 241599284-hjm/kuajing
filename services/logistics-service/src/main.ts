@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { BadRequestException, Body, ConflictException, Controller, Get, Headers, Injectable, Module, NotFoundException, Param, Post, Put, ServiceUnavailableException } from "@nestjs/common";
+import { BadRequestException, Body, ConflictException, Controller, Get, Headers, Inject, Injectable, Module, NotFoundException, Param, Post, Put, ServiceUnavailableException } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { ERROR_CODES } from "@commerce/error-codes";
 import { assertStoreContext } from "@commerce/store-context";
@@ -876,7 +876,7 @@ class LogisticsRepository {
 
 @Injectable()
 class LogisticsService {
-  constructor(private readonly repository: LogisticsRepository) {}
+  constructor(@Inject(LogisticsRepository) private readonly repository: LogisticsRepository) {}
 
   async shipmentsForOrder(headers: HeaderBag, orderId: string) {
     const ctx = createContext(headers);
@@ -1025,8 +1025,8 @@ class LogisticsService {
 @Controller()
 class LogisticsController {
   constructor(
-    private readonly repository: LogisticsRepository,
-    private readonly logisticsService: LogisticsService
+    @Inject(LogisticsRepository) private readonly repository: LogisticsRepository,
+    @Inject(LogisticsService) private readonly logisticsService: LogisticsService
   ) {}
 
   @Get("/health")
