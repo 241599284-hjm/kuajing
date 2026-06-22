@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import { customerSearchFilter, normalizeCustomerSearch } from "./customer-search.js";
 import {
   BadRequestException,
   Body,
@@ -458,11 +459,17 @@ class AuthRepository implements OnApplicationShutdown {
     await this.pool.query("DELETE FROM admin_sessions WHERE store_id = $1 AND token_hash = $2", [ctx.storeId, hashAdminSessionToken(token)]);
   }
 
-  async listCustomers(storeId: string) {
+  async listCustomers(storeId: string, search = "", limit = 100) {
+    const filter = customerSearchFilter(search, 2);
+    const limitIndex = 2 + filter.values.length;
     const result = await this.pool.query<{ id: string; username: string; email: string; status: string; created_at: Date }>(
       `SELECT id, username, email, status, created_at
-       FROM customers WHERE store_id = $1 ORDER BY created_at DESC LIMIT 100`,
-      [storeId]
+       FROM customers
+       WHERE store_id = $1
+       ${filter.sql}
+       ORDER BY created_at DESC
+       LIMIT $${limitIndex}`,
+      [storeId, ...filter.values, limit]
     );
     return result.rows.map((row) => ({ customerId: row.id, name: row.username, email: row.email, status: row.status, createdAt: row.created_at.toISOString() }));
   }
@@ -1087,9 +1094,9 @@ class AuthService {
     return { status: "logged_out" };
   }
 
-  async listCustomers(ctx: StoreContext, cookie: string | undefined) {
+  async listCustomers(ctx: StoreContext, cookie: string | undefined, search = "", limit = 100) {
     await this.getAdminSession(ctx, cookie);
-    return this.authRepository.listCustomers(ctx.storeId);
+    return this.authRepository.listCustomers(ctx.storeId, search, limit);
   }
 
   async getCustomer(ctx: StoreContext, cookie: string | undefined, customerId: string) {
@@ -1171,10 +1178,13 @@ class AuthController {
   @Get("/admin/customers")
   adminCustomers(
     @Headers("x-correlation-id") correlationId: string | undefined,
-    @Headers("cookie") cookie: string | undefined
+    @Headers("cookie") cookie: string | undefined,
+    @Query("search") search: string | undefined,
+    @Query("limit") limit: string | undefined
   ) {
     const ctx = createStoreContext(correlationId);
-    return this.authService.listCustomers(ctx, cookie);
+    const parsedLimit = Math.min(100, Math.max(1, Number.parseInt(limit ?? "100", 10) || 100));
+    return this.authService.listCustomers(ctx, cookie, normalizeCustomerSearch(search), parsedLimit);
   }
 
   @Get("/admin/customers/:customerId")

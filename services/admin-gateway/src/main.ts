@@ -6,6 +6,7 @@ import { assertStoreContext } from "@commerce/store-context";
 import { ERROR_CODES, normalizeErrorPayload } from "@commerce/error-codes";
 import { randomUUID } from "node:crypto";
 import {
+  authorizeAdminRequest,
   authorizePaymentConfigurationRequest,
   authorizeRefundRequest,
   RefundAuthorizationError
@@ -18,6 +19,7 @@ import {
   shouldReconcileCatalogFailure
 } from "./media-compensation.js";
 import { releaseFrontendMemory } from "./frontend-memory-release.js";
+import { buildGlobalSearchResults, normalizeGlobalSearchQuery } from "./global-search.js";
 
 const serviceName = "admin-gateway";
 const storeServiceUrl = process.env.STORE_SERVICE_URL ?? "http://localhost:4101";
@@ -344,6 +346,7 @@ class HealthController {
     const params = new URLSearchParams();
     if (query.page) params.set("page", query.page);
     if (query.size) params.set("size", query.size);
+    if (query.search) params.set("search", query.search);
     return forwardJson(`/admin/products${params.size ? `?${params}` : ""}`, headers);
   }
 
@@ -594,13 +597,72 @@ class HealthController {
   }
 
   @Get("/customers")
-  customers(@Headers() headers: HeaderBag) {
-    return forwardAuthJson("/admin/customers", headers);
+  customers(@Headers() headers: HeaderBag, @Query("search") search?: string, @Query("limit") limit?: string) {
+    const query = new URLSearchParams();
+    if (search) query.set("search", search);
+    if (limit) query.set("limit", limit);
+    return forwardAuthJson(`/admin/customers${query.size ? `?${query}` : ""}`, headers);
   }
 
   @Get("/customers/:customerId")
   customerDetail(@Headers() headers: HeaderBag, @Param("customerId") customerId: string) {
     return forwardAuthJson(`/admin/customers/${encodeURIComponent(customerId)}`, headers);
+  }
+
+  @Get("/search")
+  async globalSearch(
+    @Headers() headers: HeaderBag,
+    @Query("q") rawQuery: string | undefined,
+    @Query("limit") rawLimit: string | undefined
+  ) {
+    let query: string;
+    try {
+      query = normalizeGlobalSearchQuery(rawQuery);
+    } catch (error) {
+      throw new HttpException({
+        code: ERROR_CODES.VALIDATION_FAILED,
+        message: error instanceof Error ? error.message : "search query is invalid"
+      }, 400);
+    }
+
+    try {
+      await authorizeAdminRequest(headers);
+      const limit = Math.min(30, Math.max(1, Number.parseInt(rawLimit ?? "15", 10) || 15));
+      const sourceLimit = Math.min(10, limit);
+      const encoded = encodeURIComponent(query);
+      const [orderResponse, productResponse, customers] = await Promise.all([
+        forwardOrderJson<{ items: Array<{
+          orderId: string;
+          orderNumber: string;
+          customerEmail: string;
+          providerPaymentId?: string;
+          status: string;
+          totalMinor: number;
+          currency: string;
+        }> }>(`/orders?page=1&size=${sourceLimit}&search=${encoded}`, headers),
+        forwardJson<{ items: Array<{
+          sku: string;
+          nameZh: string;
+          nameEn: string;
+          category: string;
+          status: string;
+        }> }>(`/admin/products?page=1&size=${sourceLimit}&search=${encoded}`, headers),
+        forwardAuthJson<Array<{
+          customerId: string;
+          name: string;
+          email: string;
+          status: string;
+        }>>(`/admin/customers?search=${encoded}&limit=${sourceLimit}`, headers)
+      ]);
+      const items = buildGlobalSearchResults({
+        orders: orderResponse.items,
+        products: productResponse.items,
+        customers
+      }, limit);
+      return { query, items, total: items.length };
+    } catch (error) {
+      this.throwAuthorizationError(error);
+    }
   }
 
   @Get("/payments/orders/:id/refunds")

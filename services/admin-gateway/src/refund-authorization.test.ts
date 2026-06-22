@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { authorizeRefundRequest } from "./refund-authorization.js";
+import { authorizeAdminRequest, authorizeRefundRequest } from "./refund-authorization.js";
+
+describe("authorizeAdminRequest", () => {
+  it("allows any authenticated active admin role", async () => {
+    await expect(authorizeAdminRequest({ cookie: "admin_session=token" }, async () =>
+      new Response(JSON.stringify({ adminId: "admin-1", role: "support" }), { status: 200 })
+    )).resolves.toEqual({ actorId: "admin-1", role: "support" });
+  });
+});
 
 describe("authorizeRefundRequest", () => {
   it("rejects requests without an admin session", async () => {

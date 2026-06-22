@@ -1,7 +1,7 @@
 "use client";
 
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { Activity, AlertTriangle, BarChart3, Bell, Boxes, ChevronDown, ChevronLeft, ChevronRight, CircleDollarSign, FileClock, FileText, Globe2, LayoutDashboard, LayoutGrid, LogOut, Mail, Menu, Package, PackagePlus, PanelLeftClose, PanelLeftOpen, Search, Server, Settings, ShieldCheck, ShoppingCart, Tags, Truck, UserRound, Users, WalletCards, Webhook, X } from "lucide-react";
+import { Activity, AlertTriangle, BarChart3, Bell, Boxes, ChevronDown, ChevronLeft, ChevronRight, CircleDollarSign, FileClock, FileText, Globe2, LayoutDashboard, LayoutGrid, LogOut, Mail, Menu, Package, PackagePlus, PanelLeftClose, PanelLeftOpen, Server, Settings, ShieldCheck, ShoppingCart, Tags, Truck, UserRound, Users, WalletCards, Webhook, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useAdminSession } from "./admin-auth-gate.js";
 import { DashboardPage, PaypalSettingsPage, RecordsPage, SiteSettingsPage } from "./admin-dashboard-pages.js";
@@ -12,6 +12,7 @@ import { DiscountManagementPanel } from "./discount-management-panel.js";
 import { EmailSettingsPanel } from "./email-settings-panel.js";
 import { InventoryManagementPanel } from "./inventory-management-panel.js";
 import { HomepageManagementPanel } from "./homepage-management-panel.js";
+import { GlobalSearchBox } from "./global-search-box.js";
 import { LogisticsManagementPanel } from "./logistics-management-panel.js";
 import { MediaReconciliationManagementPanel } from "./media-reconciliation-management-panel.js";
 import { OpsManagementPanel } from "./ops-management-panel.js";
@@ -25,7 +26,6 @@ import { VisitorAnalyticsDashboard } from "./visitor-analytics-dashboard.js";
 import { Badge } from "./ui/badge.js";
 import { Button } from "./ui/button.js";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card.js";
-import { Input } from "./ui/input.js";
 
 type Section = "dashboard"|"serverStatus"|"visitorAnalytics"|"orders"|"paypalOrder"|"refunds"|"webhooks"|"products"|"categories"|"inventory"|"customers"|"paypalSandbox"|"paypalLive"|"paypalWebhook"|"logistics"|"site"|"homepage"|"productImport"|"discounts"|"reviews"|"trade"|"email"|"ops"|"dlq"|"media"|"audit";
 type NavItem = { id: Section; label: string; icon: typeof BarChart3 };
@@ -49,7 +49,7 @@ export function AdminWorkspace() {
   const [section,setSection]=useState<Section>("dashboard");
   const [collapsed,setCollapsed]=useState(false);
   const [mobileOpen,setMobileOpen]=useState(false);
-  const [query,setQuery]=useState("");
+  const [navigationSearch,setNavigationSearch]=useState<{section:"orders"|"products"|"customers";search:string;token:number}|null>(null);
   const visibleGroups = useMemo(()=>auth?.session.role === "owner" ? groups : groups.map((group)=>({
     ...group,
     items: group.items.filter((item)=>item.id !== "visitorAnalytics")
@@ -57,19 +57,23 @@ export function AdminWorkspace() {
   const flat = useMemo(()=>visibleGroups.flatMap((group)=>group.items),[visibleGroups]);
   const active=flat.find((item)=>item.id===section);
   function navigate(id:Section){setSection(id);setMobileOpen(false);}
+  function navigateFromSearch(selection:{section:"orders"|"products"|"customers";search:string}) {
+    setNavigationSearch({ ...selection, token: Date.now() });
+    navigate(selection.section);
+  }
   const content = (()=>{
     switch(section){
       case "dashboard": return <DashboardPage onOrders={()=>navigate("orders")}/>;
       case "serverStatus": return <ServerStatusDashboard role={auth?.session.role}/>;
       case "visitorAnalytics": return <VisitorAnalyticsDashboard/>;
-      case "orders": return <ExistingPage title="订单管理" description="管理 PayPal 支付订单、履约、退款和异常状态。"><OrderManagementPanel/></ExistingPage>;
+      case "orders": return <ExistingPage title="订单管理" description="管理 PayPal 支付订单、履约、退款和异常状态。"><OrderManagementPanel initialSearch={navigationSearch?.section === "orders" ? navigationSearch.search : ""} searchToken={navigationSearch?.section === "orders" ? navigationSearch.token : 0}/></ExistingPage>;
       case "paypalOrder": return <PayPalOrderPage onOrders={()=>navigate("orders")}/>;
       case "refunds": return <RecordsPage kind="refunds"/>;
       case "webhooks": return <RecordsPage kind="webhooks"/>;
-      case "products": return <ExistingPage title="商品列表" description="在同一列表中查看详情、新增商品和修改完整商品资料。"><ProductListPanel/></ExistingPage>;
+      case "products": return <ExistingPage title="商品列表" description="在同一列表中查看详情、新增商品和修改完整商品资料。"><ProductListPanel initialSearch={navigationSearch?.section === "products" ? navigationSearch.search : ""} searchToken={navigationSearch?.section === "products" ? navigationSearch.token : 0}/></ExistingPage>;
       case "categories": return <ExistingPage title="商品分类" description="在同一列表中新增、修改分类名称、排序和前台状态。"><CategoryManagementPanel/></ExistingPage>;
       case "inventory": return <ExistingPage title="库存预警" description="查看库存、安全库存、预留和手工调整记录。"><InventoryManagementPanel/></ExistingPage>;
-      case "customers": return <RecordsPage kind="customers"/>;
+      case "customers": return <RecordsPage kind="customers" initialSearch={navigationSearch?.section === "customers" ? navigationSearch.search : ""} searchToken={navigationSearch?.section === "customers" ? navigationSearch.token : 0}/>;
       case "paypalSandbox": return <PaypalSettingsPage mode="sandbox"/>;
       case "paypalLive": return <PaypalSettingsPage mode="live"/>;
       case "paypalWebhook": return <PaypalSettingsPage mode="webhook"/>;
@@ -88,5 +92,5 @@ export function AdminWorkspace() {
     }
   })();
   const sidebar = <aside className={`fixed inset-y-12 left-0 z-40 flex flex-col border-r border-[var(--border)] bg-white transition-[width,transform] duration-200 ${collapsed?"w-16":"w-60"} ${mobileOpen?"translate-x-0":"-translate-x-full md:translate-x-0"}`}><nav className="flex-1 overflow-y-auto px-2 py-4">{visibleGroups.map((group,index)=><div className={index?"mt-4 border-t border-[var(--border)] pt-4":""} key={group.label??"main"}>{group.label&&!collapsed?<p className="px-3 pb-1.5 text-xs text-[var(--muted-foreground)]">{group.label}</p>:null}<div className="space-y-1">{group.items.map(({id,label,icon:Icon})=><button aria-current={section===id?"page":undefined} className={`flex h-10 w-full items-center gap-3 rounded-lg px-3 text-sm transition-colors ${section===id?"bg-[#eef8f4] font-medium text-[#137858]":"text-[#536171] hover:bg-[var(--muted)]"}`} key={id} onClick={()=>navigate(id)} title={collapsed?label:undefined}><Icon className="shrink-0" size={18}/>{!collapsed?<span className="truncate">{label}</span>:null}</button>)}</div></div>)}</nav><button className="hidden h-12 items-center gap-3 border-t border-[var(--border)] px-4 text-sm text-[var(--muted-foreground)] md:flex" onClick={()=>setCollapsed(!collapsed)}>{collapsed?<ChevronRight size={17}/>:<ChevronLeft size={17}/>} {!collapsed?"收起菜单":null}</button></aside>;
-  return <div className="min-h-screen bg-[var(--background)]"><header className="fixed inset-x-0 top-0 z-50 flex h-12 items-center border-b border-[var(--border)] bg-white px-3"><Button className="md:hidden" variant="ghost" size="icon" onClick={()=>setMobileOpen(!mobileOpen)} aria-label="打开菜单">{mobileOpen?<X/>:<Menu/>}</Button><Button className="hidden md:inline-flex" variant="ghost" size="icon" onClick={()=>setCollapsed(!collapsed)} aria-label="收缩侧边栏">{collapsed?<PanelLeftOpen/>:<PanelLeftClose/>}</Button><div className="ml-1 flex min-w-0 items-center gap-2"><span className="grid size-7 place-items-center rounded-md border border-[#2b7d65] bg-[#edf8f4] text-[#176d54]"><LayoutGrid size={16}/></span><strong className="hidden truncate text-sm font-semibold sm:block">工艺品跨境管理后台</strong></div><div className="mx-auto hidden w-full max-w-xl px-6 lg:block"><div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--placeholder)]" size={16}/><Input className="pl-9" value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="搜索订单号、PayPal 交易 ID、商品名称、买家邮箱"/>{query?<div className="absolute left-0 right-0 top-11 rounded-lg border border-[var(--border)] bg-white p-3 text-xs text-[var(--muted-foreground)] shadow-lg">全局搜索接口尚未返回匹配结果</div>:null}</div></div><div className="ml-auto flex items-center gap-1"><select className="hidden h-9 rounded-lg border border-[var(--border)] bg-white px-3 text-sm sm:block" aria-label="币种"><option>USD ($)</option><option>EUR (€)</option><option>GBP (£)</option></select><Button variant="ghost" size="icon" aria-label="消息通知"><Bell size={18}/><span className="sr-only">消息通知</span></Button><DropdownMenu.Root><DropdownMenu.Trigger asChild><Button variant="ghost" className="px-2"><span className="grid size-7 place-items-center rounded-full bg-[#e8f6f0] text-xs font-semibold text-[#157758]">管</span><span className="hidden max-w-24 truncate text-xs sm:block">{auth?.session.email??"管理员"}</span><ChevronDown size={14}/></Button></DropdownMenu.Trigger><DropdownMenu.Portal><DropdownMenu.Content align="end" className="z-[70] w-44 rounded-lg border border-[var(--border)] bg-white p-1 text-sm shadow-lg"><DropdownMenu.Item className="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 outline-none hover:bg-[var(--muted)]"><UserRound size={15}/>账号设置</DropdownMenu.Item><DropdownMenu.Item className="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 outline-none hover:bg-[var(--muted)]"><ShieldCheck size={15}/>修改密码</DropdownMenu.Item><DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]"/><DropdownMenu.Item className="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-[var(--danger)] outline-none hover:bg-[var(--danger-bg)]" onSelect={()=>void auth?.logout()}><LogOut size={15}/>退出登录</DropdownMenu.Item></DropdownMenu.Content></DropdownMenu.Portal></DropdownMenu.Root></div></header>{mobileOpen?<button className="fixed inset-0 z-30 bg-black/25 md:hidden" onClick={()=>setMobileOpen(false)} aria-label="关闭菜单"/>:null}{sidebar}<main className={`min-h-screen pt-12 transition-[padding] duration-200 ${collapsed?"md:pl-16":"md:pl-60"}`}><div className="px-4 pb-12 pt-6 sm:px-6"><div className="mb-4 flex items-center gap-2 text-xs text-[var(--muted-foreground)]"><span>后台</span><ChevronRight size={12}/><span>{active?.label}</span></div>{content}</div></main></div>;
+  return <div className="min-h-screen bg-[var(--background)]"><header className="fixed inset-x-0 top-0 z-50 flex h-12 items-center border-b border-[var(--border)] bg-white px-3"><Button className="md:hidden" variant="ghost" size="icon" onClick={()=>setMobileOpen(!mobileOpen)} aria-label="打开菜单">{mobileOpen?<X/>:<Menu/>}</Button><Button className="hidden md:inline-flex" variant="ghost" size="icon" onClick={()=>setCollapsed(!collapsed)} aria-label="收缩侧边栏">{collapsed?<PanelLeftOpen/>:<PanelLeftClose/>}</Button><div className="ml-1 flex min-w-0 items-center gap-2"><span className="grid size-7 place-items-center rounded-md border border-[#2b7d65] bg-[#edf8f4] text-[#176d54]"><LayoutGrid size={16}/></span><strong className="hidden truncate text-sm font-semibold sm:block">工艺品跨境管理后台</strong></div><GlobalSearchBox onSelect={navigateFromSearch}/><div className="ml-auto flex items-center gap-1"><select className="hidden h-9 rounded-lg border border-[var(--border)] bg-white px-3 text-sm sm:block" aria-label="币种"><option>USD ($)</option><option>EUR (€)</option><option>GBP (£)</option></select><Button variant="ghost" size="icon" aria-label="消息通知"><Bell size={18}/><span className="sr-only">消息通知</span></Button><DropdownMenu.Root><DropdownMenu.Trigger asChild><Button variant="ghost" className="px-2"><span className="grid size-7 place-items-center rounded-full bg-[#e8f6f0] text-xs font-semibold text-[#157758]">管</span><span className="hidden max-w-24 truncate text-xs sm:block">{auth?.session.email??"管理员"}</span><ChevronDown size={14}/></Button></DropdownMenu.Trigger><DropdownMenu.Portal><DropdownMenu.Content align="end" className="z-[70] w-44 rounded-lg border border-[var(--border)] bg-white p-1 text-sm shadow-lg"><DropdownMenu.Item className="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 outline-none hover:bg-[var(--muted)]"><UserRound size={15}/>账号设置</DropdownMenu.Item><DropdownMenu.Item className="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 outline-none hover:bg-[var(--muted)]"><ShieldCheck size={15}/>修改密码</DropdownMenu.Item><DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]"/><DropdownMenu.Item className="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-[var(--danger)] outline-none hover:bg-[var(--danger-bg)]" onSelect={()=>void auth?.logout()}><LogOut size={15}/>退出登录</DropdownMenu.Item></DropdownMenu.Content></DropdownMenu.Portal></DropdownMenu.Root></div></header>{mobileOpen?<button className="fixed inset-0 z-30 bg-black/25 md:hidden" onClick={()=>setMobileOpen(false)} aria-label="关闭菜单"/>:null}{sidebar}<main className={`min-h-screen pt-12 transition-[padding] duration-200 ${collapsed?"md:pl-16":"md:pl-60"}`}><div className="px-4 pb-12 pt-6 sm:px-6"><div className="mb-4 flex items-center gap-2 text-xs text-[var(--muted-foreground)]"><span>后台</span><ChevronRight size={12}/><span>{active?.label}</span></div>{content}</div></main></div>;
 }

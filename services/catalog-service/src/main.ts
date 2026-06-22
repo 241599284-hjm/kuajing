@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import { adminProductSearchFilter, normalizeAdminProductSearch } from "./admin-product-search.js";
 import { BadRequestException, Body, Controller, Get, Headers, Inject, Injectable, Module, OnApplicationShutdown, Param, Put, Query, ServiceUnavailableException } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { ERROR_CODES } from "@commerce/error-codes";
@@ -597,8 +598,12 @@ class CatalogRepository implements OnApplicationShutdown {
     return products;
   }
 
-  async listAdminProducts(ctx: StoreContext, page: number, size: number): Promise<AdminProductList> {
+  async listAdminProducts(ctx: StoreContext, page: number, size: number, search = ""): Promise<AdminProductList> {
     const offset = (page - 1) * size;
+    const filter = adminProductSearchFilter(search, 2);
+    const limitIndex = 2 + filter.values.length;
+    const offsetIndex = limitIndex + 1;
+    const values = [ctx.storeId, ...filter.values, size, offset];
     const [productResult, countResult] = await Promise.all([
       this.pool.query<AdminProductRow>(
         `
@@ -664,12 +669,30 @@ class CatalogRepository implements OnApplicationShutdown {
           LEFT JOIN product_translations pt_zh ON pt_zh.product_id = p.id AND pt_zh.locale = 'zh'
           LEFT JOIN product_translations pt_en ON pt_en.product_id = p.id AND pt_en.locale = 'en'
           WHERE p.store_id = $1
+          ${filter.sql}
           ORDER BY p.created_at DESC
-          LIMIT $2 OFFSET $3
+          LIMIT $${limitIndex} OFFSET $${offsetIndex}
         `,
-        [ctx.storeId, size, offset]
+        values
       ),
-      this.pool.query<{ count: string }>("SELECT count(*) FROM products WHERE store_id = $1", [ctx.storeId])
+      this.pool.query<{ count: string }>(
+        `SELECT count(*)
+         FROM products p
+         JOIN LATERAL (
+           SELECT *
+           FROM skus s
+           WHERE s.store_id = p.store_id AND s.product_id = p.id
+           ORDER BY s.created_at ASC
+           LIMIT 1
+         ) s ON TRUE
+         JOIN categories c ON c.id = p.category_id
+         JOIN regions r ON r.id = p.region_id
+         LEFT JOIN product_translations pt_zh ON pt_zh.product_id = p.id AND pt_zh.locale = 'zh'
+         LEFT JOIN product_translations pt_en ON pt_en.product_id = p.id AND pt_en.locale = 'en'
+         WHERE p.store_id = $1
+         ${filter.sql}`,
+        [ctx.storeId, ...filter.values]
+      )
     ]);
 
     return {
@@ -1746,13 +1769,19 @@ class CatalogController {
   async adminProducts(
     @Headers("x-correlation-id") correlationId: string | undefined,
     @Query("page") page: string | undefined,
-    @Query("size") size: string | undefined
+    @Query("size") size: string | undefined,
+    @Query("search") search: string | undefined
   ): Promise<AdminProductList> {
     const ctx = createStoreContext(correlationId);
     const startedAt = Date.now();
 
     try {
-      return await this.catalogRepository.listAdminProducts(ctx, normalizePage(page), normalizePageSize(size));
+      return await this.catalogRepository.listAdminProducts(
+        ctx,
+        normalizePage(page),
+        normalizePageSize(size),
+        normalizeAdminProductSearch(search)
+      );
     } finally {
       warnIfSlow("catalog.admin.products", startedAt, slowCatalogReadMs, ctx);
     }

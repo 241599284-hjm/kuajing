@@ -204,15 +204,15 @@ function auditActionLabel(value: string) {
   return labels[value] ?? value;
 }
 
-export function OrderManagementPanel() {
+export function OrderManagementPanel({ initialSearch = "", searchToken = 0 }: { initialSearch?: string; searchToken?: number }) {
   const [orders, setOrders] = useState<AdminOrderSummary[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [pageInput, setPageInput] = useState("1");
-  const [draftFilters, setDraftFilters] = useState<OrderFilters>(emptyFilters);
-  const [activeFilters, setActiveFilters] = useState<OrderFilters>(emptyFilters);
+  const [draftFilters, setDraftFilters] = useState<OrderFilters>({ ...emptyFilters, search: initialSearch });
+  const [activeFilters, setActiveFilters] = useState<OrderFilters>({ ...emptyFilters, search: initialSearch });
   const [status, setStatus] = useState("等待加载");
   const [isLoading, setIsLoading] = useState(false);
   const [detailState, dispatchDetail] = useReducer(detailDialogReducer<AdminOrderDetail>, initialDetailDialogState);
@@ -478,6 +478,13 @@ export function OrderManagementPanel() {
   useEffect(() => {
     void loadOrders();
   }, [page, pageSize, activeFilters]);
+
+  useEffect(() => {
+    const filters = { ...emptyFilters, search: initialSearch };
+    setDraftFilters(filters);
+    setActiveFilters(filters);
+    setPage(1);
+  }, [initialSearch, searchToken]);
 
   const summary = useMemo(() => {
     const totalMinor = orders.reduce((total, order) => total + order.totalMinor, 0);

@@ -14,7 +14,7 @@ function headerValue(headers: HeaderBag, name: string) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-export async function authorizeRefundRequest(
+export async function authorizeAdminRequest(
   headers: HeaderBag,
   fetchFn: FetchLike = fetch,
   authServiceUrl = process.env.AUTH_SERVICE_URL ?? "http://localhost:4102"
@@ -32,10 +32,19 @@ export async function authorizeRefundRequest(
   if (!session.adminId || !session.role) {
     throw new RefundAuthorizationError(401, ERROR_CODES.UNAUTHORIZED, "admin session is invalid");
   }
+  return { actorId: session.adminId, role: session.role };
+}
+
+export async function authorizeRefundRequest(
+  headers: HeaderBag,
+  fetchFn: FetchLike = fetch,
+  authServiceUrl = process.env.AUTH_SERVICE_URL ?? "http://localhost:4102"
+) {
+  const session = await authorizeAdminRequest(headers, fetchFn, authServiceUrl);
   if (session.role !== "owner" && session.role !== "finance") {
     throw new RefundAuthorizationError(403, ERROR_CODES.FORBIDDEN, "admin role cannot issue refunds");
   }
-  return { actorId: session.adminId, role: session.role };
+  return session;
 }
 
 export async function authorizePaymentConfigurationRequest(
