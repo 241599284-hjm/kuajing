@@ -181,6 +181,16 @@ sed -i -E 's#^AUTH_VERIFY_BASE_URL=.*$#AUTH_VERIFY_BASE_URL=http://$HostName`:30
 sed -i -E 's#^NEXT_PUBLIC_AUTH_SERVICE_URL=.*$#NEXT_PUBLIC_AUTH_SERVICE_URL=/auth#' '$RemoteDir/shared/.env'
 sed -i -E 's#^NEXT_PUBLIC_API_GATEWAY_URL=http://(localhost|127\.0\.0\.1):4000$#NEXT_PUBLIC_API_GATEWAY_URL=http://$HostName`:4000#' '$RemoteDir/shared/.env'
 sed -i -E 's#^NEXT_PUBLIC_ADMIN_GATEWAY_URL=http://(localhost|127\.0\.0\.1):4001$#NEXT_PUBLIC_ADMIN_GATEWAY_URL=http://$HostName`:4001#' '$RemoteDir/shared/.env'
+sed -i -E 's#^NEXT_PUBLIC_STOREFRONT_URL=http://(localhost|127\.0\.0\.1):3000$#NEXT_PUBLIC_STOREFRONT_URL=http://$HostName`:3000#' '$RemoteDir/shared/.env'
+sed -i -E 's#^NEXT_PUBLIC_ADMIN_ORIGIN=http://(localhost|127\.0\.0\.1):3001$#NEXT_PUBLIC_ADMIN_ORIGIN=http://$HostName`:3001#' '$RemoteDir/shared/.env'
+if ! grep -Eq '^OPS_MAINTENANCE_TOKEN=.{32,}$' '$RemoteDir/shared/.env'; then
+  token=`$(openssl rand -hex 32)
+  if grep -q '^OPS_MAINTENANCE_TOKEN=' '$RemoteDir/shared/.env'; then
+    sed -i "s#^OPS_MAINTENANCE_TOKEN=.*#OPS_MAINTENANCE_TOKEN=`$token#" '$RemoteDir/shared/.env'
+  else
+    printf '\nOPS_MAINTENANCE_TOKEN=%s\n' "`$token" >> '$RemoteDir/shared/.env'
+  fi
+fi
 rm -f "`$release_dir/.env"
 ln -s '$RemoteDir/shared/.env' "`$release_dir/.env"
 if [ -L '$RemoteDir/current' ] || [ -e '$RemoteDir/current' ]; then

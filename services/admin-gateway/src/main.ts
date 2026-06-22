@@ -17,6 +17,7 @@ import {
   shouldCompensateCatalogFailure,
   shouldReconcileCatalogFailure
 } from "./media-compensation.js";
+import { releaseFrontendMemory } from "./frontend-memory-release.js";
 
 const serviceName = "admin-gateway";
 const storeServiceUrl = process.env.STORE_SERVICE_URL ?? "http://localhost:4101";
@@ -34,6 +35,9 @@ const opsServiceUrl = process.env.OPS_SERVICE_URL ?? "http://localhost:4113";
 const productImportServiceUrl = process.env.PRODUCT_IMPORT_SERVICE_URL ?? "http://localhost:4114";
 const analyticsServiceUrl = process.env.ANALYTICS_SERVICE_URL ?? "http://localhost:4115";
 const analyticsIngestToken = process.env.ANALYTICS_INGEST_TOKEN ?? "";
+const storefrontInternalUrl = process.env.STOREFRONT_INTERNAL_URL ?? "http://localhost:3000";
+const adminInternalUrl = process.env.ADMIN_INTERNAL_URL ?? "http://localhost:3001";
+const opsMaintenanceToken = process.env.OPS_MAINTENANCE_TOKEN ?? "";
 const maxUploadBytes = Number(process.env.MEDIA_MAX_UPLOAD_BYTES ?? 8 * 1024 * 1024);
 const forwardedHeaderNames = [
   "x-correlation-id",
@@ -721,6 +725,34 @@ class HealthController {
   @Get("/ops/server-status")
   serverStatus(@Headers() headers: HeaderBag) {
     return forwardOpsJson("/server-status", headers);
+  }
+
+  @Post("/ops/release-frontend-memory")
+  async releaseFrontendMemory(@Headers() headers: HeaderBag) {
+    try {
+      const admin = await authorizeRefundRequest(headers);
+      if (admin.role !== "owner") {
+        throw new RefundAuthorizationError(403, ERROR_CODES.FORBIDDEN, "only the owner can release frontend memory");
+      }
+      const trustedHeaders = { ...headers, "x-admin-actor": admin.actorId };
+      await forwardOpsJsonWithBody("/actions/frontend-memory-release", trustedHeaders, {
+        targets: ["storefront", "admin"],
+        strategy: "sequential-process-restart"
+      });
+      return await releaseFrontendMemory({
+        token: opsMaintenanceToken,
+        storefrontUrl: storefrontInternalUrl,
+        adminUrl: adminInternalUrl
+      });
+    } catch (error) {
+      if (error instanceof RefundAuthorizationError) this.throwAuthorizationError(error);
+      if (error instanceof HttpException) throw error;
+      throw new HttpException({
+        code: ERROR_CODES.DEPENDENCY_UNAVAILABLE,
+        message: error instanceof Error ? error.message : "frontend memory release failed",
+        correlationId: headerValue(headers, "x-correlation-id") ?? randomUUID()
+      }, 503);
+    }
   }
 
   @Put("/ops/settings")

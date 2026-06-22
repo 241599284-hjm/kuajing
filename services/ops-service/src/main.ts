@@ -649,6 +649,11 @@ class OpsController {
       details = { requested: body, checkedAt, result };
     }
 
+    if (normalizedAction === "frontend-memory-release") {
+      summary = "管理员发起前台与后台进程顺序重启，以释放 Next.js 常驻内存。";
+      details = { requested: body, safety: "no-swapoff-no-drop-caches" };
+    }
+
     const event = auditEvent(
       `ops.action.${normalizedAction}`,
       actorFromHeaders(headers),

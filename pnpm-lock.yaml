@@ -35,6 +35,9 @@ importers:
       '@commerce/error-codes':
         specifier: workspace:*
         version: link:../../packages/error-codes
+      '@commerce/ops-maintenance':
+        specifier: workspace:*
+        version: link:../../packages/ops-maintenance
       '@radix-ui/react-avatar':
         specifier: ^1.2.0
         version: 1.2.0(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -96,6 +99,9 @@ importers:
       '@commerce/error-codes':
         specifier: workspace:*
         version: link:../../packages/error-codes
+      '@commerce/ops-maintenance':
+        specifier: workspace:*
+        version: link:../../packages/ops-maintenance
       '@commerce/theme-system':
         specifier: workspace:*
         version: link:../../packages/theme-system
@@ -140,6 +146,8 @@ importers:
   packages/error-codes: {}
 
   packages/money: {}
+
+  packages/ops-maintenance: {}
 
   packages/outbox-inbox:
     dependencies:

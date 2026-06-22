@@ -3,14 +3,21 @@ name: crossborder-commerce-kit
 services:
   storefront:
     profiles: ["app"]
+    restart: unless-stopped
     build:
       context: .
       dockerfile: infra/docker/node-app.Dockerfile
       args:
         APP_FILTER: "@commerce/storefront"
+        APP_RUN_SCRIPT: start
+        NEXT_PUBLIC_API_GATEWAY_URL: ${NEXT_PUBLIC_API_GATEWAY_URL:-http://localhost:4000}
+        NEXT_PUBLIC_AUTH_SERVICE_URL: ${NEXT_PUBLIC_AUTH_SERVICE_URL:-/auth}
+        NEXT_PUBLIC_ADMIN_ORIGIN: ${NEXT_PUBLIC_ADMIN_ORIGIN:-http://localhost:3001}
+        AUTH_SERVICE_URL: http://auth-service:4102
+        MEDIA_SERVICE_URL: http://media-service:4108
     container_name: cbck-storefront
     environment:
-      NODE_ENV: development
+      NODE_ENV: production
       NEXT_ALLOWED_DEV_ORIGINS: ${NEXT_ALLOWED_DEV_ORIGINS:-}
       NEXT_PUBLIC_API_GATEWAY_URL: ${NEXT_PUBLIC_API_GATEWAY_URL:-http://localhost:4000}
       NEXT_PUBLIC_AUTH_SERVICE_URL: ${NEXT_PUBLIC_AUTH_SERVICE_URL:-/auth}
@@ -19,6 +26,7 @@ services:
       MEDIA_SERVICE_URL: http://media-service:4108
       ANALYTICS_SERVICE_URL: http://analytics-service:4115
       ANALYTICS_INGEST_TOKEN: ${ANALYTICS_INGEST_TOKEN:-}
+      OPS_MAINTENANCE_TOKEN: ${OPS_MAINTENANCE_TOKEN:-}
       TRUSTED_REAL_IP_HEADER: ${TRUSTED_REAL_IP_HEADER:-}
       TRUSTED_COUNTRY_HEADER: ${TRUSTED_COUNTRY_HEADER:-}
     ports:
@@ -35,20 +43,28 @@ services:
 
   admin:
     profiles: ["app"]
+    restart: unless-stopped
     build:
       context: .
       dockerfile: infra/docker/node-app.Dockerfile
       args:
         APP_FILTER: "@commerce/admin"
+        APP_RUN_SCRIPT: start
+        NEXT_PUBLIC_ADMIN_GATEWAY_URL: ${NEXT_PUBLIC_ADMIN_GATEWAY_URL:-http://localhost:4001}
+        NEXT_PUBLIC_AUTH_SERVICE_URL: ${NEXT_PUBLIC_AUTH_SERVICE_URL:-/auth}
+        NEXT_PUBLIC_STOREFRONT_URL: ${NEXT_PUBLIC_STOREFRONT_URL:-http://localhost:3000}
+        AUTH_SERVICE_URL: http://auth-service:4102
+        MEDIA_SERVICE_URL: http://media-service:4108
     container_name: cbck-admin
     environment:
-      NODE_ENV: development
+      NODE_ENV: production
       NEXT_ALLOWED_DEV_ORIGINS: ${NEXT_ALLOWED_DEV_ORIGINS:-}
       NEXT_PUBLIC_ADMIN_GATEWAY_URL: ${NEXT_PUBLIC_ADMIN_GATEWAY_URL:-http://localhost:4001}
       NEXT_PUBLIC_AUTH_SERVICE_URL: ${NEXT_PUBLIC_AUTH_SERVICE_URL:-/auth}
       NEXT_PUBLIC_STOREFRONT_URL: ${NEXT_PUBLIC_STOREFRONT_URL:-http://localhost:3000}
       AUTH_SERVICE_URL: http://auth-service:4102
       MEDIA_SERVICE_URL: http://media-service:4108
+      OPS_MAINTENANCE_TOKEN: ${OPS_MAINTENANCE_TOKEN:-}
     ports:
       - "3001:3001"
     depends_on:
@@ -132,6 +148,9 @@ services:
       NOTIFICATION_SERVICE_URL: http://notification-service:4111
       REVIEW_SERVICE_URL: http://review-service:4112
       OPS_SERVICE_URL: http://ops-service:4113
+      STOREFRONT_INTERNAL_URL: http://storefront:3000
+      ADMIN_INTERNAL_URL: http://admin:3001
+      OPS_MAINTENANCE_TOKEN: ${OPS_MAINTENANCE_TOKEN:-}
       PRODUCT_IMPORT_SERVICE_URL: http://product-import-service:4114
       ANALYTICS_SERVICE_URL: http://analytics-service:4115
       ANALYTICS_INGEST_TOKEN: ${ANALYTICS_INGEST_TOKEN:-}

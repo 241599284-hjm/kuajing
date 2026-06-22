@@ -9,7 +9,8 @@ export const allowedOpsActions = new Set([
   "cdn-purge-all",
   "cdn-purge-path",
   "analytics-test",
-  "credential-expiry-scan"
+  "credential-expiry-scan",
+  "frontend-memory-release"
 ]);
 
 export function normalizeOpsAction(action: string): string {

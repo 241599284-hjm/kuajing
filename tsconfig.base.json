@@ -22,6 +22,7 @@
       "@commerce/pii-policy": ["packages/pii-policy/src/index.ts"],
       "@commerce/audit-log": ["packages/audit-log/src/index.ts"],
       "@commerce/error-codes": ["packages/error-codes/src/index.ts"],
+      "@commerce/ops-maintenance": ["packages/ops-maintenance/src/index.ts"],
       "@commerce/theme-system": ["packages/theme-system/src/index.ts"]
     }
   }

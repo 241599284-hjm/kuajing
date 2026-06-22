@@ -60,7 +60,7 @@ export function AdminWorkspace() {
   const content = (()=>{
     switch(section){
       case "dashboard": return <DashboardPage onOrders={()=>navigate("orders")}/>;
-      case "serverStatus": return <ServerStatusDashboard/>;
+      case "serverStatus": return <ServerStatusDashboard role={auth?.session.role}/>;
       case "visitorAnalytics": return <VisitorAnalyticsDashboard/>;
       case "orders": return <ExistingPage title="订单管理" description="管理 PayPal 支付订单、履约、退款和异常状态。"><OrderManagementPanel/></ExistingPage>;
       case "paypalOrder": return <PayPalOrderPage onOrders={()=>navigate("orders")}/>;
