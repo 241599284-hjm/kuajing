@@ -7,7 +7,7 @@ const product = {
   skuId: "00000000-0000-4000-8000-000000002001",
   skuCode: "TEA-PORCELAIN-SET-001",
   originCountry: "CN",
-  price: { minor: 9600, currency: "USD" },
+  price: { amountMinor: 9600, currency: "USD" },
   copy: {
     en: {
       name: "White Porcelain Tea Set",

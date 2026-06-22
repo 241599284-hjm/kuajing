@@ -15,7 +15,7 @@ export type TrustedCatalogProduct = {
   skuCode: string;
   originCountry: string;
   price: {
-    minor: number;
+    amountMinor: number;
     currency: string;
   };
   copy: {
@@ -56,7 +56,7 @@ export function trustedCheckoutLine(line: BrowserCheckoutLine, product: TrustedC
   );
   const originCountry = requiredText(product.originCountry, "catalog customs origin country").toUpperCase();
   const weightGrams = Number(product.copy.en.details.weightGrams);
-  const unitPriceMinor = Number(product.price.minor);
+  const unitPriceMinor = Number(product.price.amountMinor);
   const currency = requiredText(product.price.currency, "catalog currency").toUpperCase();
 
   if (!/^[A-Z]{2}$/.test(originCountry) || !Number.isInteger(weightGrams) || weightGrams <= 0) {
