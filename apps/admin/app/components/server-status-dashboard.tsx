@@ -101,7 +101,7 @@ export function ServerStatusDashboard({ role }: { role?: string }) {
   }
 
   return <div className="space-y-6">
-    <div className="flex flex-wrap items-end justify-between gap-3"><div><h1 className="text-xl font-semibold">服务器状态仪表盘</h1><p className="mt-1 text-xs text-[var(--muted-foreground)]">{message} · 每 30 秒自动刷新</p></div><div className="flex flex-wrap gap-2">{role === "owner" ? <Button size="sm" variant="outline" disabled={releasing || loading} onClick={() => setConfirmRelease(true)}><RotateCcw className={releasing ? "animate-spin" : ""} size={14}/>{releasing ? "释放中" : "释放前端内存"}</Button> : null}<Button size="sm" variant="outline" disabled={loading || releasing} onClick={() => void load()}><RefreshCw className={loading ? "animate-spin" : ""} size={14}/>立即刷新</Button></div></div>
+    <div className="flex flex-wrap items-end justify-between gap-3"><div><h1 className="text-xl font-semibold">服务器状态仪表盘</h1><p className="mt-1 text-xs text-[var(--muted-foreground)]">{message} · 每 30 秒自动刷新</p></div><div className="flex flex-wrap gap-2">{role === "owner" ? <Button className="min-h-11 sm:min-h-8" size="sm" variant="outline" disabled={releasing || loading} onClick={() => setConfirmRelease(true)}><RotateCcw className={releasing ? "animate-spin" : ""} size={14}/>{releasing ? "释放中" : "释放前端内存"}</Button> : null}<Button className="min-h-11 sm:min-h-8" size="sm" variant="outline" disabled={loading || releasing} onClick={() => void load()}><RefreshCw className={loading ? "animate-spin" : ""} size={14}/>立即刷新</Button></div></div>
     {data ? <>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <UsageCard title="物理内存" icon={MemoryStick} metric={data.memory} detail={`${bytes(data.memory.usedBytes)} / ${bytes(data.memory.totalBytes)}`}/>
