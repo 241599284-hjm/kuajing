@@ -33,6 +33,7 @@ const reviewServiceUrl = process.env.REVIEW_SERVICE_URL ?? "http://localhost:411
 const opsServiceUrl = process.env.OPS_SERVICE_URL ?? "http://localhost:4113";
 const productImportServiceUrl = process.env.PRODUCT_IMPORT_SERVICE_URL ?? "http://localhost:4114";
 const analyticsServiceUrl = process.env.ANALYTICS_SERVICE_URL ?? "http://localhost:4115";
+const analyticsIngestToken = process.env.ANALYTICS_INGEST_TOKEN ?? "";
 const maxUploadBytes = Number(process.env.MEDIA_MAX_UPLOAD_BYTES ?? 8 * 1024 * 1024);
 const forwardedHeaderNames = [
   "x-correlation-id",
@@ -73,6 +74,10 @@ function buildForwardHeaders(headers: HeaderBag, extraHeaders: Record<string, st
 
   nextHeaders["x-correlation-id"] = nextHeaders["x-correlation-id"] ?? randomUUID();
   return nextHeaders;
+}
+
+function analyticsHeaders(headers: HeaderBag) {
+  return buildForwardHeaders(headers, { "x-analytics-ingest-token": analyticsIngestToken });
 }
 
 function adminRequestIp(request: { ip?: string; socket?: { remoteAddress?: string } }) {
@@ -738,7 +743,7 @@ class HealthController {
     try {
       const admin = await authorizeRefundRequest(headers);
       if (admin.role !== "owner") throw new RefundAuthorizationError(403, ERROR_CODES.FORBIDDEN, "only the owner can view visitor analytics");
-      return requestJson(`${analyticsServiceUrl}/ready`, { headers: buildForwardHeaders(headers) }, headers);
+      return requestJson(`${analyticsServiceUrl}/ready`, { headers: analyticsHeaders(headers) }, headers);
     } catch (error) {
       this.throwAuthorizationError(error);
     }
@@ -757,7 +762,7 @@ class HealthController {
       const query = new URLSearchParams({ date });
       if (page) query.set("page", page);
       if (size) query.set("size", size);
-      return requestJson(`${analyticsServiceUrl}/admin/sessions?${query}`, { headers: buildForwardHeaders(headers) }, headers);
+      return requestJson(`${analyticsServiceUrl}/admin/sessions?${query}`, { headers: analyticsHeaders(headers) }, headers);
     } catch (error) {
       this.throwAuthorizationError(error);
     }
@@ -770,7 +775,7 @@ class HealthController {
       if (admin.role !== "owner") throw new RefundAuthorizationError(403, ERROR_CODES.FORBIDDEN, "only the owner can view visitor analytics");
       return requestJson(
         `${analyticsServiceUrl}/admin/sessions/${encodeURIComponent(id)}`,
-        { headers: buildForwardHeaders(headers) },
+        { headers: analyticsHeaders(headers) },
         headers
       );
     } catch (error) {
@@ -793,7 +798,7 @@ class HealthController {
       if (size) query.set("size", size);
       return requestJson(
         `${analyticsServiceUrl}/admin/server-requests?${query}`,
-        { headers: buildForwardHeaders(headers) },
+        { headers: analyticsHeaders(headers) },
         headers
       );
     } catch (error) {

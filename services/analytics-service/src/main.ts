@@ -194,6 +194,7 @@ class AnalyticsRepository {
   }
 
   async list(headers: HeaderBag, date: string, pageValue: string | undefined, sizeValue: string | undefined) {
+    assertIngestToken(headers);
     const store = context(headers);
     const page = Math.max(1, Number(pageValue ?? 1) || 1);
     const size = Math.max(1, Math.min(100, Number(sizeValue ?? 20) || 20));
@@ -271,6 +272,7 @@ class AnalyticsRepository {
   }
 
   async detail(headers: HeaderBag, idValue: string) {
+    assertIngestToken(headers);
     const store = context(headers);
     const id = requiredUuid(idValue, "sessionId");
     const [sessionResult, pagesResult] = await Promise.all([
@@ -329,6 +331,7 @@ class AnalyticsRepository {
   }
 
   async serverRequests(headers: HeaderBag, date: string, pageValue: string | undefined, sizeValue: string | undefined) {
+    assertIngestToken(headers);
     const store = context(headers);
     const page = Math.max(1, Number(pageValue ?? 1) || 1);
     const size = Math.max(1, Math.min(100, Number(sizeValue ?? 50) || 50));
