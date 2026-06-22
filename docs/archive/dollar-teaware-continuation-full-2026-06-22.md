@@ -1,0 +1,142 @@
+# $茶具站继续开发
+
+新开对话时只复制下面代码块。不要复制历史文档、日志或生成产物。
+
+```text
+$茶具站继续开发
+
+项目路径：D:\crossborder-commerce-kit
+前台地址：http://localhost:3000
+后台地址：http://localhost:3001
+
+## 启动方式
+
+1. 必须把工作目录设为 `D:\crossborder-commerce-kit`；不要从 Playground 工作区间接开发本项目。
+2. 先执行 `git status --short --branch`，保护现有未提交改动，再读取本任务直接涉及的文件及其调用方。
+3. 不要整份读取历史、长日志、锁文件或超过 20 KB 的文档；先用标题、`rg`、指定行范围定位相关内容。
+4. 长命令最多连续进行 3 次无新信息的短间隔 `wait`；达到次数后不得据此自动取消任务，必须改用较长间隔、日志、进程、端口或服务状态判断。确认正常运行则继续保留，确认卡死或失败后才停止或重试，禁止无限短间隔轮询。
+5. 一次只推进一个可验证闭环；完成后更新当前状态和历史，再决定是否开启新线程。
+
+## 项目定位
+
+这是自营跨境茶具独立站底座，不做运行时多租户 SaaS，不增加 `tenant-service` 或 `tenant_id`。不同客户使用同一套源码独立部署，各自拥有域名、数据库、缓存、对象存储、密钥和后台配置。
+
+第一条核心交易闭环：
+后台创建商品 → 录入库存 → 前台浏览 → 加购物车 → Guest Checkout → 创建订单 → 预留库存 → 支付成功 → 确认扣库存 → 后台查看订单。
+
+## 不可破坏的工程规则
+
+- 前台展示必须有后台和真实接口支撑；生产不得依赖静态兜底或假保存。
+- 商品、分类、地域、详情、SEO、图片媒体及可选择业务字段必须后台可维护。
+- 买家侧中英文双语，错误提示跟随当前语言；后台默认中文。
+- PC、iPad、手机响应式验收，移动端触控区域不小于 44px。
+- 一个业务模块一个微服务边界，前后台不直连数据库。
+- 金额、库存、数量使用整数最小单位；时间统一 UTC。
+- 支付、物流、税费、汇率、风控使用 Provider 接口，禁止硬编码进订单主流程。
+- Saga/TCC 补偿必须真实反向改数据；失败任务持久化重试，超过次数进入 DLQ。
+- DLQ 和 failed reconciliation 必须有后台查看、重试、作废及操作审计入口。
+- 写接口、上传、下单、退款、库存预留必须支持幂等；失败返回统一业务错误码、明确文案和 correlation ID。
+- 后台写操作记录操作人、时间、IP、请求 ID 和变更内容。
+- 列表接口必须分页；`PUT` 全量更新和 `PATCH` 增量更新语义分离。
+- 媒体只在 Catalog 保存 URL 和轻量元数据；上传、绑定、解绑、变体删除及不确定 5xx 对账必须闭环。
+- Catalog 高频读取使用按维度 Redis 缓存；数据库写入成功后删除相关缓存，静态兜底不得进入缓存。
+- 邮件统一走 `notification-service` 模板、账号池和发送日志；正式邮件使用静态 PNG Logo 和 HTTPS CDN。
+- 评价绑定已购订单/订单行，图片走媒体服务，审核通过后才同步前台。
+- 企业资质、附件和到期提醒必须后台维护并审计。
+- 全站视觉遵循 `docs/premium-minimal-visual-system.md` 和 `docs/module-visual-templates.md`，优先复用公共组件。
+- 当前阶段使用 Docker Compose；业务闭环稳定后才考虑 K8s，生产数据库和 Redis 不放入 K8s。
+
+### URL、HTTPS 与媒体持久化硬规则
+
+- 浏览器可见的 API/认证/媒体域名必须由环境变量或同源反向代理提供：`dev` 可使用 `http://localhost`，`prod` 必须使用 `https://`；禁止在业务组件中写死线上域名、IP 或协议。
+- Docker 内部服务间通信可以使用 `http://service-name:port`，它不属于浏览器混合内容；不得把内部地址返回给浏览器或写进业务数据。
+- 站内静态资源只保存同源相对路径，例如 `/assets/xxx.png`、`/static/xxx.png`；上传媒体只保存 `/media/public/{objectKey}` 与 `objectKey`，禁止保存 `http://127.0.0.1/...`、测试 IP、正式域名或 CDN 完整地址。
+- 前后台必须把 `/media/public/*` 同源代理到 `media-service`；生产切换 HTTPS/CDN 时修改网关、反向代理或环境配置，不批量改数据库。
+- 第三方资源必须使用显式 `https://`。不采用协议相对 `//example.com` 作为最终存储格式；输入若为 `//`，保存前规范化为 `https://`。无法提供 HTTPS 的第三方资源不得嵌入生产页面。
+- 富文本、邮件模板、评价图片、商品/分类/地域媒体保存前必须拒绝 `http://`；站内链接保存相对路径，外部链接仅允许显式 HTTPS。
+- 数据库迁移和写接口必须同时守住上述约束；禁止只在前端替换字符串。历史数据发现完整站内 HTTP URL 时，依据 `objectKey` 或已知静态路径迁移为相对引用，并保留可重复验证脚本。
+
+## 当前基线（2026-06-20）
+
+- pnpm/Turborepo TypeScript 单仓包含 Next.js 前台/后台、NestJS 网关和多个业务微服务。
+- Catalog/Media 动态主线已有商品、分类、地域、跨境字段、审计、缓存、媒体上传、响应式 WebP 变体和商品绑定第一版。
+- 已绑定媒体解绑清理、Catalog 4xx 立即补偿、不确定 5xx durable reconciliation 已通过测试服务器真实 MinIO/PostgreSQL 演练。
+- 媒体 `failed` reconciliation 的后台人工重试/作废、输入边界、事务幂等和审计已通过测试服务器 PostgreSQL 状态演练。
+- GIF 转 H.264 MP4、MP4 poster/宽高/时长提取、后台 GIF/MP4 上传、FFmpeg Alpine 镜像和派生对象清理已通过测试服务器真实 MinIO 演练。
+- Catalog 商品多图上下排序、中英文 alt 编辑、前台详情图库及响应式图片选择已通过测试服务器 API 和桌面/移动端浏览器验收；测试媒体经 API Gateway 公开读取代理访问，正式生产仍需 HTTPS CDN。
+- PayPal 沙箱创建订单适配器、OAuth、整数金额、幂等请求头、审批链接、HTTPS 配置校验和安全错误归一化已接入通用 payment intent；测试服务器已验证真实 PayPal 沙箱 401 拒绝分支。有效凭据支付、真实签名 webhook、capture/退款仍未验证。
+- PayPal 正式链路顺序已确定：先创建本地 `pending_payment` 订单并预留库存，再创建 PayPal Order；只有 durable inbox 去重且验签通过的 capture webhook 才能把本地订单改为已支付并确认扣库存。当前已完成 PayPal 验签适配器的请求头、官方 verify API、失败签名拒绝、completed capture 映射和 raw-body HTTP 入口。
+- PayPal webhook durable inbox 已落到 `order_db.payment_webhook_events`：首次 claim、处理中/已完成重复、失败重试、attempt 计数和同 event ID 不同 payload 冲突已通过测试服务器 PostgreSQL 演练；演练测试行和临时文件已清理。
+- PayPal raw-body webhook 路由和异步 worker 已完成第一版：路由仅在 PayPal Provider 启用时验签并写 durable inbox 后返回 202；worker 使用 lease/退避，读取本地订单核对金额/币种后调用幂等支付确认并触发库存 confirm，超限进入 failed。测试服务器已验证 lease、退避、耗尽、重入预算重置和清理；有效 PayPal 签名事件仍未验证。
+- 前台静态 PayPal 一键跳转已完成：结账页只展示 PayPal，Provider 返回正式站或 Sandbox 的 HTTPS 审批地址时自动跳转；HTTP、脚本协议和相似域名会被拒绝。Mock 环境继续留在订单结果页。公网桌面/移动端页面已验收，真实 Sandbox 跳转仍待有效凭据。
+- 支付交易持久化已落到 `order_db.payment_transactions`：Provider 创建成功后以 store/provider/idempotency key 幂等记录整数金额和 Provider payment ID；已验签 worker 在订单确认成功后标记 paid，关联 event ID，并独立保存 PayPal Capture ID 供后续退款。测试服务器已验证 HTTP intent 重放、创建冲突、paid 重放、金额不一致拒绝、Capture ID 写入和临时数据清理。
+- 退款/部分退款闭环已完成第一版：Admin Gateway 转发到 payment-service，数据库锁定交易并预占余额；后台订单详情可查看支付金额、已退/占用/可退余额和历史，并执行部分/全额退款。PayPal `PAYMENT.CAPTURE.REFUNDED`、`PAYMENT.REFUND.PENDING`、`PAYMENT.REFUND.FAILED` 已接入 durable inbox worker，按 Provider refund ID 核对金额/币种，重复终态幂等、矛盾终态拒绝；PostgreSQL 服务演练已通过。角色权限和真实 Sandbox 退款仍未完成。
+- PayPal 新开发以当前可访问的官方文档和官方 `paypal-rest-api-specifications` OpenAPI 为准；深链接必须实际访问验证。`docs.paypal.ai/developer/reference/api/orders/v2` 于 2026-06-20 返回 404，不能作为唯一固定入口；禁止凭经验臆造 Webhook 事件名。
+- 管理员退款权限已完成本地第一版：`admin_users` 增加密码哈希和状态，`admin_sessions` 只保存 opaque token 的 SHA-256，浏览器仅使用 HttpOnly/SameSite Cookie；Admin Gateway 通过 auth-service 校验会话，只允许 `owner`、`finance` 发起退款，并用会话 admin ID 覆盖客户端伪造 actor。后台登录门禁、测试和构建已通过；因测试服务器尚未配置 `ADMIN_BOOTSTRAP_PASSWORD`，本轮未部署，避免锁死现有后台。
+- 后台视觉已锁定“静瓷后台”并完成第一轮整体重建：固定 48px Header、240/64px Sidebar、移动抽屉、全局搜索/币种/通知/用户菜单、仪表盘、订单/退款/Webhook、商品/库存/客户、PayPal Sandbox/Live/Webhook、物流/网站和更多运营导航已统一。新增 shadcn 风格组件层和 `docs/admin-design-system.md`；桌面 DOM 1440/1440、Header 48、Sidebar 240，移动溢出从 778 修到 390/390。截图接口超时，`design-qa.md` 当前为 blocked，未部署。
+- 后台强制规范：危险写操作二次确认；所有外部接口配置必须有真实“测试连通性”；未描述页面按同一 Layout、状态、加载、空数据、错误、分页、审计规则补齐；禁止模拟接口成功。
+- 前后台同类业务列表强制遵循 `docs/list-detail-interaction-standard.md`：单条数据固定一行、摘要字段单行截断、仅操作列详情按钮触发、完整详情独立接口请求、页面仅一个 Portal 弹窗、关闭清空并再次请求。订单页已完成基准实现；其他旧页面按接口具备情况逐页迁移，禁止拿摘要数据伪装详情。
+- 首页视觉已锁定 `FERNCLIFF / Quiet Atelier` 并完成本地全链路第一版：10 类模块由 `store-service` PostgreSQL 布局持久化，Admin Gateway 提供读取/草稿/发布/ready/订阅列表，后台支持拖拽排序、显隐、复制、删除二次确认、双语内容、链接/条目、媒体上传和 PC/手机实时预览；前台解析真实 Catalog 分类/商品并复用搜索、市场/币种、账号、购物车、政策页和邮件订阅流程。新增静态图只使用 `/static/*` 相对路径。
+- 首页限量藏品的三件商品现已全部进入真实 Catalog：白瓷茶具、青瓷杯组和宜兴紫砂壶均具备 active 商品、SKU、库存、价格、双语详情和跨境报关字段。首页订阅后台具备分页、邮箱搜索、状态筛选、CSV 导出、退订/恢复二次确认和事件审计；前后台 1920/375 验证无整页横向溢出。
+- 测试服务器已部署 release `20260622015043-1e0c30c0cfcf`，回滚版本为 `20260622014551-0651f08d3ee5`：商品列表内新增/修改、分类列表内新增/修改、两阶段保存确认和真实服务器状态仪表盘已上线；订单、退款、Webhook、客户、商品和评价列表的统一详情交互继续有效。公网桌面/移动 Playwright、真实指标 API 与服务健康检查通过。浏览器认证统一使用同源 `/auth`，无需开放 auth-service 端口。
+- 首页重要操作规则：保存草稿不影响买家页；发布和删除必须二次确认；所有资源写入继续拒绝 `http://`；后台“测试连通性”必须真实穿透 `admin-gateway -> store-service -> PostgreSQL`。
+- PayPal Sandbox/Live/Webhook 配置已部署测试服务器：两套环境在 `order_db` 隔离存储，Secret 使用服务器专属 AES-256-GCM 密钥且永不回显，更新和测试记录操作人、IP、correlation ID 与变更字段；Sandbox 允许 owner/finance 更新，Live 仅 owner。payment-service 创建订单、退款和 Webhook 验签按 `PAYPAL_ENVIRONMENT` 动态读取保存配置；OAuth 和 Webhook ID 查询测试均为真实 PayPal 请求。公网已验证保存、读取、无效凭据 503、清理和双端 UI；有效凭据成功分支仍未验证。
+- 订单后台已完成服务端筛选/分页并部署：支持订单/支付状态、日期、金额、订单号、买家邮箱和 PayPal 交易标识搜索，默认 20 条、最大 100 条，并提供总数、总页数、前后翻页和手动跳页。订单列表已按统一规范改为固定单行摘要和右侧详情按钮，完整详情使用独立接口与全局单实例弹窗；关闭清理、重复请求和双端适配已通过公网验证。
+- 统一业务列表规范已扩展到退款、Webhook 日志、客户、后台商品、评价和前台限量商品：摘要固定单行、仅详情按钮触发、详情独立接口请求、页面唯一 Portal 弹窗、关闭清空并重新请求；本轮已完成本地接口测试、构建及桌面/移动浏览器验收，服务器部署结果记录在验证历史。库存预留、订阅、审计和 DLQ 等旧列表尚未迁移，不计入本轮完成范围。
+- 后台页面形态遵循 `docs/admin-list-and-config-page-standard.md`：商品和分类在列表内完成新增、详情和修改，不再保留独立“新增 / 编辑商品”菜单；全局单例配置保持配置表单，配置页内部的模板、账号、日志等多记录资源仍按列表规范迁移。
+- 后台新增独立服务器状态仪表盘，指标必须来自 ops-service 读取服务器 `/proc`、根磁盘和 cgroup，不使用浏览器估算；展示 CPU、内存、Swap、磁盘、负载、运行时间和监控进程资源。
+- 首页编辑器上传图片后会从媒体服务响应式变体中选择最大 WebP 地址持久化，不再保存原始 JPG/PNG；默认首页与现有静态陶瓷图片已切换为同源相对 WebP 路径。媒体数据库仍只保存相对 URL，继续禁止完整 HTTP 地址。
+- 上传媒体已统一持久化为 `/media/public/{objectKey}` 相对引用，前后台同源代理到 media-service；Catalog、评价、邮件模板写入与数据库约束拒绝 `http://`。迁移 `037` 已在测试服务器三库执行，现存污染计数为 0；生产 HTTPS 域名/CDN 尚未验收。
+- 订单、库存、Guest Checkout、Mock 支付和后台查看链路已有第一版；订单和库存幂等冲突已通过 PostgreSQL 运行时演练。
+- 核心服务及前后台网关已接统一错误码；下游不可用统一返回 `503 DEPENDENCY_UNAVAILABLE`。
+- 邮件、物流、评价、企业资质、商品导入、运维、DLQ 后台已有第一版，但真实 Provider 和若干生产闭环仍未完成。
+- 腾讯云测试服务器支持版本化发布、`current/previous` 切换、回滚和 HTTP smoke check；这不代表生产域名、SSL/CDN、真实支付和真实物流已经完成。
+- 当前工作区存在未提交改动；继续前必须检查实际 diff，不能根据本文推断代码已完成。
+
+## 当前优先级
+
+1. 配置有效 PayPal Sandbox Client ID/Secret/Webhook ID，完成真实创建/审批/capture、签名 webhook、重复事件、金额/币种不一致和真实退款 E2E。
+2. 继续把旧业务面板内部控件迁移到新 shadcn 层，补订单物流录入和全局搜索真实接口。
+3. 按 `docs/production-gap-register.md` 推进剩余 P0，不重复实现已完成项。
+4. 补评价图片、签收后邀评、审核审计；补企业资质附件、每日到期扫描和真实提醒。
+5. 自动化媒体定期演练，并为生产 HTTPS CDN/对象存储公开读取配置正式域名。
+
+## 测试服务器构建限制
+
+- 当前腾讯云测试机只有约 3.6 GiB 内存；禁止执行全量 `docker compose --profile app up -d --build` 或 Buildx 多服务并行构建。
+- 必须逐服务构建，或在 CI/本机完成镜像并通过镜像仓库/`docker load` 发布；构建前后检查内存、swap、磁盘和旧站 HTTP。
+
+## 文档读取规则
+
+- 生产缺口：`docs/production-gap-register.md`
+- 完整后续计划：`docs/dollar-teaware-continuation-plan.md`
+- 已完成功能和旧状态：`docs/development-history.md`
+- 历次测试、部署和演练证据：`docs/verification-history.md`
+- 迁移前完整快照：`docs/archive/dollar-teaware-continuation-full-2026-06-18.md`
+
+只读取与当前任务直接相关的章节。历史文档默认不整份加载。
+
+## 完成内容迁移协议
+
+每完成一个可验证工作单元，必须同时维护以下内容：
+
+1. 将“完成了什么、涉及哪些模块、关键设计决定”追加到 `docs/development-history.md`。
+2. 将“执行的命令、测试结果、服务器演练、correlation ID、未验证项”追加到 `docs/verification-history.md`。
+3. 在本文件的“当前基线”中只保留仍影响后续开发的最新事实。
+4. 从“当前优先级”删除已完成项，并补入下一项真实未完成任务。
+5. 禁止把日期流水、完整测试输出、部署日志继续追加到本文件。
+6. 重大重构或历史文件再次过长时，在 `docs/archive/` 创建带日期的只读快照，再做分段归档。
+
+## Codex 上下文规则
+
+- 全局技能保持最小集合；缺少专用流程时由 `skill-router` 最多按需读取两个归档技能，不恢复到全局目录。
+- 精简上下文不得替代验证；代码改动仍按范围执行 typecheck、test、Playwright、Docker 配置或真实环境 smoke check。
+- 不重复读取已经掌握且未变化的大文件；优先读取 diff、相关函数、调用方和失败输出。
+- 工具输出只保留结论相关部分，禁止把完整构建日志和长文件反复带入上下文。
+
+## 验证原则
+
+- 迭代时优先跑受影响包的 typecheck/test/build。
+- 跨服务契约、数据库迁移、Docker 或 UI 改动按风险追加集成测试、`docker compose config`、Playwright 或真实服务器演练。
+- 只有实际运行并读过输出的检查才能记录为通过；失败项和未验证项必须显式保留。
+```

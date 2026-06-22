@@ -129,6 +129,10 @@
 3. 后台保存流程
 4. 前台读取流程
 5. 测试清单
+
+- 2026-06-22：新增独立 `analytics-service` 访问监控。`visitor_server_requests` 记录所有前台文档请求用于安全/运维，不依赖 Cookie 同意；`visitor_sessions` 与 `visitor_page_views` 仅在访客接受统计且未启用 Do Not Track 后记录会话、逐页停留与退出页。两类数据分别默认保留 14/30 天，IP 使用服务器专属 AES-256-GCM 密钥加密，应用日志不打印明文；国家只读取配置的可信边缘代理头，缺失时留空。前台 Next Proxy 异步写服务器日志，浏览器访问会话经 API Gateway 写入，所有写接口使用内部共享令牌。后台新增 owner-only“访问监控”独立视图，默认合并显示两类记录，可按类型筛选；服务器日志没有停留/退出数据时保持空白，访问详情继续使用独立接口与全局单实例弹窗。
+- 2026-06-22：商店公开路由统一到 `FERNCLIFF / Quiet Atelier`。首页与商品、商品详情、分类、地域、购物车、结算、账户、物流和政策页复用同一头部；旧 H&L 品牌头和页脚已替换，旧业务页面在不改交易逻辑的前提下统一暖米白、橄榄灰、黄铜线与 Playfair 标题。
+- 2026-06-22：`$茶具站继续开发.md` 从 18,778 字节压缩到 9,025 字节。媒体 URL、列表详情、危险操作只保留一个权威规则；同步错误规范明确排除 durable Webhook 的 `202` 异步特例；长历史维护改为检查大小和尾部，不要求整份读取。压缩前完整快照保存到 `docs/archive/dollar-teaware-continuation-full-2026-06-22.md`。
 - 2026-06-18：媒体 `failed` reconciliation 人工处置完成本地第一版：`media-service` 新增仅允许 `failed` 状态执行的重试/作废接口，强制 UUID、操作人、3-500 字处理意见和 8-200 字幂等键；PostgreSQL 事务内完成状态变更与 `media_reconciliation_audit_events` 审计，同键同动作重放返回原结果，同键异动作和非 `failed` 状态返回冲突。`admin-gateway` 已转发接口，后台新增媒体对账列表、失败原因、审计轨迹和人工操作入口。新增迁移 `031-media-reconciliation-manual-actions.sql` 与服务器演练脚本 `scripts/run-server-media-reconciliation-manual-drill.ps1`。
 - 2026-06-18：媒体短视频处理完成本地第一版：新增独立 FFmpeg 处理模块，GIF 转 H.264/yuv420p MP4，MP4 保留原始视频字节，两者均通过 ffprobe 提取宽高/时长并生成首帧 WebP poster；FFmpeg 子进程有 60 秒超时，损坏媒体返回上传拒绝，FFmpeg 缺失返回依赖不可用。poster 作为派生媒体对象进入现有补偿、对账、解绑清理链路。后台商品媒体控件现支持静态图片、GIF 和 MP4；应用镜像安装 FFmpeg。
 - 2026-06-19：新增可重复服务器媒体演练 `scripts/run-server-media-processing-drill.ps1`，在真实媒体容器生成 GIF/MP4，经 `admin-gateway` 上传，使用 MinIO SDK 验证对象存在与 MP4 SHA-256，最后经正式删除 API 清理主对象和 poster；脚本使用退出清理钩子避免失败遗留测试媒体。人工对账演练脚本同时修复了 `psql -c` 参数未展开问题。
