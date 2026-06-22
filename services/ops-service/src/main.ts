@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import tls from "node:tls";
 import pg from "pg";
 import { normalizeOpsAction } from "./ops-actions.js";
+import { serverStatus } from "./server-status.js";
 
 const { Pool } = pg;
 
@@ -582,6 +583,11 @@ class OpsController {
     } catch {
       return { service: "ops-service", status: "degraded", postgres: "unavailable" };
     }
+  }
+
+  @Get("/server-status")
+  serverStatus() {
+    return serverStatus();
   }
 
   @Get("/settings")

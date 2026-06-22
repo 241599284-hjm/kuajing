@@ -712,6 +712,11 @@ class HealthController {
     return forwardOpsJson("/settings", headers);
   }
 
+  @Get("/ops/server-status")
+  serverStatus(@Headers() headers: HeaderBag) {
+    return forwardOpsJson("/server-status", headers);
+  }
+
   @Put("/ops/settings")
   saveOpsSettings(@Headers() headers: HeaderBag, @Body() body: unknown) {
     return forwardOpsJsonWithBody("/settings", headers, body, "PUT");
