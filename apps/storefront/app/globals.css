@@ -34,13 +34,33 @@ body {
 }
 
 .premium-shell {
-  background: var(--bg);
+  background: var(--ferncliff-paper);
+  color: var(--ferncliff-ink);
+  font-family: Lato, Arial, sans-serif;
+  overflow-x: clip;
+}
+
+.premium-shell h1,
+.premium-shell h2,
+.premium-shell h3,
+.premium-shell .premium-display {
+  font-family: "Playfair Display", Georgia, serif !important;
+  font-weight: 400 !important;
+}
+
+.premium-shell a,
+.premium-shell button,
+.premium-shell input,
+.premium-shell select,
+.premium-shell textarea {
+  font-family: Inter, Arial, sans-serif;
+  letter-spacing: 0;
 }
 
 .premium-container {
   margin-left: auto;
   margin-right: auto;
-  max-width: 80rem;
+  max-width: 86rem;
   padding-left: 1rem;
   padding-right: 1rem;
 }
@@ -73,7 +93,7 @@ body {
   height: 3rem;
   align-items: center;
   justify-content: center;
-  background: var(--ink);
+  background: var(--ferncliff-olive);
   color: #ffffff;
   padding-left: 1.25rem;
   padding-right: 1.25rem;
@@ -85,7 +105,7 @@ body {
 }
 
 .premium-btn:hover {
-  background: var(--accent);
+  background: var(--ferncliff-charcoal);
   transform: translateY(-1px);
 }
 
@@ -94,9 +114,9 @@ body {
   height: 3rem;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--ferncliff-brass);
   background: transparent;
-  color: var(--ink);
+  color: var(--ferncliff-ink);
   padding-left: 1.25rem;
   padding-right: 1.25rem;
   font-size: 0.75rem;
@@ -107,8 +127,8 @@ body {
 }
 
 .premium-btn-outline:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--ferncliff-olive);
+  color: var(--ferncliff-olive);
   transform: translateY(-1px);
 }
 

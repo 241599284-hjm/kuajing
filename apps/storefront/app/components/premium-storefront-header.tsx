@@ -1,17 +1,16 @@
 "use client";
 
+import { ChevronRight, Menu, Search, ShoppingBag, UserRound, X } from "lucide-react";
 import Link from "next/link";
 import type { Route } from "next";
-import { Search, ShoppingBag, User } from "lucide-react";
+import { useState } from "react";
 import type { Locale, storefrontCopy } from "../lib/storefront-content.js";
 import { useCart } from "../lib/cart.js";
 import { useCustomerSession } from "../lib/customer-session.js";
-import { LanguageToggle } from "./language-toggle.js";
-import { HLArtisanLogo } from "./hl-artisan-logo.js";
 import { MarketPreferenceSelector } from "./market-preference-selector.js";
-import { MobileNavigation } from "./mobile-navigation.js";
 import { ProductSearchBox } from "./product-search-box.js";
 
+type NavLink = { href: string; label: { en: string; zh: string } };
 type PremiumStorefrontHeaderProps = {
   locale: Locale;
   onLocaleChange: (locale: Locale) => void;
@@ -20,24 +19,20 @@ type PremiumStorefrontHeaderProps = {
   overlay?: boolean;
   productsHref?: string;
   supportHref?: string;
+  navLinks?: NavLink[];
 };
+
+const defaultNavLinks = (productsHref: string, supportHref: string): NavLink[] => [
+  { href: productsHref, label: { en: "Shop", zh: "商店" } },
+  { href: "/#limited-collection", label: { en: "Collections", zh: "系列" } },
+  { href: "/#artisan-story", label: { en: "Artisans", zh: "匠人" } },
+  { href: "/regions", label: { en: "Origins", zh: "产地" } },
+  { href: supportHref, label: { en: "Contact", zh: "联系" } }
+];
 
 export function PremiumCartButton({ ariaLabel }: { ariaLabel: string }) {
   const { count } = useCart();
-  const dynamicAriaLabel = ariaLabel.replace("0", String(count));
-
-  return (
-    <Link
-      href={"/cart" as Route}
-      aria-label={dynamicAriaLabel}
-      className="premium-focus relative flex size-10 shrink-0 items-center justify-center text-black md:size-11"
-    >
-      <ShoppingBag size={20} strokeWidth={1.8} />
-      <span className="absolute right-0 top-0 flex size-4 items-center justify-center rounded-full bg-black text-[10px] font-semibold text-white">
-        {count}
-      </span>
-    </Link>
-  );
+  return <Link className="ferncliff-icon-button relative" aria-label={ariaLabel.replace("0", String(count))} href={"/cart" as Route}><ShoppingBag/><span className="ferncliff-cart-count">{count}</span></Link>;
 }
 
 export function PremiumStorefrontHeader({
@@ -45,93 +40,34 @@ export function PremiumStorefrontHeader({
   onLocaleChange,
   copy,
   onRegisterClick,
-  overlay = false,
   productsHref = "/products",
-  supportHref = "/contact-us"
+  supportHref = "/contact-us",
+  navLinks
 }: PremiumStorefrontHeaderProps) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const customer = useCustomerSession();
-  const navItems = [
-    { label: "Shop All", zh: "全部商品", href: productsHref },
-    { label: "Best Sellers", zh: "热销爆款", href: "/#products" },
-    { label: "New Arrivals", zh: "新品", href: "/#new-arrivals" },
-    { label: "Gift Sets", zh: "礼品礼盒", href: "/categories/gift" },
-    { label: "Our Craft", zh: "工艺故事", href: "/#craft" },
-    { label: "FAQ & Shipping", zh: "物流售后", href: "/track-order" },
-    { label: "Contact Us", zh: "联系我们", href: supportHref }
-  ];
+  const links = navLinks ?? defaultNavLinks(productsHref, supportHref);
 
-  return (
-    <header
-      className={[
-        "sticky top-0 z-30 border-b border-[var(--line)] backdrop-blur-xl",
-        overlay ? "bg-white/80" : "bg-white/95"
-      ].join(" ")}
-    >
-      <div className="premium-container flex h-[60px] items-center gap-3 md:h-20">
-        <MobileNavigation
-          copy={copy}
-          locale={locale}
-          onLocaleChange={onLocaleChange}
-          onRegisterClick={onRegisterClick}
-          productsHref={productsHref}
-          supportHref={supportHref}
-        />
-
-        <Link
-          aria-label={locale === "zh" ? "返回首页" : "Home"}
-          className="premium-focus shrink-0 text-black"
-          href="/"
-        >
-          <HLArtisanLogo className="h-8 w-[7.75rem] md:h-11 md:w-[9.75rem]" decorative showSeal={false} variant="wordmark" />
-          <span className="sr-only">{locale === "zh" ? "H & L Artisan 北京" : "H & L Artisan Beijing"}</span>
-        </Link>
-
-        <nav className="mx-auto hidden items-center gap-6 text-[12px] font-semibold text-[var(--ink)] lg:flex">
-          {navItems.map((item) => (
-            <Link key={item.label} className="premium-focus hover:text-[var(--ink-soft)]" href={item.href as Route}>
-              {locale === "zh" ? item.zh : item.label}
-            </Link>
-          ))}
-        </nav>
-
-        <div className="ml-auto hidden min-w-[10rem] max-w-[13rem] flex-1 items-center justify-end xl:flex">
-          <ProductSearchBox
-            className="flex h-10 w-full items-center gap-2 border-b border-black/25 bg-transparent px-0 text-black"
-            copy={copy}
-            locale={locale}
-          />
-        </div>
-
-        <div className="ml-auto flex items-center gap-1 md:ml-0 md:gap-2">
-          <button aria-label={copy.searchSr} className="premium-focus flex size-10 items-center justify-center text-[var(--ink)] xl:hidden" type="button">
-            <Search size={19} strokeWidth={1.8} />
-          </button>
-          <LanguageToggle
-            className="hidden h-10 border border-transparent bg-transparent px-2 shadow-none hover:border-[var(--line)] sm:inline-flex"
-            locale={locale}
-            onLocaleChange={onLocaleChange}
-            variant="compact"
-          />
-          <details className="group relative hidden md:block">
-            <summary className="premium-focus flex h-10 cursor-pointer list-none items-center px-1 text-xs font-semibold text-[var(--ink-soft)]">
-              {locale === "zh" ? "地区 / 货币" : "Market / USD"}
-            </summary>
-            <div className="absolute right-0 top-[calc(100%+0.75rem)] z-40 w-72 border border-[var(--line)] bg-white p-3 shadow-2xl">
-              <MarketPreferenceSelector locale={locale} onLocaleChange={onLocaleChange} />
-            </div>
-          </details>
-          <Link aria-label={copy.account} className="premium-focus flex size-10 items-center justify-center text-black md:size-11" href={"/account" as Route}>
-            <User size={19} strokeWidth={1.8} />
-            {customer ? <span className="sr-only">{customer.username}</span> : null}
-          </Link>
-          {customer ? null : (
-            <button className="hidden h-10 px-3 text-xs font-semibold uppercase tracking-[0.08em] text-black md:block" onClick={onRegisterClick} type="button">
-              {copy.register}
-            </button>
-          )}
-          <PremiumCartButton ariaLabel={copy.cartAria} />
-        </div>
+  return <header className="ferncliff-header">
+    <button className="ferncliff-icon-button ferncliff-menu-button" aria-label={locale === "zh" ? "打开菜单" : "Open menu"} onClick={() => setMenuOpen(true)} type="button"><Menu/></button>
+    <Link className="ferncliff-wordmark" href="/">FERNCLIFF<span>ARTISAN OBJECTS</span></Link>
+    <nav className="ferncliff-desktop-nav">{links.map((link) => <Link key={link.href} href={link.href as Route}>{link.label[locale]}</Link>)}</nav>
+    <ProductSearchBox className="ferncliff-header-search" copy={copy} locale={locale}/>
+    <div className="ferncliff-header-actions">
+      <button className="ferncliff-icon-button" aria-label={copy.searchSr} onClick={() => setSearchOpen((value) => !value)} type="button"><Search/></button>
+      <details className="ferncliff-market"><summary>{locale === "zh" ? "CN / USD" : "US / USD"}</summary><div><MarketPreferenceSelector locale={locale} onLocaleChange={onLocaleChange}/></div></details>
+      <Link className="ferncliff-icon-button ferncliff-account-button" aria-label={copy.account} href="/account"><UserRound/>{customer ? <span className="sr-only">{customer.username}</span> : null}</Link>
+      <PremiumCartButton ariaLabel={copy.cartAria}/>
+    </div>
+    {searchOpen ? <div className="ferncliff-search-panel"><ProductSearchBox className="mx-auto flex h-12 max-w-2xl items-center gap-3 border-b border-[var(--ferncliff-ink)]" copy={copy} locale={locale}/></div> : null}
+    {menuOpen ? <div className="ferncliff-mobile-drawer">
+      <button className="ferncliff-icon-button ml-auto" aria-label={locale === "zh" ? "关闭菜单" : "Close menu"} onClick={() => setMenuOpen(false)} type="button"><X/></button>
+      <nav>{links.map((link) => <Link key={link.href} href={link.href as Route} onClick={() => setMenuOpen(false)}>{link.label[locale]}<ChevronRight/></Link>)}</nav>
+      <div className="mt-6 flex items-center justify-between gap-4">
+        <button className="ferncliff-language" type="button" onClick={() => onLocaleChange(locale === "zh" ? "en" : "zh")}>{locale === "zh" ? "English" : "中文"}</button>
+        {!customer ? <button className="ferncliff-language" type="button" onClick={() => { setMenuOpen(false); onRegisterClick(); }}>{copy.register}</button> : null}
       </div>
-    </header>
-  );
+    </div> : null}
+  </header>;
 }

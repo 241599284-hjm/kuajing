@@ -1,7 +1,7 @@
 "use client";
 
 import type { HomepageLocalizedText, HomepageModule } from "@commerce/contracts";
-import { ArrowRight, Check, ChevronRight, Menu, Search, ShoppingBag, UserRound, X } from "lucide-react";
+import { ArrowRight, Check, ChevronRight, ShoppingBag } from "lucide-react";
 import Link from "next/link";
 import type { Route } from "next";
 import { useCallback, useMemo, useState, type CSSProperties, type FormEvent } from "react";
@@ -9,9 +9,8 @@ import { addCartItem, useCart } from "../lib/cart.js";
 import type { Locale, StorefrontCategory, StorefrontProduct } from "../lib/storefront-content.js";
 import { storefrontCopy } from "../lib/storefront-content.js";
 import { resolveHomepageModules, type ResolvedHomepageModule } from "../lib/homepage-layout.js";
-import { MarketPreferenceSelector } from "./market-preference-selector.js";
-import { ProductSearchBox } from "./product-search-box.js";
 import { ProductDetailDialog } from "./product-detail-dialog.js";
+import { PremiumStorefrontHeader } from "./premium-storefront-header.js";
 import { useHomepageLayout } from "./homepage-layout-provider.js";
 import { useStorefrontCatalog } from "./storefront-catalog-provider.js";
 import { useStorefrontLocale } from "./use-storefront-locale.js";
@@ -64,27 +63,7 @@ function Announcement({ module, locale }: { module: HomepageModule; locale: Loca
 }
 
 function Header({ module, locale, onLocaleChange }: { module: HomepageModule; locale: Locale; onLocaleChange: (locale: Locale) => void }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const { count } = useCart();
-  const siteCopy = storefrontCopy[locale];
-
-  return (
-    <header className="ferncliff-header">
-      <button className="ferncliff-icon-button ferncliff-menu-button" aria-label={locale === "zh" ? "打开菜单" : "Open menu"} onClick={() => setMenuOpen(true)} type="button"><Menu/></button>
-      <Link className="ferncliff-wordmark" href="/">FERNCLIFF<span>ARTISAN OBJECTS</span></Link>
-      <nav className="ferncliff-desktop-nav">{(module.content.links ?? []).map((link) => <Link key={link.href} href={link.href as Route}>{copy(link.label, locale)}</Link>)}</nav>
-      <ProductSearchBox className="ferncliff-header-search" copy={siteCopy} locale={locale}/>
-      <div className="ferncliff-header-actions">
-        <button className="ferncliff-icon-button" aria-label={siteCopy.searchSr} onClick={() => setSearchOpen((value) => !value)} type="button"><Search/></button>
-        <details className="ferncliff-market"><summary>{locale === "zh" ? "CN / USD" : "US / USD"}</summary><div><MarketPreferenceSelector locale={locale} onLocaleChange={onLocaleChange}/></div></details>
-        <Link className="ferncliff-icon-button ferncliff-account-button" aria-label={siteCopy.account} href="/account"><UserRound/></Link>
-        <Link className="ferncliff-icon-button relative" aria-label={siteCopy.cartAria.replace("0", String(count))} href="/cart"><ShoppingBag/><span className="ferncliff-cart-count">{count}</span></Link>
-      </div>
-      {searchOpen ? <div className="ferncliff-search-panel"><ProductSearchBox className="mx-auto flex h-12 max-w-2xl items-center gap-3 border-b border-[var(--ferncliff-ink)]" copy={siteCopy} locale={locale}/></div> : null}
-      {menuOpen ? <div className="ferncliff-mobile-drawer"><button className="ferncliff-icon-button ml-auto" aria-label={locale === "zh" ? "关闭菜单" : "Close menu"} onClick={() => setMenuOpen(false)} type="button"><X/></button><nav>{(module.content.links ?? []).map((link) => <Link key={link.href} href={link.href as Route} onClick={() => setMenuOpen(false)}>{copy(link.label, locale)}<ChevronRight/></Link>)}</nav><button className="ferncliff-language" type="button" onClick={() => onLocaleChange(locale === "zh" ? "en" : "zh")}>{locale === "zh" ? "English" : "中文"}</button></div> : null}
-    </header>
-  );
+  return <PremiumStorefrontHeader copy={storefrontCopy[locale]} locale={locale} navLinks={module.content.links} onLocaleChange={onLocaleChange} onRegisterClick={() => undefined}/>;
 }
 
 function Hero({ module, locale }: { module: HomepageModule; locale: Locale }) {
