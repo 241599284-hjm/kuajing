@@ -1,10 +1,22 @@
 import "reflect-metadata";
-import { BadRequestException, Body, Controller, Get, Headers, Injectable, Module, Param, Post, Put, ServiceUnavailableException } from "@nestjs/common";
+import { BadRequestException, Body, ConflictException, Controller, Get, Headers, Injectable, Module, NotFoundException, Param, Post, Put, ServiceUnavailableException } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { ERROR_CODES } from "@commerce/error-codes";
 import { assertStoreContext } from "@commerce/store-context";
 import { randomUUID } from "node:crypto";
 import pg from "pg";
+import {
+  assertShipmentTransition,
+  FulfillmentConflictError,
+  FulfillmentValidationError,
+  notificationIdempotencyKey,
+  normalizeCreateShipment,
+  normalizeShipmentStatusUpdate,
+  shipmentRequestHash,
+  shipmentStatusRequestHash,
+  type CreateShipmentInput,
+  type ShipmentStatus
+} from "./fulfillment.js";
 
 const { Pool } = pg;
 
@@ -75,6 +87,59 @@ type AccountInput = {
   sortOrder?: number;
 };
 
+type ShipmentEvent = {
+  eventId: string;
+  fromStatus: ShipmentStatus | null;
+  toStatus: ShipmentStatus;
+  location: string;
+  reason: string;
+  actorId: string;
+  correlationId: string;
+  createdAt: string;
+};
+
+type Shipment = {
+  shipmentId: string;
+  orderId: string;
+  orderNumber: string;
+  carrierCode: string;
+  carrierName: string;
+  trackingNumber: string;
+  status: ShipmentStatus;
+  createdBy: string;
+  shippedAt: string;
+  deliveredAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  events: ShipmentEvent[];
+  storageMode: StorageMode;
+};
+
+type ShipmentRow = {
+  id: string;
+  order_id: string;
+  order_number: string;
+  carrier_code: string;
+  carrier_name: string;
+  tracking_number: string;
+  status: ShipmentStatus;
+  created_by: string;
+  shipped_at: Date;
+  delivered_at: Date | null;
+  created_at: Date;
+  updated_at: Date;
+  events_json: Array<{
+    eventId: string;
+    fromStatus: ShipmentStatus | null;
+    toStatus: ShipmentStatus;
+    location: string;
+    reason: string;
+    actorId: string;
+    correlationId: string;
+    createdAt: string;
+  }>;
+};
+
 const databaseUrl = process.env.LOGISTICS_DATABASE_URL;
 const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL ?? "http://localhost:4111";
 const cacheMinutes = Number(process.env.LOGISTICS_TRANSIT_CACHE_MINUTES ?? 45);
@@ -82,6 +147,8 @@ const defaultCorrelationId = "local-logistics-correlation";
 const inMemoryAccounts = new Map<string, LogisticsAccount>();
 const inMemoryCache = new Map<string, TrackingRecord>();
 const inMemoryLogs: CallLog[] = [];
+const inMemoryShipments = new Map<string, Shipment & { idempotencyKey: string; requestHash: string }>();
+const inMemoryShipmentEventKeys = new Map<string, { requestHash: string; shipmentId: string }>();
 const pool = databaseUrl ? new Pool({ connectionString: databaseUrl }) : null;
 
 function validationFailed(message: string, details?: unknown): BadRequestException {
@@ -103,6 +170,22 @@ function providerUnavailable(message: string, details?: unknown): ServiceUnavail
 function dependencyUnavailable(message: string, details?: unknown): ServiceUnavailableException {
   return new ServiceUnavailableException({
     code: ERROR_CODES.DEPENDENCY_UNAVAILABLE,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function idempotencyConflict(message: string, details?: unknown): ConflictException {
+  return new ConflictException({
+    code: ERROR_CODES.IDEMPOTENCY_CONFLICT,
+    message,
+    ...(details === undefined ? {} : { details })
+  });
+}
+
+function notFound(message: string, details?: unknown): NotFoundException {
+  return new NotFoundException({
+    code: ERROR_CODES.NOT_FOUND,
     message,
     ...(details === undefined ? {} : { details })
   });
@@ -249,6 +332,25 @@ function mockTracking(trackingNumber: string, account: LogisticsAccount): Tracki
   };
 }
 
+function shipmentFromRow(row: ShipmentRow): Shipment {
+  return {
+    shipmentId: row.id,
+    orderId: row.order_id,
+    orderNumber: row.order_number,
+    carrierCode: row.carrier_code,
+    carrierName: row.carrier_name,
+    trackingNumber: row.tracking_number,
+    status: row.status,
+    createdBy: row.created_by,
+    shippedAt: row.shipped_at.toISOString(),
+    deliveredAt: row.delivered_at?.toISOString() ?? null,
+    createdAt: row.created_at.toISOString(),
+    updatedAt: row.updated_at.toISOString(),
+    events: row.events_json ?? [],
+    storageMode: "postgres"
+  };
+}
+
 @Injectable()
 class LogisticsRepository {
   async storageMode(): Promise<StorageMode> {
@@ -260,6 +362,244 @@ class LogisticsRepository {
     } catch {
       return "memory";
     }
+  }
+
+  private async shipmentRows(whereSql: string, values: unknown[]) {
+    if (!pool) return [];
+    const result = await pool.query<ShipmentRow>(
+      `
+        SELECT
+          s.id, s.order_id, s.order_number, s.carrier_code, s.carrier_name,
+          s.tracking_number, s.status, s.created_by, s.shipped_at, s.delivered_at,
+          s.created_at, s.updated_at,
+          COALESCE((
+            SELECT jsonb_agg(jsonb_build_object(
+              'eventId', e.id,
+              'fromStatus', e.from_status,
+              'toStatus', e.to_status,
+              'location', e.location,
+              'reason', e.reason,
+              'actorId', e.actor_id,
+              'correlationId', e.correlation_id,
+              'createdAt', e.created_at
+            ) ORDER BY e.created_at ASC)
+            FROM shipment_events e
+            WHERE e.store_id = s.store_id AND e.shipment_id = s.id
+          ), '[]'::jsonb) AS events_json
+        FROM shipments s
+        WHERE ${whereSql}
+        ORDER BY s.created_at DESC
+      `,
+      values
+    );
+    return result.rows.map(shipmentFromRow);
+  }
+
+  async shipmentsForOrder(storeId: string, orderId: string): Promise<{ shipments: Shipment[]; storageMode: StorageMode }> {
+    if (!pool) {
+      return {
+        shipments: [...inMemoryShipments.values()].filter((shipment) => shipment.orderId === orderId),
+        storageMode: "memory"
+      };
+    }
+    return {
+      shipments: await this.shipmentRows("s.store_id = $1 AND s.order_id = $2", [storeId, orderId]),
+      storageMode: "postgres"
+    };
+  }
+
+  async createShipment(ctx: ReturnType<typeof createContext>, input: CreateShipmentInput) {
+    const requestHash = shipmentRequestHash(input);
+    if (!pool) {
+      const replay = [...inMemoryShipments.values()].find((shipment) => shipment.idempotencyKey === input.idempotencyKey);
+      if (replay) {
+        if (replay.requestHash !== requestHash) throw idempotencyConflict("shipment idempotency key conflicts with a previous request");
+        return { shipment: replay, replayed: true };
+      }
+      const now = new Date().toISOString();
+      const shipment: Shipment & { idempotencyKey: string; requestHash: string } = {
+        shipmentId: randomUUID(),
+        orderId: input.orderId,
+        orderNumber: input.orderNumber,
+        carrierCode: input.carrierCode,
+        carrierName: input.carrierName,
+        trackingNumber: input.trackingNumber,
+        status: input.status,
+        createdBy: input.actorId,
+        shippedAt: now,
+        deliveredAt: null,
+        createdAt: now,
+        updatedAt: now,
+        events: [{
+          eventId: randomUUID(),
+          fromStatus: null,
+          toStatus: "shipped",
+          location: "",
+          reason: input.reason,
+          actorId: input.actorId,
+          correlationId: ctx.correlationId,
+          createdAt: now
+        }],
+        storageMode: "memory",
+        idempotencyKey: input.idempotencyKey,
+        requestHash
+      };
+      inMemoryShipments.set(shipment.shipmentId, shipment);
+      return { shipment, replayed: false };
+    }
+
+    const client = await pool.connect();
+    let shipmentId: string;
+    try {
+      await client.query("BEGIN");
+      const replay = (await client.query<{ id: string; request_hash: string }>(
+        "SELECT id, request_hash FROM shipments WHERE store_id = $1 AND idempotency_key = $2 FOR UPDATE",
+        [ctx.storeId, input.idempotencyKey]
+      )).rows[0];
+      if (replay) {
+        if (replay.request_hash !== requestHash) throw idempotencyConflict("shipment idempotency key conflicts with a previous request");
+        await client.query("COMMIT");
+        const shipment = (await this.shipmentRows("s.store_id = $1 AND s.id = $2", [ctx.storeId, replay.id]))[0];
+        return { shipment, replayed: true };
+      }
+
+      shipmentId = randomUUID();
+      const eventId = randomUUID();
+      await client.query(
+        `INSERT INTO shipments (
+          id, store_id, order_id, order_number, carrier_code, carrier_name,
+          tracking_number, status, created_by, idempotency_key, request_hash
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        [
+          shipmentId, ctx.storeId, input.orderId, input.orderNumber, input.carrierCode,
+          input.carrierName, input.trackingNumber, input.status, input.actorId,
+          input.idempotencyKey, requestHash
+        ]
+      );
+      await client.query(
+        `INSERT INTO shipment_events (
+          id, store_id, shipment_id, from_status, to_status, location, reason,
+          actor_id, correlation_id, idempotency_key, request_hash
+        ) VALUES ($1,$2,$3,NULL,$4,'',$5,$6,$7,$8,$9)`,
+        [eventId, ctx.storeId, shipmentId, input.status, input.reason, input.actorId, ctx.correlationId, input.idempotencyKey, requestHash]
+      );
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      if (typeof error === "object" && error && "code" in error && error.code === "23505") {
+        const replay = (await client.query<{ id: string; request_hash: string }>(
+          "SELECT id, request_hash FROM shipments WHERE store_id = $1 AND idempotency_key = $2",
+          [ctx.storeId, input.idempotencyKey]
+        )).rows[0];
+        if (replay) {
+          if (replay.request_hash !== requestHash) {
+            throw idempotencyConflict("shipment idempotency key conflicts with a previous request");
+          }
+          const shipment = (await this.shipmentRows("s.store_id = $1 AND s.id = $2", [ctx.storeId, replay.id]))[0];
+          return { shipment, replayed: true };
+        }
+        throw idempotencyConflict("shipment tracking number already exists");
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+    const shipment = (await this.shipmentRows("s.store_id = $1 AND s.id = $2", [ctx.storeId, shipmentId!]))[0];
+    return { shipment, replayed: false };
+  }
+
+  async updateShipmentStatus(
+    ctx: ReturnType<typeof createContext>,
+    shipmentId: string,
+    input: ReturnType<typeof normalizeShipmentStatusUpdate>,
+    idempotencyKey: string
+  ) {
+    const requestHash = shipmentStatusRequestHash(input);
+    if (!pool) {
+      const shipment = inMemoryShipments.get(shipmentId);
+      if (!shipment) throw notFound("shipment does not exist", { shipmentId });
+      const replay = inMemoryShipmentEventKeys.get(idempotencyKey);
+      if (replay) {
+        if (replay.requestHash !== requestHash || replay.shipmentId !== shipmentId) throw idempotencyConflict("shipment status idempotency key conflicts with a previous request");
+        return { shipment, replayed: true };
+      }
+      assertShipmentTransition(shipment.status, input.status);
+      const now = new Date().toISOString();
+      shipment.events.push({
+        eventId: randomUUID(),
+        fromStatus: shipment.status,
+        toStatus: input.status,
+        location: input.location,
+        reason: input.reason,
+        actorId: input.actorId,
+        correlationId: ctx.correlationId,
+        createdAt: now
+      });
+      shipment.status = input.status;
+      shipment.updatedAt = now;
+      shipment.deliveredAt = input.status === "delivered" ? now : shipment.deliveredAt;
+      inMemoryShipmentEventKeys.set(idempotencyKey, { requestHash, shipmentId });
+      return { shipment, replayed: false };
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const replay = (await client.query<{ shipment_id: string; request_hash: string }>(
+        "SELECT shipment_id, request_hash FROM shipment_events WHERE store_id = $1 AND idempotency_key = $2 FOR UPDATE",
+        [ctx.storeId, idempotencyKey]
+      )).rows[0];
+      if (replay) {
+        if (replay.request_hash !== requestHash || replay.shipment_id !== shipmentId) throw idempotencyConflict("shipment status idempotency key conflicts with a previous request");
+        await client.query("COMMIT");
+        const shipment = (await this.shipmentRows("s.store_id = $1 AND s.id = $2", [ctx.storeId, shipmentId]))[0];
+        return { shipment, replayed: true };
+      }
+      const current = (await client.query<{ status: ShipmentStatus }>(
+        "SELECT status FROM shipments WHERE store_id = $1 AND id = $2 FOR UPDATE",
+        [ctx.storeId, shipmentId]
+      )).rows[0];
+      if (!current) throw notFound("shipment does not exist", { shipmentId });
+      assertShipmentTransition(current.status, input.status);
+      await client.query(
+        `UPDATE shipments
+         SET status = $3, updated_at = now(),
+             delivered_at = CASE WHEN $3 = 'delivered' THEN COALESCE(delivered_at, now()) ELSE delivered_at END
+         WHERE store_id = $1 AND id = $2`,
+        [ctx.storeId, shipmentId, input.status]
+      );
+      await client.query(
+        `INSERT INTO shipment_events (
+          id, store_id, shipment_id, from_status, to_status, location, reason,
+          actor_id, correlation_id, idempotency_key, request_hash
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        [
+          randomUUID(), ctx.storeId, shipmentId, current.status, input.status,
+          input.location, input.reason, input.actorId, ctx.correlationId, idempotencyKey, requestHash
+        ]
+      );
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      if (typeof error === "object" && error && "code" in error && error.code === "23505") {
+        const replay = (await client.query<{ shipment_id: string; request_hash: string }>(
+          "SELECT shipment_id, request_hash FROM shipment_events WHERE store_id = $1 AND idempotency_key = $2",
+          [ctx.storeId, idempotencyKey]
+        )).rows[0];
+        if (replay) {
+          if (replay.request_hash !== requestHash || replay.shipment_id !== shipmentId) {
+            throw idempotencyConflict("shipment status idempotency key conflicts with a previous request");
+          }
+          const shipment = (await this.shipmentRows("s.store_id = $1 AND s.id = $2", [ctx.storeId, shipmentId]))[0];
+          return { shipment, replayed: true };
+        }
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+    const shipment = (await this.shipmentRows("s.store_id = $1 AND s.id = $2", [ctx.storeId, shipmentId]))[0];
+    return { shipment, replayed: false };
   }
 
   async listAccounts(): Promise<{ accounts: LogisticsAccount[]; storageMode: StorageMode }> {
@@ -538,6 +878,47 @@ class LogisticsRepository {
 class LogisticsService {
   constructor(private readonly repository: LogisticsRepository) {}
 
+  async shipmentsForOrder(headers: HeaderBag, orderId: string) {
+    const ctx = createContext(headers);
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(orderId)) {
+      throw validationFailed("orderId must be a UUID", { field: "orderId" });
+    }
+    return this.repository.shipmentsForOrder(ctx.storeId, orderId);
+  }
+
+  async createShipment(headers: HeaderBag, body: Record<string, unknown>) {
+    const ctx = createContext(headers);
+    try {
+      const input = normalizeCreateShipment({
+        ...body,
+        idempotencyKey: headerValue(headers, "idempotency-key") ?? headerValue(headers, "x-idempotency-key") ?? ""
+      });
+      return await this.repository.createShipment(ctx, input);
+    } catch (error) {
+      if (error instanceof FulfillmentValidationError) throw validationFailed(error.message);
+      throw error;
+    }
+  }
+
+  async updateShipmentStatus(headers: HeaderBag, shipmentId: string, body: Record<string, unknown>) {
+    const ctx = createContext(headers);
+    const idempotencyKey = headerValue(headers, "idempotency-key") ?? headerValue(headers, "x-idempotency-key") ?? "";
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(shipmentId)) {
+      throw validationFailed("shipmentId must be a UUID", { field: "shipmentId" });
+    }
+    if (!idempotencyKey.trim()) throw validationFailed("idempotency-key is required", { field: "idempotency-key" });
+    try {
+      const input = normalizeShipmentStatusUpdate(body);
+      return await this.repository.updateShipmentStatus(ctx, shipmentId, input, idempotencyKey.trim().slice(0, 200));
+    } catch (error) {
+      if (error instanceof FulfillmentValidationError) throw validationFailed(error.message);
+      if (error instanceof FulfillmentConflictError) {
+        throw new ConflictException({ code: ERROR_CODES.CONFLICT, message: error.message });
+      }
+      throw error;
+    }
+  }
+
   async query(headers: HeaderBag, rawTrackingNumber: string, forceRefresh = false) {
     const ctx = createContext(headers);
     const trackingNumber = normalizeTrackingNumber(rawTrackingNumber);
@@ -615,13 +996,14 @@ class LogisticsService {
       body: JSON.stringify({
         to,
         templateKey: "shipping_notice",
-        idempotencyKey: `logistics-update-${trackingNumber}-${to}`,
+        idempotencyKey: notificationIdempotencyKey(body.idempotencyKey, trackingNumber, to),
         variables: {
           brandName: process.env.STOREFRONT_BRAND_NAME ?? "Demo Teaware",
           name: body.name ?? "Customer",
           orderNumber: body.orderNumber ?? "N/A",
           trackingNumber,
           carrier: body.carrier ?? "Carrier pending",
+          status: body.status ?? "shipped",
           trackingUrl: body.trackingUrl ?? `${process.env.STOREFRONT_PUBLIC_URL ?? "http://localhost:3000"}/track-order?trackingNumber=${encodeURIComponent(trackingNumber)}`,
           locale: body.locale ?? "en"
         }
@@ -674,6 +1056,25 @@ class LogisticsController {
     }
 
     return this.logisticsService.query(headers, body.trackingNumber, true);
+  }
+
+  @Get("/admin/shipments/order/:orderId")
+  shipmentsForOrder(@Headers() headers: HeaderBag, @Param("orderId") orderId: string) {
+    return this.logisticsService.shipmentsForOrder(headers, orderId);
+  }
+
+  @Post("/admin/shipments")
+  createShipment(@Headers() headers: HeaderBag, @Body() body: Record<string, unknown>) {
+    return this.logisticsService.createShipment(headers, body);
+  }
+
+  @Post("/admin/shipments/:shipmentId/status")
+  updateShipmentStatus(
+    @Headers() headers: HeaderBag,
+    @Param("shipmentId") shipmentId: string,
+    @Body() body: Record<string, unknown>
+  ) {
+    return this.logisticsService.updateShipmentStatus(headers, shipmentId, body);
   }
 
   @Get("/admin/logistics/api-accounts")

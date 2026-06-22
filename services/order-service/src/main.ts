@@ -23,6 +23,7 @@ import { nextRetryAt } from "@commerce/outbox-inbox";
 import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import { assertCheckoutReplay, checkoutFingerprint } from "./checkout-idempotency.js";
+import { buildCustomsReport, CustomsReportError } from "./customs-report.js";
 import {
   buildOrderListSql,
   filterAndPaginateMemoryOrders,
@@ -31,6 +32,7 @@ import {
   type OrderListQuery,
   type OrderListResult
 } from "./order-list-query.js";
+import { trustedCheckoutLine, type TrustedCatalogProduct } from "./trusted-checkout.js";
 
 type MockCheckoutLine = {
   slug?: string;
@@ -42,13 +44,31 @@ type MockCheckoutLine = {
   currency?: string;
 };
 
+type RequestedCheckoutLine = {
+  slug: string;
+  quantity: number;
+};
+
 type NormalizedCheckoutLine = {
   slug: string;
   skuId: string;
   skuCode: string;
   title: string;
+  hsCode: string;
+  material: string;
+  customsDeclaration: string;
+  originCountry: string;
+  weightGrams: number;
   quantity: number;
   unitPriceMinor: number;
+  currency: string;
+};
+
+type NormalizedCheckout = {
+  customerEmail: string;
+  paymentMethod: string;
+  shippingAddress: ShippingAddressSnapshot;
+  lines: NormalizedCheckoutLine[];
   currency: string;
 };
 
@@ -117,6 +137,9 @@ type AdminOrderLine = {
   title: string;
   hsCode: string;
   material: string;
+  customsDeclaration: string;
+  originCountry: string;
+  weightGrams: number;
   inventoryVersion: number;
   inventoryReservationKey: string;
   quantity: number;
@@ -220,6 +243,7 @@ type OrderAuditRow = {
 const mockOrdersByIdempotencyKey = new Map<string, MockCheckoutOrder>();
 const mockOrderFingerprintsByIdempotencyKey = new Map<string, string>();
 const paymentServiceUrl = process.env.PAYMENT_SERVICE_URL ?? "http://localhost:4106";
+const catalogServiceUrl = process.env.CATALOG_SERVICE_URL ?? "http://localhost:4103";
 const inventoryServiceUrl = process.env.INVENTORY_SERVICE_URL ?? "http://localhost:4104";
 const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL ?? "http://localhost:4111";
 const selfHostedStore = {
@@ -471,49 +495,36 @@ function normalizeManualCompensation(input: ManualCompensationRequest, actorHead
   };
 }
 
-function normalizeLine(line: MockCheckoutLine): NormalizedCheckoutLine {
+function normalizeLine(line: MockCheckoutLine): RequestedCheckoutLine {
   const slug = line.slug?.trim();
-  const skuId = normalizeSkuId(line.skuId);
-  const skuCode = line.skuCode?.trim();
-  const title = line.title?.trim();
   const quantity = Number(line.quantity);
-  const unitPriceMinor = Number(line.unitPriceMinor);
-  const currency = line.currency?.trim().toUpperCase() || "USD";
 
-  if (!slug || !skuCode || !title) {
-    throw validationFailed("line slug, skuCode, and title are required", { fields: ["slug", "skuCode", "title"] });
+  if (!slug) {
+    throw validationFailed("line slug is required", { field: "slug" });
   }
 
   if (!Number.isInteger(quantity) || quantity <= 0 || quantity > 99) {
     throw validationFailed("line quantity must be 1-99", { field: "quantity", min: 1, max: 99 });
   }
 
-  if (!Number.isInteger(unitPriceMinor) || unitPriceMinor < 0) {
-    throw validationFailed("line unitPriceMinor must be a non-negative integer", { field: "unitPriceMinor", min: 0 });
-  }
-
-  return { slug, skuId, skuCode, title, quantity, unitPriceMinor, currency };
+  return { slug, quantity };
 }
 
-function normalizeCheckout(body: MockCheckoutRequest) {
+function normalizeCheckoutRequest(body: MockCheckoutRequest) {
   const lines = body.lines?.map(normalizeLine) ?? [];
 
   if (lines.length === 0) {
     throw validationFailed("at least one checkout line is required", { field: "lines" });
   }
-
-  const currency = lines[0]?.currency ?? "USD";
-
-  if (lines.some((line) => line.currency !== currency)) {
-    throw validationFailed("mixed checkout currencies are not supported in local mock checkout", { field: "lines[].currency" });
+  if (new Set(lines.map((line) => line.slug)).size !== lines.length) {
+    throw validationFailed("duplicate product lines are not supported", { field: "lines[].slug" });
   }
 
   return {
     customerEmail: normalizeEmail(body.customerEmail),
     paymentMethod: body.paymentMethod?.trim() || "mock",
     shippingAddress: normalizeShippingAddress(body.shippingAddress),
-    lines,
-    currency
+    lines
   };
 }
 
@@ -522,7 +533,7 @@ function paymentRedirectUrl(orderId: string): string {
 }
 
 function buildMockOrder(
-  checkout: ReturnType<typeof normalizeCheckout>,
+  checkout: NormalizedCheckout,
   idempotencyKey: string,
   storageMode: MockCheckoutOrder["storageMode"],
   inventoryMode: MockCheckoutOrder["inventoryMode"],
@@ -553,7 +564,7 @@ function buildMockOrder(
 }
 
 function mockMemoryOrder(
-  checkout: ReturnType<typeof normalizeCheckout>,
+  checkout: NormalizedCheckout,
   idempotencyKey: string,
   inventoryMode: MockCheckoutOrder["inventoryMode"],
   inventoryReservations: InventoryReservationResult[],
@@ -717,7 +728,7 @@ class OrderRepository implements OnApplicationShutdown {
 
   async assertIdempotencyReplay(
     ctx: StoreContext,
-    checkout: ReturnType<typeof normalizeCheckout>,
+    checkout: NormalizedCheckout,
     idempotencyKey: string
   ): Promise<void> {
     const result = await this.pool.query<{ request_fingerprint: string | null }>(
@@ -733,7 +744,7 @@ class OrderRepository implements OnApplicationShutdown {
 
   async createMockOrder(
     ctx: StoreContext,
-    checkout: ReturnType<typeof normalizeCheckout>,
+    checkout: NormalizedCheckout,
     idempotencyKey: string,
     orderId: string,
     inventoryMode: MockCheckoutOrder["inventoryMode"],
@@ -987,6 +998,9 @@ class OrderRepository implements OnApplicationShutdown {
         sku_code_snapshot: string;
         hs_code_snapshot: string;
         material_snapshot: string;
+        customs_declaration_snapshot: string;
+        origin_country_snapshot: string;
+        weight_grams_snapshot: number;
         inventory_version_snapshot: number;
         inventory_reservation_key_snapshot: string | null;
         qty: number;
@@ -1001,6 +1015,9 @@ class OrderRepository implements OnApplicationShutdown {
             sku_code_snapshot,
             hs_code_snapshot,
             material_snapshot,
+            customs_declaration_snapshot,
+            origin_country_snapshot,
+            weight_grams_snapshot,
             inventory_version_snapshot,
             inventory_reservation_key_snapshot,
             qty,
@@ -1060,6 +1077,9 @@ class OrderRepository implements OnApplicationShutdown {
         title: line.title_snapshot,
         hsCode: line.hs_code_snapshot,
         material: line.material_snapshot,
+        customsDeclaration: line.customs_declaration_snapshot,
+        originCountry: line.origin_country_snapshot,
+        weightGrams: line.weight_grams_snapshot,
         inventoryVersion: line.inventory_version_snapshot,
         inventoryReservationKey: line.inventory_reservation_key_snapshot ?? "",
         quantity: line.qty,
@@ -1460,7 +1480,7 @@ class OrderRepository implements OnApplicationShutdown {
   private async insertOrder(
     client: PoolClient,
     ctx: StoreContext,
-    checkout: ReturnType<typeof normalizeCheckout>,
+    checkout: NormalizedCheckout,
     order: MockCheckoutOrder,
     inventoryVersionSnapshots: number[]
   ) {
@@ -1519,13 +1539,16 @@ class OrderRepository implements OnApplicationShutdown {
             sku_code_snapshot,
             hs_code_snapshot,
             material_snapshot,
+            customs_declaration_snapshot,
+            origin_country_snapshot,
+            weight_grams_snapshot,
             inventory_version_snapshot,
             inventory_reservation_key_snapshot,
             qty,
             unit_price_minor,
             currency
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
         `,
         [
           randomUUID(),
@@ -1535,8 +1558,11 @@ class OrderRepository implements OnApplicationShutdown {
           line.slug,
           line.title,
           line.skuCode,
-          "LOCAL-MOCK",
-          "LOCAL-MOCK",
+          line.hsCode,
+          line.material,
+          line.customsDeclaration,
+          line.originCountry,
+          line.weightGrams,
           inventoryVersionSnapshots[index] ?? 1,
           `${order.idempotencyKey}:inventory:${index}`,
           line.quantity,
@@ -1659,8 +1685,11 @@ class OrderController {
           skuId: line.skuId,
           skuCode: line.skuCode,
           title: line.title,
-          hsCode: "LOCAL-MOCK",
-          material: "LOCAL-MOCK",
+          hsCode: line.hsCode,
+          material: line.material,
+          customsDeclaration: line.customsDeclaration,
+          originCountry: line.originCountry,
+          weightGrams: line.weightGrams,
           inventoryVersion: memoryOrder.inventoryReservations[index]?.inventoryVersion ?? 1,
           inventoryReservationKey: memoryOrder.inventoryReservations[index]?.idempotencyKey ?? `${memoryOrder.idempotencyKey}:inventory:${index}`,
           quantity: line.quantity,
@@ -1710,8 +1739,8 @@ class OrderController {
     @Body() body: MockCheckoutRequest
   ) {
     const idempotencyKey = idempotencyKeyHeader ?? alternateIdempotencyKeyHeader ?? randomUUID();
-    const checkout = normalizeCheckout(body);
     const ctx = createStoreContext(correlationId);
+    const checkout = await this.resolveTrustedCheckout(body, ctx.correlationId);
     const startedAt = Date.now();
     try {
       try {
@@ -1939,6 +1968,63 @@ class OrderController {
     }
   }
 
+  @Get("/orders/:id/customs-report")
+  async customsReport(
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Param("id") id: string
+  ) {
+    try {
+      return buildCustomsReport(await this.orderDetail(correlationId, id));
+    } catch (error) {
+      if (error instanceof CustomsReportError) {
+        throw new ConflictException({
+          code: ERROR_CODES.CONFLICT,
+          message: error.message,
+          details: { orderId: id }
+        });
+      }
+      throw error;
+    }
+  }
+
+  private async resolveTrustedCheckout(body: MockCheckoutRequest, correlationId: string) {
+    const request = normalizeCheckoutRequest(body);
+    const lines = await Promise.all(request.lines.map(async (line) => {
+      let response: Response;
+      try {
+        response = await fetch(`${catalogServiceUrl}/storefront/products/${encodeURIComponent(line.slug)}`, {
+          headers: { "x-correlation-id": correlationId },
+          signal: AbortSignal.timeout(5_000)
+        });
+      } catch {
+        throw dependencyUnavailable("catalog service is unavailable during checkout", { slug: line.slug });
+      }
+      const payload = await response.json().catch(() => ({}));
+      if (response.status === 404) {
+        throw validationFailed("product is not available for checkout", { slug: line.slug });
+      }
+      if (!response.ok) {
+        throw dependencyUnavailable("catalog service rejected checkout product resolution", {
+          slug: line.slug,
+          status: response.status
+        });
+      }
+      try {
+        return trustedCheckoutLine(line, payload as TrustedCatalogProduct);
+      } catch (error) {
+        throw validationFailed(
+          error instanceof Error ? error.message : "catalog product is invalid for checkout",
+          { slug: line.slug }
+        );
+      }
+    }));
+    const currency = lines[0]?.currency ?? "USD";
+    if (lines.some((line) => line.currency !== currency)) {
+      throw validationFailed("mixed checkout currencies are not supported", { field: "lines[].currency" });
+    }
+    return { ...request, lines, currency };
+  }
+
   private async notifyOrderPaidIfNeeded(
     ctx: StoreContext,
     orderId: string,
@@ -2027,8 +2113,11 @@ class OrderController {
           skuId: line.skuId,
           skuCode: line.skuCode,
           title: line.title,
-          hsCode: "LOCAL-MOCK",
-          material: "LOCAL-MOCK",
+          hsCode: line.hsCode,
+          material: line.material,
+          customsDeclaration: line.customsDeclaration,
+          originCountry: line.originCountry,
+          weightGrams: line.weightGrams,
           inventoryVersion: memoryOrder.inventoryReservations[index]?.inventoryVersion ?? 1,
           inventoryReservationKey: memoryOrder.inventoryReservations[index]?.idempotencyKey ?? `${memoryOrder.idempotencyKey}:inventory:${index}`,
           quantity: line.quantity,
@@ -2113,7 +2202,7 @@ class OrderController {
 
   private async reserveInventory(
     ctx: StoreContext,
-    checkout: ReturnType<typeof normalizeCheckout>,
+    checkout: NormalizedCheckout,
     orderIdempotencyKey: string,
     orderId: string
   ): Promise<InventoryReservationResult[]> {
@@ -2220,7 +2309,7 @@ class OrderController {
 
   private async attachPayment(
     ctx: StoreContext,
-    checkout: ReturnType<typeof normalizeCheckout>,
+    checkout: NormalizedCheckout,
     order: MockCheckoutOrder
   ): Promise<MockCheckoutOrder> {
     const controller = new AbortController();

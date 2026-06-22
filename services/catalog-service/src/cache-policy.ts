@@ -1,9 +1,9 @@
 export const catalogCacheKeys = {
-  storefront: "catalog:storefront:v2",
+  storefront: "catalog:storefront:v3",
   categories: "catalog:categories:v1",
   regions: "catalog:regions:v1",
   productSummaries: "catalog:product-summaries:v1",
-  storefrontProducts: "catalog:storefront-products:v2"
+  storefrontProducts: "catalog:storefront-products:v3"
 } as const;
 
 export function categoryWriteInvalidationKeys(): string[] {

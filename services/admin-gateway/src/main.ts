@@ -20,6 +20,12 @@ import {
 } from "./media-compensation.js";
 import { releaseFrontendMemory } from "./frontend-memory-release.js";
 import { buildGlobalSearchResults, normalizeGlobalSearchQuery } from "./global-search.js";
+import {
+  assertOrderCanShip,
+  FulfillmentOrder,
+  OrderFulfillmentError,
+  trustedShipmentRequest
+} from "./order-fulfillment.js";
 
 const serviceName = "admin-gateway";
 const storeServiceUrl = process.env.STORE_SERVICE_URL ?? "http://localhost:4101";
@@ -59,6 +65,21 @@ type UploadedMediaFile = {
   mimetype: string;
   size: number;
   buffer: Buffer;
+};
+
+type ShipmentRecord = {
+  shipmentId: string;
+  orderId: string;
+  orderNumber: string;
+  carrierCode: string;
+  carrierName: string;
+  trackingNumber: string;
+  status: string;
+};
+
+type ShipmentMutationResult = {
+  shipment: ShipmentRecord;
+  replayed: boolean;
 };
 
 function headerValue(headers: HeaderBag, name: string): string | undefined {
@@ -442,6 +463,98 @@ class HealthController {
     return forwardOrderJson(`/orders/${id}`, headers);
   }
 
+  @Get("/orders/:id/customs-report")
+  async orderCustomsReport(@Headers() headers: HeaderBag, @Param("id") id: string) {
+    try {
+      await authorizeAdminRequest(headers);
+      return forwardOrderJson(`/orders/${encodeURIComponent(id)}/customs-report`, headers);
+    } catch (error) {
+      this.throwAuthorizationError(error);
+    }
+  }
+
+  @Get("/orders/:id/shipments")
+  async orderShipments(@Headers() headers: HeaderBag, @Param("id") id: string) {
+    try {
+      await authorizeAdminRequest(headers);
+      return forwardLogisticsJson(`/admin/shipments/order/${encodeURIComponent(id)}`, headers);
+    } catch (error) {
+      this.throwAuthorizationError(error);
+    }
+  }
+
+  @Post("/orders/:id/shipments")
+  async createOrderShipment(
+    @Headers() headers: HeaderBag,
+    @Param("id") id: string,
+    @Body() body: unknown
+  ) {
+    try {
+      const admin = await authorizeAdminRequest(headers);
+      const order = await forwardOrderJson<FulfillmentOrder>(`/orders/${encodeURIComponent(id)}`, headers);
+      assertOrderCanShip(order);
+      const shipmentBody = trustedShipmentRequest(
+        order,
+        body && typeof body === "object" ? body as Record<string, unknown> : {},
+        admin.actorId
+      );
+      const result = await forwardLogisticsJsonWithBody<ShipmentMutationResult>(
+        "/admin/shipments",
+        { ...headers, "x-admin-actor": admin.actorId },
+        shipmentBody
+      );
+      const notificationStatus = await this.sendShipmentNotification(headers, order, result, "shipped");
+      return { ...result, notificationStatus };
+    } catch (error) {
+      this.throwFulfillmentError(error);
+    }
+  }
+
+  @Post("/orders/:id/shipments/:shipmentId/status")
+  async updateOrderShipmentStatus(
+    @Headers() headers: HeaderBag,
+    @Param("id") id: string,
+    @Param("shipmentId") shipmentId: string,
+    @Body() body: unknown
+  ) {
+    try {
+      const admin = await authorizeAdminRequest(headers);
+      const [order, shipmentList] = await Promise.all([
+        forwardOrderJson<FulfillmentOrder>(`/orders/${encodeURIComponent(id)}`, headers),
+        forwardLogisticsJson<{ shipments: ShipmentRecord[] }>(
+          `/admin/shipments/order/${encodeURIComponent(id)}`,
+          headers
+        )
+      ]);
+      if (!shipmentList.shipments.some((shipment) => shipment.shipmentId === shipmentId)) {
+        throw new HttpException({
+          code: ERROR_CODES.NOT_FOUND,
+          message: "shipment does not belong to this order"
+        }, 404);
+      }
+      const input = body && typeof body === "object" ? body as Record<string, unknown> : {};
+      const result = await forwardLogisticsJsonWithBody<ShipmentMutationResult>(
+        `/admin/shipments/${encodeURIComponent(shipmentId)}/status`,
+        { ...headers, "x-admin-actor": admin.actorId },
+        {
+          status: input.status,
+          reason: input.reason,
+          location: input.location,
+          actorId: admin.actorId
+        }
+      );
+      const notificationStatus = await this.sendShipmentNotification(
+        headers,
+        order,
+        result,
+        result.shipment.status
+      );
+      return { ...result, notificationStatus };
+    } catch (error) {
+      this.throwFulfillmentError(error);
+    }
+  }
+
   @Post("/orders/:id/manual-compensation")
   manualOrderCompensation(@Headers() headers: HeaderBag, @Body() body: unknown, @Param("id") id: string) {
     return forwardOrderJsonWithBody(`/orders/${id}/manual-compensation`, headers, body);
@@ -682,6 +795,38 @@ class HealthController {
       throw new HttpException({ code: error.code, message: error.message }, error.status);
     }
     throw error;
+  }
+
+  private throwFulfillmentError(error: unknown): never {
+    if (error instanceof OrderFulfillmentError) {
+      throw new HttpException({ code: ERROR_CODES.CONFLICT, message: error.message }, 409);
+    }
+    this.throwAuthorizationError(error);
+  }
+
+  private async sendShipmentNotification(
+    headers: HeaderBag,
+    order: FulfillmentOrder,
+    result: ShipmentMutationResult,
+    status: string
+  ): Promise<"sent" | "failed"> {
+    try {
+      const response = await forwardLogisticsJsonWithBody<{ status?: string }>(
+        "/admin/logistics/send-update-email",
+        headers,
+        {
+        to: order.customerEmail,
+        orderNumber: order.orderNumber,
+        trackingNumber: result.shipment.trackingNumber,
+        carrier: result.shipment.carrierName,
+        status,
+        idempotencyKey: `shipment-email-${result.shipment.shipmentId}-${status}`
+        }
+      );
+      return response.status === "sent" || response.status === "duplicate" ? "sent" : "failed";
+    } catch {
+      return "failed";
+    }
   }
 
   @Delete("/media/product-assets")

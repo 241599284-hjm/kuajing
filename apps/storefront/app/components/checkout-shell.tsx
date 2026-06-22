@@ -80,12 +80,7 @@ export function CheckoutShell() {
           },
           lines: checkoutItems.map(({ product, quantity }) => ({
             slug: product.slug,
-            skuId: product.skuId,
-            skuCode: product.sku,
-            title: product.copy.en.name,
-            quantity,
-            unitPriceMinor: Math.round(product.priceValue * 100),
-            currency: "USD"
+            quantity
           }))
         }),
         signal: controller.signal

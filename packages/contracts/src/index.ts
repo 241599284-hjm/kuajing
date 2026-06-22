@@ -179,6 +179,7 @@ export type CatalogStorefrontProduct = {
   regionSlug: string;
   skuId: string;
   skuCode: string;
+  originCountry: string;
   status: "draft" | "active" | "archived";
   copy: LocalizedText<CatalogProductCopy>;
 };

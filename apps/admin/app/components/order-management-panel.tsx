@@ -1,6 +1,7 @@
 "use client";
 
 import { createRequestId } from "../lib/request-id.js";
+import { customsReportCsv, type CustomsReport } from "../lib/customs-report.js";
 import { localizedErrorMessage } from "@commerce/error-codes";
 import { ChevronLeft, ChevronRight, Filter, Search, X } from "lucide-react";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
@@ -12,6 +13,7 @@ import {
   AdminInlineStatus,
   AdminPanel,
   AdminPrimaryButton,
+  AdminSelect,
   AdminSecondaryButton,
   AdminTextInput
 } from "./admin-ui.js";
@@ -74,6 +76,9 @@ type AdminOrderLine = {
   title: string;
   hsCode: string;
   material: string;
+  customsDeclaration: string;
+  originCountry: string;
+  weightGrams: number;
   inventoryVersion: number;
   inventoryReservationKey: string;
   quantity: number;
@@ -149,6 +154,43 @@ type PaymentRefundResult = {
   status: "pending" | "completed";
 };
 
+type ShipmentStatus = "shipped" | "in_transit" | "customs" | "out_for_delivery" | "delivered" | "exception";
+
+type ShipmentEvent = {
+  eventId: string;
+  fromStatus: ShipmentStatus | null;
+  toStatus: ShipmentStatus;
+  location: string;
+  reason: string;
+  actorId: string;
+  createdAt: string;
+};
+
+type Shipment = {
+  shipmentId: string;
+  orderId: string;
+  orderNumber: string;
+  carrierCode: string;
+  carrierName: string;
+  trackingNumber: string;
+  status: ShipmentStatus;
+  createdAt: string;
+  updatedAt: string;
+  deliveredAt: string | null;
+  events: ShipmentEvent[];
+};
+
+type ShipmentListResponse = {
+  shipments: Shipment[];
+  storageMode: "postgres" | "memory";
+};
+
+type ShipmentMutationResult = {
+  shipment: Shipment;
+  replayed: boolean;
+  notificationStatus: "sent" | "failed";
+};
+
 function formatMoney(amountMinor: number, currency: string) {
   return new Intl.NumberFormat("zh-CN", {
     style: "currency",
@@ -185,7 +227,13 @@ function statusLabel(value: string) {
     processing: "退款处理中",
     completed: "退款完成",
     pending: "待支付渠道确认",
-    failed: "退款失败"
+    failed: "退款失败",
+    shipped: "已发货",
+    in_transit: "运输中",
+    customs: "清关中",
+    out_for_delivery: "派送中",
+    delivered: "已签收",
+    exception: "物流异常"
   };
 
   return labels[value] ?? value;
@@ -230,6 +278,19 @@ export function OrderManagementPanel({ initialSearch = "", searchToken = 0 }: { 
   const [refundReason, setRefundReason] = useState("");
   const [isRefunding, setIsRefunding] = useState(false);
   const [pendingRefundAmount, setPendingRefundAmount] = useState<string | null>(null);
+  const [shipments, setShipments] = useState<Shipment[]>([]);
+  const [shipmentStatus, setShipmentStatus] = useState("当前订单暂无运单");
+  const [isShipmentMutating, setIsShipmentMutating] = useState(false);
+  const [carrierCode, setCarrierCode] = useState("DHL");
+  const [carrierName, setCarrierName] = useState("DHL Express");
+  const [trackingNumber, setTrackingNumber] = useState("");
+  const [shipmentReason, setShipmentReason] = useState("");
+  const [selectedShipmentId, setSelectedShipmentId] = useState("");
+  const [nextShipmentStatus, setNextShipmentStatus] = useState<ShipmentStatus>("in_transit");
+  const [shipmentUpdateReason, setShipmentUpdateReason] = useState("");
+  const [shipmentLocation, setShipmentLocation] = useState("");
+  const [pendingShipmentAction, setPendingShipmentAction] = useState<"create" | "status" | null>(null);
+  const [isExportingCustoms, setIsExportingCustoms] = useState(false);
 
   async function loadOrders() {
     setIsLoading(true);
@@ -283,9 +344,17 @@ export function OrderManagementPanel({ initialSearch = "", searchToken = 0 }: { 
     setManualCompensationAction(null);
     setRefundAmount("");
     setRefundReason("");
+    setShipments([]);
+    setShipmentStatus("正在读取物流履约记录");
+    setSelectedShipmentId("");
+    setTrackingNumber("");
+    setShipmentReason("");
+    setShipmentUpdateReason("");
+    setShipmentLocation("");
+    setPendingShipmentAction(null);
 
     try {
-      const [response, refundResponse] = await Promise.all([
+      const [response, refundResponse, shipmentResponse] = await Promise.all([
         fetch(`${adminGatewayUrl}/orders/${orderId}`, {
           cache: "no-store",
           headers: { "x-correlation-id": createRequestId() },
@@ -293,6 +362,12 @@ export function OrderManagementPanel({ initialSearch = "", searchToken = 0 }: { 
         }),
         fetch(`${adminGatewayUrl}/payments/orders/${orderId}/refunds`, {
           cache: "no-store",
+          headers: { "x-correlation-id": createRequestId() },
+          signal: controller.signal
+        }),
+        fetch(`${adminGatewayUrl}/orders/${orderId}/shipments`, {
+          cache: "no-store",
+          credentials: "include",
           headers: { "x-correlation-id": createRequestId() },
           signal: controller.signal
         })
@@ -316,9 +391,24 @@ export function OrderManagementPanel({ initialSearch = "", searchToken = 0 }: { 
             : localizedErrorMessage(refundPayload, refundResponse.status, "zh")
         );
       }
+      const shipmentPayload = (await shipmentResponse.json().catch(() => ({}))) as ShipmentListResponse | { message?: string };
+      if (shipmentResponse.ok && "shipments" in shipmentPayload) {
+        setShipments(shipmentPayload.shipments);
+        setSelectedShipmentId(shipmentPayload.shipments[0]?.shipmentId ?? "");
+        setShipmentStatus(
+          shipmentPayload.shipments.length > 0
+            ? `已读取 ${shipmentPayload.shipments.length} 条运单`
+            : "当前订单暂无运单"
+        );
+      } else {
+        setShipments([]);
+        setShipmentStatus(localizedErrorMessage(shipmentPayload, shipmentResponse.status, "zh"));
+      }
     } catch (error) {
       if (controller.signal.aborted) return;
       setRefundSummary(null);
+      setShipments([]);
+      setShipmentStatus("物流履约记录读取失败");
       dispatchDetail({
         type: "failed",
         id: orderId,
@@ -341,6 +431,17 @@ export function OrderManagementPanel({ initialSearch = "", searchToken = 0 }: { 
     setPendingRefundAmount(null);
     setManualCompensationReason("");
     setManualCompensationAction(null);
+    setShipments([]);
+    setShipmentStatus("当前订单暂无运单");
+    setIsShipmentMutating(false);
+    setTrackingNumber("");
+    setShipmentReason("");
+    setSelectedShipmentId("");
+    setNextShipmentStatus("in_transit");
+    setShipmentUpdateReason("");
+    setShipmentLocation("");
+    setPendingShipmentAction(null);
+    setIsExportingCustoms(false);
   }
 
   async function submitRefund(amountValue = refundAmount) {
@@ -472,6 +573,113 @@ export function OrderManagementPanel({ initialSearch = "", searchToken = 0 }: { 
       setDetailActionStatus(error instanceof Error ? error.message : "人工补偿失败，未伪造成功");
     } finally {
       setManualCompensationAction(null);
+    }
+  }
+
+  function requestCreateShipment() {
+    if (!orderDetail) {
+      setShipmentStatus("请先选择订单");
+      return;
+    }
+    if (orderDetail.status !== "paid" || orderDetail.paymentStatus !== "paid") {
+      setShipmentStatus("只有已支付订单可以录入运单");
+      return;
+    }
+    if (!carrierCode.trim() || !carrierName.trim() || !trackingNumber.trim() || shipmentReason.trim().length < 3) {
+      setShipmentStatus("请完整填写承运商、运单号和至少 3 个字符的发货原因");
+      return;
+    }
+    setPendingShipmentAction("create");
+  }
+
+  function requestShipmentStatusUpdate() {
+    if (!selectedShipmentId) {
+      setShipmentStatus("请选择需要更新的运单");
+      return;
+    }
+    if (shipmentUpdateReason.trim().length < 3) {
+      setShipmentStatus("状态更新原因至少填写 3 个字符");
+      return;
+    }
+    setPendingShipmentAction("status");
+  }
+
+  async function submitShipmentAction(action: "create" | "status") {
+    if (!orderDetail || isShipmentMutating) return;
+    setIsShipmentMutating(true);
+    setShipmentStatus(action === "create" ? "正在创建运单" : "正在更新物流状态");
+    try {
+      const endpoint = action === "create"
+        ? `${adminGatewayUrl}/orders/${orderDetail.orderId}/shipments`
+        : `${adminGatewayUrl}/orders/${orderDetail.orderId}/shipments/${selectedShipmentId}/status`;
+      const body = action === "create"
+        ? {
+            carrierCode: carrierCode.trim(),
+            carrierName: carrierName.trim(),
+            trackingNumber: trackingNumber.trim(),
+            reason: shipmentReason.trim()
+          }
+        : {
+            status: nextShipmentStatus,
+            reason: shipmentUpdateReason.trim(),
+            location: shipmentLocation.trim()
+          };
+      const response = await fetch(endpoint, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "idempotency-key": createRequestId(),
+          "x-correlation-id": createRequestId()
+        },
+        body: JSON.stringify(body)
+      });
+      const payload = (await response.json().catch(() => ({}))) as ShipmentMutationResult | { message?: string };
+      if (!response.ok || !("shipment" in payload)) {
+        throw new Error(localizedErrorMessage(payload, response.status, "zh"));
+      }
+      setTrackingNumber("");
+      setShipmentReason("");
+      setShipmentUpdateReason("");
+      setShipmentLocation("");
+      const successMessage =
+        `${action === "create" ? "运单已创建" : "物流状态已更新"}；`
+        + (payload.notificationStatus === "sent" ? "通知邮件已发送" : "通知邮件发送失败，请检查邮件日志")
+      await loadOrderDetail(orderDetail.orderId);
+      setShipmentStatus(successMessage);
+    } catch (error) {
+      setShipmentStatus(error instanceof Error && !(error instanceof TypeError) ? error.message : "物流履约 API 未连接");
+    } finally {
+      setIsShipmentMutating(false);
+    }
+  }
+
+  async function exportCustomsReport() {
+    if (!orderDetail || isExportingCustoms) return;
+    setIsExportingCustoms(true);
+    setDetailActionStatus("正在生成清关 CSV");
+    try {
+      const response = await fetch(`${adminGatewayUrl}/orders/${orderDetail.orderId}/customs-report`, {
+        cache: "no-store",
+        credentials: "include",
+        headers: { "x-correlation-id": createRequestId() }
+      });
+      const payload = (await response.json().catch(() => ({}))) as CustomsReport | { message?: string };
+      if (!response.ok || !("rows" in payload)) {
+        throw new Error(localizedErrorMessage(payload, response.status, "zh"));
+      }
+      const blob = new Blob([`\uFEFF${customsReportCsv(payload)}`], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${payload.orderNumber}-customs.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setDetailActionStatus("清关 CSV 已生成");
+    } catch (error) {
+      setDetailActionStatus(error instanceof Error && !(error instanceof TypeError) ? error.message : "清关报告 API 未连接");
+    } finally {
+      setIsExportingCustoms(false);
     }
   }
 
@@ -626,6 +834,13 @@ export function OrderManagementPanel({ initialSearch = "", searchToken = 0 }: { 
           <AdminInlineStatus>{detailStatus}</AdminInlineStatus>
           {orderDetail ? (
             <div className="flex flex-col gap-2 sm:flex-row">
+              <AdminSecondaryButton
+                disabled={isExportingCustoms}
+                onClick={() => void exportCustomsReport()}
+                type="button"
+              >
+                {isExportingCustoms ? "生成中" : "导出清关 CSV"}
+              </AdminSecondaryButton>
               <AdminPrimaryButton
                 disabled={orderDetail.status !== "pending_payment" && orderDetail.status !== "compensating"}
                 onClick={() => void transitionPayment("confirm")}
@@ -716,14 +931,177 @@ export function OrderManagementPanel({ initialSearch = "", searchToken = 0 }: { 
               )}
             </div>
 
+            <section className="border-y border-[var(--line)] py-4" aria-labelledby="order-fulfillment-title">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--ink-soft)]">Fulfillment</p>
+                  <h4 className="mt-1 text-base font-semibold" id="order-fulfillment-title">物流履约</h4>
+                </div>
+                <AdminInlineStatus>{shipmentStatus}</AdminInlineStatus>
+              </div>
+
+              {shipments.length > 0 ? (
+                <div className="mt-4 grid gap-3">
+                  {shipments.map((shipment) => (
+                    <article className="rounded-md border border-[var(--line)] p-4" key={shipment.shipmentId}>
+                      <div className="grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-5">
+                        <div>
+                          <p className="text-[var(--ink-soft)]">承运商</p>
+                          <p className="mt-1 font-semibold">{shipment.carrierName} ({shipment.carrierCode})</p>
+                        </div>
+                        <div>
+                          <p className="text-[var(--ink-soft)]">运单号</p>
+                          <p className="mt-1 font-semibold">{shipment.trackingNumber}</p>
+                        </div>
+                        <div>
+                          <p className="text-[var(--ink-soft)]">当前状态</p>
+                          <p className="mt-1"><Badge>{statusLabel(shipment.status)}</Badge></p>
+                        </div>
+                        <div>
+                          <p className="text-[var(--ink-soft)]">创建时间</p>
+                          <p className="mt-1 font-semibold">{formatDate(shipment.createdAt)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[var(--ink-soft)]">签收时间</p>
+                          <p className="mt-1 font-semibold">{shipment.deliveredAt ? formatDate(shipment.deliveredAt) : "未签收"}</p>
+                        </div>
+                      </div>
+                      <ol className="mt-4 grid gap-2 border-t border-[var(--line)] pt-3 text-sm">
+                        {shipment.events.map((event) => (
+                          <li className="grid gap-1 sm:grid-cols-[150px_110px_1fr]" key={event.eventId}>
+                            <time className="text-[var(--ink-soft)]">{formatDate(event.createdAt)}</time>
+                            <span className="font-semibold">{statusLabel(event.toStatus)}</span>
+                            <span>{event.reason}{event.location ? ` · ${event.location}` : ""}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-3 text-sm text-[var(--ink-soft)]">暂无运单。订单支付完成后可录入承运商和运单号。</p>
+              )}
+
+              <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                <div className="rounded-md border border-[var(--line)] p-4">
+                  <h5 className="text-sm font-semibold">新增运单</h5>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <AdminField label="承运商代码">
+                      <AdminTextInput
+                        disabled={isShipmentMutating}
+                        maxLength={32}
+                        onChange={(event) => setCarrierCode(event.target.value)}
+                        value={carrierCode}
+                      />
+                    </AdminField>
+                    <AdminField label="承运商名称">
+                      <AdminTextInput
+                        disabled={isShipmentMutating}
+                        maxLength={100}
+                        onChange={(event) => setCarrierName(event.target.value)}
+                        value={carrierName}
+                      />
+                    </AdminField>
+                    <AdminField label="运单号">
+                      <AdminTextInput
+                        disabled={isShipmentMutating}
+                        maxLength={48}
+                        onChange={(event) => setTrackingNumber(event.target.value)}
+                        placeholder="例如 JD014600003"
+                        value={trackingNumber}
+                      />
+                    </AdminField>
+                    <AdminField label="发货原因 / 备注">
+                      <AdminTextInput
+                        disabled={isShipmentMutating}
+                        maxLength={500}
+                        onChange={(event) => setShipmentReason(event.target.value)}
+                        placeholder="例如：仓库已完成打包并交运"
+                        value={shipmentReason}
+                      />
+                    </AdminField>
+                  </div>
+                  <AdminPrimaryButton
+                    className="mt-3 w-full sm:w-auto"
+                    disabled={isShipmentMutating || orderDetail.status !== "paid" || orderDetail.paymentStatus !== "paid"}
+                    onClick={requestCreateShipment}
+                    type="button"
+                  >
+                    {isShipmentMutating ? "处理中" : "录入运单"}
+                  </AdminPrimaryButton>
+                </div>
+
+                <div className="rounded-md border border-[var(--line)] p-4">
+                  <h5 className="text-sm font-semibold">更新物流状态</h5>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <AdminField label="运单">
+                      <AdminSelect
+                        disabled={isShipmentMutating || shipments.length === 0}
+                        onChange={(event) => setSelectedShipmentId(event.target.value)}
+                        value={selectedShipmentId}
+                      >
+                        <option value="">请选择运单</option>
+                        {shipments.map((shipment) => (
+                          <option key={shipment.shipmentId} value={shipment.shipmentId}>
+                            {shipment.trackingNumber} · {statusLabel(shipment.status)}
+                          </option>
+                        ))}
+                      </AdminSelect>
+                    </AdminField>
+                    <AdminField label="下一状态">
+                      <AdminSelect
+                        disabled={isShipmentMutating || shipments.length === 0}
+                        onChange={(event) => setNextShipmentStatus(event.target.value as ShipmentStatus)}
+                        value={nextShipmentStatus}
+                      >
+                        <option value="in_transit">运输中</option>
+                        <option value="customs">清关中</option>
+                        <option value="out_for_delivery">派送中</option>
+                        <option value="delivered">已签收</option>
+                        <option value="exception">物流异常</option>
+                      </AdminSelect>
+                    </AdminField>
+                    <AdminField label="当前位置">
+                      <AdminTextInput
+                        disabled={isShipmentMutating || shipments.length === 0}
+                        maxLength={200}
+                        onChange={(event) => setShipmentLocation(event.target.value)}
+                        placeholder="例如：Los Angeles, US"
+                        value={shipmentLocation}
+                      />
+                    </AdminField>
+                    <AdminField label="更新原因">
+                      <AdminTextInput
+                        disabled={isShipmentMutating || shipments.length === 0}
+                        maxLength={500}
+                        onChange={(event) => setShipmentUpdateReason(event.target.value)}
+                        placeholder="例如：包裹已离开转运中心"
+                        value={shipmentUpdateReason}
+                      />
+                    </AdminField>
+                  </div>
+                  <AdminSecondaryButton
+                    className="mt-3 w-full sm:w-auto"
+                    disabled={isShipmentMutating || shipments.length === 0}
+                    onClick={requestShipmentStatusUpdate}
+                    type="button"
+                  >
+                    {isShipmentMutating ? "处理中" : "更新状态"}
+                  </AdminSecondaryButton>
+                </div>
+              </div>
+            </section>
+
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+              <table className="w-full min-w-[980px] border-collapse text-left text-sm">
                 <thead className="border-b border-[var(--line)] text-[var(--ink-soft)]">
                   <tr>
                     <th className="py-2 pr-3 font-medium">商品</th>
                     <th className="py-2 pr-3 font-medium">SKU</th>
                     <th className="py-2 pr-3 font-medium">HS Code</th>
                     <th className="py-2 pr-3 font-medium">材质</th>
+                    <th className="py-2 pr-3 font-medium">原产国</th>
+                    <th className="py-2 pr-3 font-medium">单件重量</th>
                     <th className="py-2 pr-3 font-medium">库存版本</th>
                     <th className="py-2 pr-3 font-medium">数量</th>
                     <th className="py-2 pr-3 font-medium">小计</th>
@@ -734,11 +1112,14 @@ export function OrderManagementPanel({ initialSearch = "", searchToken = 0 }: { 
                     <tr className="border-b border-[var(--line)] last:border-b-0" key={`${line.inventoryReservationKey}-${line.skuId}`}>
                       <td className="py-3 pr-3">
                         <div className="font-semibold">{line.title}</div>
+                        <div className="mt-1 max-w-80 text-xs text-[var(--ink-soft)]">{line.customsDeclaration || "暂无英文申报描述"}</div>
                         <div className="mt-1 break-all text-xs text-[var(--ink-soft)]">{line.inventoryReservationKey}</div>
                       </td>
                       <td className="py-3 pr-3">{line.skuCode}</td>
                       <td className="py-3 pr-3">{line.hsCode}</td>
                       <td className="py-3 pr-3">{line.material}</td>
+                      <td className="py-3 pr-3">{line.originCountry || "未快照"}</td>
+                      <td className="py-3 pr-3">{line.weightGrams > 0 ? `${line.weightGrams} g` : "未快照"}</td>
                       <td className="py-3 pr-3">{line.inventoryVersion}</td>
                       <td className="py-3 pr-3">{line.quantity}</td>
                       <td className="py-3 pr-3">{formatMoney(line.lineTotalMinor, line.currency)}</td>
@@ -937,6 +1318,22 @@ export function OrderManagementPanel({ initialSearch = "", searchToken = 0 }: { 
       confirmLabel="确认退款"
       danger
       onConfirm={() => void submitRefund(pendingRefundAmount ?? undefined)}
+    />
+    <ConfirmDialog
+      open={pendingShipmentAction !== null}
+      onOpenChange={(open) => { if (!open) setPendingShipmentAction(null); }}
+      title={pendingShipmentAction === "create" ? "确认录入运单？" : "确认更新物流状态？"}
+      description={
+        pendingShipmentAction === "create"
+          ? `将为订单 ${orderDetail?.orderNumber ?? ""} 录入 ${carrierName} 运单 ${trackingNumber}，并尝试发送发货通知邮件。`
+          : `将运单 ${shipments.find((shipment) => shipment.shipmentId === selectedShipmentId)?.trackingNumber ?? ""} 更新为“${statusLabel(nextShipmentStatus)}”，并写入不可覆盖的状态事件。`
+      }
+      confirmLabel={pendingShipmentAction === "create" ? "确认录入" : "确认更新"}
+      onConfirm={() => {
+        const action = pendingShipmentAction;
+        setPendingShipmentAction(null);
+        if (action) void submitShipmentAction(action);
+      }}
     />
     </>
   );

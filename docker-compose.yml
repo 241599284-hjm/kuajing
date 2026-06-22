@@ -450,6 +450,7 @@ services:
       NODE_ENV: development
       PORT: 4105
       ORDER_DATABASE_URL: postgresql://${POSTGRES_USER:-commerce}:${POSTGRES_PASSWORD:-commerce}@postgres:5432/order_db
+      CATALOG_SERVICE_URL: http://catalog-service:4103
       INVENTORY_SERVICE_URL: http://inventory-service:4104
       PAYMENT_SERVICE_URL: http://payment-service:4106
       NOTIFICATION_SERVICE_URL: http://notification-service:4111
@@ -463,6 +464,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      catalog-service:
+        condition: service_started
       inventory-service:
         condition: service_started
       payment-service:
@@ -629,6 +632,8 @@ services:
       - ./infra/db/migrations/043-newsletter-operations.sql:/docker-entrypoint-initdb.d/40-newsletter-operations.sql:ro
       - ./infra/db/migrations/044-paypal-configurations.sql:/docker-entrypoint-initdb.d/41-paypal-configurations.sql:ro
       - ./infra/db/migrations/045-visitor-analytics.sql:/docker-entrypoint-initdb.d/42-visitor-analytics.sql:ro
+      - ./infra/db/migrations/046-logistics-fulfillment.sql:/docker-entrypoint-initdb.d/43-logistics-fulfillment.sql:ro
+      - ./infra/db/migrations/047-order-line-customs-snapshots.sql:/docker-entrypoint-initdb.d/44-order-line-customs-snapshots.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U commerce -d postgres"]
       interval: 5s

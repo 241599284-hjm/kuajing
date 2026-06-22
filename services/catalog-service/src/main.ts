@@ -95,6 +95,7 @@ type StorefrontProductTranslationRow = {
   region_slug: string;
   sku_id: string;
   sku_code: string;
+  origin_country: string;
   locale: string;
   name: string;
   tag: string;
@@ -851,6 +852,7 @@ class CatalogRepository implements OnApplicationShutdown {
             r.slug AS region_slug,
             s.id AS sku_id,
             s.sku_code,
+            s.origin_country,
             pt.locale,
             pt.name,
             pt.tag,
@@ -963,6 +965,7 @@ class CatalogRepository implements OnApplicationShutdown {
           regionSlug: row.region_slug,
           skuId: row.sku_id,
           skuCode: row.sku_code,
+          originCountry: row.origin_country,
           status: row.status,
           copy: emptyCopy()
         };
